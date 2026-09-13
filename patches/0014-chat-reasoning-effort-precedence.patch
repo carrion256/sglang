@@ -1,0 +1,61 @@
+--- a/python/sglang/srt/entrypoints/openai/serving_chat.py
++++ b/python/sglang/srt/entrypoints/openai/serving_chat.py
+@@ -918,6 +918,9 @@
+         request: ChatCompletionRequest,
+         raw_request: Request = None,
+     ) -> tuple[GenerateReqInput, ChatCompletionRequest]:
++        # Own the kwargs before normalization; callers may retain/share the dict.
++        if request.chat_template_kwargs is not None:
++            request.chat_template_kwargs = dict(request.chat_template_kwargs)
+         reasoning_effort = (
+             request.chat_template_kwargs.pop("reasoning_effort", None)
+             if request.chat_template_kwargs
+@@ -952,7 +955,9 @@
+         is_multimodal = self.tokenizer_manager.model_config.is_multimodal
+ 
+         # Process messages and apply chat template
+-        processed_messages = self._process_messages(request, is_multimodal)
++        processed_messages = self._process_messages(
++            request, is_multimodal, request_first_reasoning_effort=True
++        )
+         # Build sampling parameters
+         sampling_params = request.to_sampling_params(
+             stop=processed_messages.stop,
+@@ -1047,12 +1052,24 @@
+         return adapted_request, request
+ 
+     def _process_messages(
+-        self, request: ChatCompletionRequest, is_multimodal: bool
++        self,
++        request: ChatCompletionRequest,
++        is_multimodal: bool,
++        *,
++        request_first_reasoning_effort: bool = False,
+     ) -> MessageProcessingResult:
+         """Process chat messages and apply chat template"""
+         if self.default_chat_template_kwargs:
+             ctk = dict(request.chat_template_kwargs or {})
+             for k, v in self.default_chat_template_kwargs.items():
++                # Chat normalized both explicit forms; do not reinsert a default
++                # over that choice. Direct Responses/tokenize keep their policy.
++                if (
++                    request_first_reasoning_effort
++                    and k == "reasoning_effort"
++                    and request.reasoning_effort is not None
++                ):
++                    continue
+                 ctk.setdefault(k, v)
+             request.chat_template_kwargs = ctk
+             effort = ctk.get("reasoning_effort")
+--- a/python/sglang/srt/entrypoints/openai/protocol.py
++++ b/python/sglang/srt/entrypoints/openai/protocol.py
+@@ -961,8 +961,7 @@
+ 
+         if thinking is not None:
+             ctk = values.get("chat_template_kwargs")
+-            if not isinstance(ctk, dict):
+-                ctk = {}
++            ctk = dict(ctk) if isinstance(ctk, dict) else {}
+             # different models check different keys:
+             # - "thinking" for deepseek-v3, kimi_k2
+             # - "enable_thinking" for qwen3, glm45, nemotron_3, interns1
