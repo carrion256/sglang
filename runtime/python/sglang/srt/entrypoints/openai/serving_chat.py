@@ -918,6 +918,9 @@ class OpenAIServingChat(OpenAIServingBase):
         request: ChatCompletionRequest,
         raw_request: Request = None,
     ) -> tuple[GenerateReqInput, ChatCompletionRequest]:
+        # Keep literal caller inputs available for diagnostics on this runtime.
+        if self._uses_qwen_flash_next_effort_aliases():
+            request = request.model_copy()
         # Own the kwargs before normalization; callers may retain/share the dict.
         if request.chat_template_kwargs is not None:
             request.chat_template_kwargs = dict(request.chat_template_kwargs)
@@ -958,6 +961,8 @@ class OpenAIServingChat(OpenAIServingBase):
         processed_messages = self._process_messages(
             request, is_multimodal, request_first_reasoning_effort=True
         )
+        if self._uses_qwen_flash_next_effort_aliases():
+            request.skip_special_tokens = processed_messages.skip_special_tokens
         # Build sampling parameters
         sampling_params = request.to_sampling_params(
             stop=processed_messages.stop,
@@ -1051,6 +1056,12 @@ class OpenAIServingChat(OpenAIServingBase):
 
         return adapted_request, request
 
+    def _uses_qwen_flash_next_effort_aliases(self) -> bool:
+        # Use the loaded checkpoint type, never a client-controlled model alias.
+        return getattr(
+            self.tokenizer_manager.model_config.hf_config, "model_type", None
+        ) in ("qwen3_8_flash_next", "qwen3_8_flash_next_text")
+
     def _process_messages(
         self,
         request: ChatCompletionRequest,
@@ -1059,6 +1070,21 @@ class OpenAIServingChat(OpenAIServingBase):
         request_first_reasoning_effort: bool = False,
     ) -> MessageProcessingResult:
         """Process chat messages and apply chat template"""
+        if self._uses_qwen_flash_next_effort_aliases():
+            # Rendering-only compatibility: retain literal API effort/provenance.
+            # This common path also serves Responses and message tokenization.
+            request = request.model_copy()
+            ctk = dict(request.chat_template_kwargs or {})
+            effort = ctk.pop("reasoning_effort", None)
+            if effort is None:
+                effort = request.reasoning_effort
+            if effort is None:
+                effort = self.default_chat_template_kwargs.get("reasoning_effort")
+            if effort in ("high", "max"):
+                effort = "xhigh"
+            request.reasoning_effort = effort
+            request.chat_template_kwargs = ctk
+            request_first_reasoning_effort = True
         if self.default_chat_template_kwargs:
             ctk = dict(request.chat_template_kwargs or {})
             for k, v in self.default_chat_template_kwargs.items():

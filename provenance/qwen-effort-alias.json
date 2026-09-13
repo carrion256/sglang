@@ -1,0 +1,23 @@
+{
+  "status": "CPU-tested candidate only; not deployed or published",
+  "base_git_commit": "b8e8bebf2274e0099c3abce5718ac8813dd9001d",
+  "base_image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+  "patch": "0015-qwen-flash-next-effort-alias.patch",
+  "patch_sha256": "7a05330ee503332050c80bf60d37484c12e9000223dcedba0e040d09bd0a0688",
+  "files": {
+    "python/sglang/srt/entrypoints/openai/serving_chat.py": {
+      "before": "c6228b8d8771e7136ba87404f53da2d51ee2c5c68e7cc32b7d48da9310f55427",
+      "after": "6d881d19da2c4a7028b0fb179cf5cdb958480612d4192c1606dfd25f98a9ba56"
+    }
+  },
+  "tokenizer": {
+    "repository": "local-inference-lab/Qwen3.8-Flash-Next-NVFP4",
+    "revision": "ada4da32a583a78aa47299f45a70603c950490b8",
+    "files": {
+      "config.json": "2d655dfa625c3c018f9685031367bc83f8532d3faf3333d7c838b2bdc13b8a7e",
+      "tokenizer.json": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+      "tokenizer_config.json": "b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27",
+      "chat_template.jinja": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+    }
+  }
+}
