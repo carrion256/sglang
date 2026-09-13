@@ -11,5 +11,6 @@
       "after": "b3007a1d88e127548eca1dce13d2712123a1ecc4beb6533af41e96fd99f485a9"
     }
   },
-  "status": "CPU tested; not published or deployed"
+  "status": "Published and verified on production model31, two replicas",
+  "published_image": "docker.io/kanadaj/sglang-qwen38fn-sm120-turbo:production-chat-effort-20260913-v2@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404"
 }

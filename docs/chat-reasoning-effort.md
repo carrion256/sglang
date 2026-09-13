@@ -1,7 +1,66 @@
 # Chat reasoning-effort precedence fix (2026-09-13)
 
-**Status: implementation and CPU validation complete; publication and production
-rollout are separate gates and are not claimed by this commit.**
+**Status: published, rolled out to both production TP2 replicas, and verified.**
+The frozen100 LiveCodeBench follow-up is a separate campaign; its completion or
+score is not implied by this rollout receipt.
+
+## Pull and run
+
+```bash
+docker pull docker.io/kanadaj/sglang-qwen38fn-sm120-turbo:production-chat-effort-20260913-v2@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404
+```
+
+Use the [complete external launch command](chat-effort-command.sh). Only its
+image reference changed from the previous production-source command; no serving
+flag is hidden in a wrapper. Actual-image CLI parsing accepted all47 external
+argument tokens. This does not claim a separate standalone full-model boot.
+
+## Production and publication verification
+
+- Canonical model31 desired/ready **2/2**. Sequential replacements preserved a
+  healthy peer: old254 → new258 on GPUs0/1; old255 → new259 on GPUs2/3.
+- Both run image/index digest `872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404`
+  using durable backend version `qwen-chat-effort-20260913-v2-custom`.
+- All effective serving flags and model environment variables unchanged,
+  including private W4A16 NEXTN3/1/4, TP2, packed PLE, vision, 524288/YaRN2,
+  Mamba512/track128. Routes/target IDs and fallback18 preserved; GLM38 remains0.
+- Both replicas passed actual Chat prompt-ID equality: omitted effort matches
+  **medium15 tokens**, explicit top-level or nested xhigh matches **xhigh57**;
+  conflicting nested medium wins. Known-answer text and red/blue vision passed
+  directly and through all three protected aliases. Routed counter deltas prove
+  both replicas received work. Unsupported high and boolean effort returned400.
+- Native monitoring reports both replicas up1 with all four Mamba metric families.
+  The bounded watcher observed53 samples, zero without a healthy replica, zero
+  unknown samples. It began during first startup; earlier maintenance had
+  separate peer-health checks, not continuous watcher coverage.
+- Anonymous registry read verified the versioned tag and index/platform
+  manifests. Empty-auth Docker pull succeeded (daemon layers reused); the exact
+  pulled digest repeated77/77 CPU tests,4/4 Chat test methods and4,391-file source
+  verification. No independent cold-cache transfer is claimed for this image.
+- Publication audit scanned all95 retained filesystem layers, including hidden
+  overwritten/deleted files. The first68 match the previously audited public
+  base; findings are identical to that base's already-dispositioned crypto/test
+  fixtures and shared upstream SSH host keys. No new-layer credential hits or
+  model payloads. The published v2 has exactly the audited v1 filesystem layers;
+  its config replaces the unused inherited wrapper with normal SGLang startup.
+  Legacy inherited launch files are unused; serving arguments remain external.
+  Never expose the base's shared SSH host keys as an SSH service.
+
+See `provenance/chat-effort-rollout.json` and
+`provenance/chat-effort-publication.json`. These are sanitized receipts, not raw
+management snapshots. The clean preimage→patch reconstruction also independently
+verified all4,391 source files before and after applying0014.
+
+## Rollback
+
+The previous local image and backend remain retained, not overwritten:
+`draft-head-only-candidate@sha256:69f1f64c62ca2b5d919d69bcd60efb7fc89d7bf410ba406a5de586051f358465`,
+backend `qwen-private-draft-head-20260911-v1-custom`. Restore only the canonical
+backend selection from the saved full ModelUpdate, then drain and replace one
+selected replica at a time, proving its replacement healthy before retiring the
+peer. Keep replicas2, all model flags/environment and complete route targets
+unchanged. Retarget instance-specific monitoring after each verified replacement.
+The exact private rollback payload remains outside Git; no rollback was needed.
 
 ## Contract
 

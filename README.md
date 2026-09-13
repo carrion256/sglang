@@ -4,7 +4,20 @@ Publishable source and deployment package for the locally accepted Qwen3.8
 Flash-Next LIL NVFP4 stack. **No model weights, container archives, credentials,
 private prompts, routing snapshots or failed optimization experiments.**
 
-## Current production (2026-09-11)
+## Current production (2026-09-13)
+
+**[Chat reasoning-effort fix: contract, image, tests and rollout](docs/chat-reasoning-effort.md)**.
+Explicit Chat effort now wins over the server default; omitted effort remains
+`medium`. Both TP2 replicas run the digest-pinned
+`production-chat-effort-20260913-v2` image. Actual returned prompt-token IDs prove
+requested `xhigh` renders xhigh, not medium. Serving flags and route policies are
+unchanged. **[Full external Docker command](docs/chat-effort-command.sh)**.
+
+The new `production-chat-effort` source profile is the production profile below
+plus patch0014 (two files). Historical `production` and `combined` profiles remain
+unchanged; neither silently includes the new Chat fix.
+
+## Previous production source package (2026-09-11)
 
 **[Exact production source, build, launch, validation and rollback](docs/production-20260911.md)**:
 private NVFP4 W4A16 draft head, NEXTN3/topk1/draft4, Mamba512/track128.
