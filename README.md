@@ -4,7 +4,31 @@ Publishable source and deployment package for the locally accepted Qwen3.8
 Flash-Next LIL NVFP4 stack. **No model weights, container archives, credentials,
 private prompts, routing snapshots or failed optimization experiments.**
 
-## No-repo Docker quickstart
+## Current production (2026-09-13)
+
+**[Chat reasoning-effort fix: contract, image, tests and rollout](docs/chat-reasoning-effort.md)**.
+Explicit Chat effort now wins over the server default; omitted effort remains
+`medium`. Both TP2 replicas run the digest-pinned
+`production-chat-effort-20260913-v2` image. Actual returned prompt-token IDs prove
+requested `xhigh` renders xhigh, not medium. Serving flags and route policies are
+unchanged. **[Full external Docker command](docs/chat-effort-command.sh)**.
+
+The new `production-chat-effort` source profile is the production profile below
+plus patch0014 (two files). Historical `production` and `combined` profiles remain
+unchanged; neither silently includes the new Chat fix.
+
+## Previous production source package (2026-09-11)
+
+**[Exact production source, build, launch, validation and rollback](docs/production-20260911.md)**:
+private NVFP4 W4A16 draft head, NEXTN3/topk1/draft4, Mamba512/track128.
+`Dockerfile.production` reconstructs all **4,391** live SGLang source files.
+The default `Dockerfile` additionally preserves published HF-path fix0012,
+which the actual production image does not yet contain. Both profiles include
+all earlier accepted vision/PLE/runtime fixes applicable to their ancestry.
+**[Published production-source runtime: digest-pinned pull/run and audit](docs/production-image-20260911.md)**.
+The image is a clean rebuild, not a push of the private live snapshot. No production restart was performed.
+
+## Historical published no-repo Docker quickstart
 
 **[Copyable pull/run, health, text and image requests](docs/standalone.md)** —
 ordinary patched SGLang, not a defaults wrapper. The corrected HF-path vision
@@ -16,7 +40,8 @@ are verified; a new standalone GPU boot/download was not performed.
 
 ## What is included
 
-- An ordered **12-patch series covering 34 changed paths**, not only the two
+- An ordered **13-patch combined series covering 36 changed paths** (production:
+  12 patches / 35 changed paths), not only the two
   latest vision files. Complete changed runtime sources and clean preimages
   are included for offline audit and reconstruction.
 - SM120 FP8 KV / GDN / online-FP8 foundation; LIL config aliases, packed loader
@@ -26,7 +51,8 @@ are verified; a new standalone GPU boot/download was not performed.
 - Complete external YaRN2 override, optional host-side launch helper, TP2 arguments, dedicated
   GPUStack backend-version template, synthetic CPU tests and image_url example.
 - Hash inventory of **all 4,389 non-bytecode files in the accepted SGLang package**,
-  extended to **4,390** with the vision adapter. There are no unexplained missing
+  extended to **4,390** with the vision adapter and **4,391** with the private
+  draft head. There are no unexplained missing
   package paths after clean reconstruction. See `provenance/` for scope limits.
 
 This is a deployment-specific derivative, not an upstream SGLang release.

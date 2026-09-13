@@ -1,0 +1,23 @@
+{
+  "observed_date": "2026-09-11",
+  "image_id": "sha256:69f1f64c62ca2b5d919d69bcd60efb7fc89d7bf410ba406a5de586051f358465",
+  "image_identity_type": "Docker containerd OCI image index identity, confirmed by image Descriptor; locally resolvable, no public registry publication verified",
+  "backend": "qwen-private-draft-head-20260911-v1-custom",
+  "replicas": 2,
+  "speculation": {
+    "algorithm": "NEXTN",
+    "steps": 3,
+    "topk": 1,
+    "draft_tokens": 4
+  },
+  "source_files_per_replica": 4391,
+  "source_inventories_equal": true,
+  "source_scope": "All non-bytecode regular files under /sgl-workspace/sglang/python/sglang, including dotfiles. No dependencies, weights, generated caches or private container configs exported into Git.",
+  "full_source_manifest": "runtime-files.json",
+  "published_hf_path_fix_present_in_production": false,
+  "production_difference_from_combined_default": [
+    "python/sglang/srt/models/qwen4_exp.py",
+    "python/sglang/srt/model_loader/loader.py"
+  ],
+  "configuration_normalization": "Model mount /model, host 0.0.0.0 and port 30000 replace deployment-local values; remaining argument tokens and five allowlisted environment settings agree across both running replicas."
+}

@@ -1,0 +1,11 @@
+# Narrow Chat-only fix over the attested production runtime.
+# The base must be retained on the production worker; no docker commit.
+# Serving args, opt-ins, mounts and configuration stay external.
+# Build wrapper must verify this local tag resolves to
+# sha256:69f1f64c62ca2b5d919d69bcd60efb7fc89d7bf410ba406a5de586051f358465.
+FROM draft-head-only-candidate:v1
+COPY runtime/python/sglang/srt/entrypoints/openai/serving_chat.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py
+COPY runtime/python/sglang/srt/entrypoints/openai/protocol.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py
+RUN python3 -m py_compile /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py
+ENTRYPOINT ["python3", "-m", "sglang.launch_server"]
+CMD ["--help"]

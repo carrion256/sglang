@@ -1,0 +1,16 @@
+{
+  "base_image": "sha256:69f1f64c62ca2b5d919d69bcd60efb7fc89d7bf410ba406a5de586051f358465",
+  "upstream_commit": "acd23bbe1f8110e36fee0199b8942deb1c5dc477",
+  "files": {
+    "python/sglang/srt/entrypoints/openai/serving_chat.py": {
+      "before": "652a3b7cdb77e6552df902735f47a5ef87fdb9fb0c05125429e296016b27ccd4",
+      "after": "c6228b8d8771e7136ba87404f53da2d51ee2c5c68e7cc32b7d48da9310f55427"
+    },
+    "python/sglang/srt/entrypoints/openai/protocol.py": {
+      "before": "3f19b264c155f773400ba5a29780d8d28a57c477c9d6c587353821be47da6d01",
+      "after": "b3007a1d88e127548eca1dce13d2712123a1ecc4beb6533af41e96fd99f485a9"
+    }
+  },
+  "status": "Published and verified on production model31, two replicas",
+  "published_image": "docker.io/kanadaj/sglang-qwen38fn-sm120-turbo:production-chat-effort-20260913-v2@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404"
+}

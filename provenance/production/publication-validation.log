@@ -1,0 +1,114 @@
+=== published-final-tests.log ===
+{"clean_patch_apply": true, "verified_changed_paths": 36, "syntax_checked_python_files": 36}
+test_baseline_compares_only_named_numeric_values (test_diagnostics.DiagnosticsTests.test_baseline_compares_only_named_numeric_values) ... ok
+test_baseline_hundreds_digit_integer_is_unavailable (test_diagnostics.DiagnosticsTests.test_baseline_hundreds_digit_integer_is_unavailable) ... ok
+test_baseline_tiny_positive_value_percentage_is_unavailable (test_diagnostics.DiagnosticsTests.test_baseline_tiny_positive_value_percentage_is_unavailable) ... ok
+test_bounded_local_reads_and_command_failures_are_sanitized (test_diagnostics.DiagnosticsTests.test_bounded_local_reads_and_command_failures_are_sanitized) ... ok
+test_cgroup_v2_and_v1_limits_and_counters_without_paths (test_diagnostics.DiagnosticsTests.test_cgroup_v2_and_v1_limits_and_counters_without_paths) ... ok
+test_cli_bounds_and_errors_never_echo_sensitive_arguments (test_diagnostics.DiagnosticsTests.test_cli_bounds_and_errors_never_echo_sensitive_arguments) ... ok
+test_container_allowlists_values_digest_effective_args_and_fixed_probe (test_diagnostics.DiagnosticsTests.test_container_allowlists_values_digest_effective_args_and_fixed_probe) ... ok
+test_container_cgroup_counters_are_sampled_without_repeated_exec (test_diagnostics.DiagnosticsTests.test_container_cgroup_counters_are_sampled_without_repeated_exec) ... ok
+test_current_driver_ansi_topology_and_singular_event_tags (test_diagnostics.DiagnosticsTests.test_current_driver_ansi_topology_and_singular_event_tags) ... ok
+test_default_cli_writes_private_reports_without_network_or_docker (test_diagnostics.DiagnosticsTests.test_default_cli_writes_private_reports_without_network_or_docker) ... ok
+test_docker_cgroup_does_not_guess_host_pid_inside_collector_container (test_diagnostics.DiagnosticsTests.test_docker_cgroup_does_not_guess_host_pid_inside_collector_container) ... ok
+test_docker_pid_namespace_requires_visible_peer_and_matching_namespaces (test_diagnostics.DiagnosticsTests.test_docker_pid_namespace_requires_visible_peer_and_matching_namespaces) ... ok
+test_docker_remote_environment_and_default_context_cannot_override_local_socket (test_diagnostics.DiagnosticsTests.test_docker_remote_environment_and_default_context_cannot_override_local_socket) ... ok
+test_endpoint_typed_metrics_drop_nested_secrets_and_duplicate_series (test_diagnostics.DiagnosticsTests.test_endpoint_typed_metrics_drop_nested_secrets_and_duplicate_series) ... ok
+test_gpu_xml_versions_units_and_identifier_redaction (test_diagnostics.DiagnosticsTests.test_gpu_xml_versions_units_and_identifier_redaction) ... ok
+test_host_collection_reads_numeric_topology_pressure_and_counters (test_diagnostics.DiagnosticsTests.test_host_collection_reads_numeric_topology_pressure_and_counters) ... ok
+test_http_opt_in_rejects_credentials_redirects_and_oversize (test_diagnostics.DiagnosticsTests.test_http_opt_in_rejects_credentials_redirects_and_oversize) ... ok
+test_http_parent_allowlists_worker_errors_and_suppresses_launch_errors (test_diagnostics.DiagnosticsTests.test_http_parent_allowlists_worker_errors_and_suppresses_launch_errors) ... ok
+test_http_protocol_errors_never_escape_or_reach_stderr (test_diagnostics.DiagnosticsTests.test_http_protocol_errors_never_escape_or_reach_stderr) ... ok
+test_http_real_malformed_status_has_no_traceback_or_endpoint_output (test_diagnostics.DiagnosticsTests.test_http_real_malformed_status_has_no_traceback_or_endpoint_output) ... ok
+test_http_total_deadline_includes_headers_and_slow_body (test_diagnostics.DiagnosticsTests.test_http_total_deadline_includes_headers_and_slow_body) ... ok
+test_http_total_deadline_kills_and_reaps_stalled_dns_worker (test_diagnostics.DiagnosticsTests.test_http_total_deadline_kills_and_reaps_stalled_dns_worker) ... ok
+test_http_total_deadline_terminates_trickled_headers (test_diagnostics.DiagnosticsTests.test_http_total_deadline_terminates_trickled_headers) ... ok
+test_http_worker_inherits_auth_without_command_line_secrets_and_preserves_metrics (test_diagnostics.DiagnosticsTests.test_http_worker_inherits_auth_without_command_line_secrets_and_preserves_metrics) ... ok
+test_http_worker_is_reaped_even_when_pipe_communication_fails (test_diagnostics.DiagnosticsTests.test_http_worker_is_reaped_even_when_pipe_communication_fails) ... ok
+test_interval_rates_counter_resets_and_yield_are_not_global_iterations (test_diagnostics.DiagnosticsTests.test_interval_rates_counter_resets_and_yield_are_not_global_iterations) ... ok
+test_sampler_executes_existing_load_reads_and_records_actual_intervals (test_diagnostics.DiagnosticsTests.test_sampler_executes_existing_load_reads_and_records_actual_intervals) ... ok
+test_script_entrypoint_executes_as_a_real_local_process (test_diagnostics.DiagnosticsTests.test_script_entrypoint_executes_as_a_real_local_process) ... ok
+test_selected_gpu_collection_filters_topology_and_capabilities (test_diagnostics.DiagnosticsTests.test_selected_gpu_collection_filters_topology_and_capabilities) ... ok
+test_server_info_top_level_settings_are_allowlisted (test_diagnostics.DiagnosticsTests.test_server_info_top_level_settings_are_allowlisted) ... ok
+test_v2_root_missing_limit_files_do_not_hide_child_limits (test_diagnostics.DiagnosticsTests.test_v2_root_missing_limit_files_do_not_hide_child_limits) ... ok
+test_actual_shard_loader_reversed_pairs_late_global_scale (test_integration.IntegrationTests.test_actual_shard_loader_reversed_pairs_late_global_scale) ... ok
+test_gather_normalizes_strided_ids_before_either_kernel (test_integration.IntegrationTests.test_gather_normalizes_strided_ids_before_either_kernel) ... ok
+test_gather_rejects_noncontiguous_output_before_launch (test_integration.IntegrationTests.test_gather_rejects_noncontiguous_output_before_launch) ... ok
+test_loader_finalization_rejects_wrong_configured_shard_count (test_integration.IntegrationTests.test_loader_finalization_rejects_wrong_configured_shard_count) ... ok
+test_opt_in_constructs_only_meta_table_and_keeps_default_unchanged (test_integration.IntegrationTests.test_opt_in_constructs_only_meta_table_and_keeps_default_unchanged) ... ok
+test_packed_loader_rejects_malformed_shards_before_buffering (test_integration.IntegrationTests.test_packed_loader_rejects_malformed_shards_before_buffering) ... ok
+test_packed_loader_requires_complete_tp1_global_layout (test_integration.IntegrationTests.test_packed_loader_requires_complete_tp1_global_layout) ... ok
+test_packed_loader_requires_exactly_128_complete_shard_pairs (test_integration.IntegrationTests.test_packed_loader_requires_exactly_128_complete_shard_pairs) ... ok
+test_pinned_class_constructs_packed_and_gathers_to_prefetch_output (test_integration.IntegrationTests.test_pinned_class_constructs_packed_and_gathers_to_prefetch_output) ... ok
+test_synthetic_128_shard_shapes_pass_source_validation (test_integration.IntegrationTests.test_synthetic_128_shard_shapes_pass_source_validation) ... ok
+test_changed_runtime_hashes_match_manifest (test_packaging.PackagingTests.test_changed_runtime_hashes_match_manifest) ... ok
+test_patch_path_coverage_is_exact (test_packaging.PackagingTests.test_patch_path_coverage_is_exact) ... ok
+test_preimage_drift_is_rejected_before_patching (test_packaging.PackagingTests.test_preimage_drift_is_rejected_before_patching) ... ok
+test_source_drift_is_rejected (test_packaging.PackagingTests.test_source_drift_is_rejected) ... ok
+test_all_finite_positive_e4m3_scales_and_fp8_rounding_ties (test_packed_ple.PackedPLETests.test_all_finite_positive_e4m3_scales_and_fp8_rounding_ties) ... ok
+test_kernel_all_nibbles_group_scales_global_and_row_selection (test_packed_ple.PackedPLETests.test_kernel_all_nibbles_group_scales_global_and_row_selection) ... ok
+test_storage_rejects_changed_destination_bounds (test_packed_ple.PackedPLETests.test_storage_rejects_changed_destination_bounds) ... ok
+test_storage_rejects_invalid_layout_scale_and_incomplete_load (test_packed_ple.PackedPLETests.test_storage_rejects_invalid_layout_scale_and_incomplete_load) ... ok
+test_storage_retains_bytes_copies_overlap_and_preserves_global_scale (test_packed_ple.PackedPLETests.test_storage_retains_bytes_copies_overlap_and_preserves_global_scale) ... ok
+test_synthetic_row_selection_and_optional_fp8_reference (test_packed_ple.PackedPLETests.test_synthetic_row_selection_and_optional_fp8_reference) ... ok
+test_disabled_retains_exact_target (test_private_head.PrivateHeadTests.test_disabled_retains_exact_target) ... ok
+test_private_shell_does_not_mutate_target_registries (test_private_head.PrivateHeadTests.test_private_shell_does_not_mutate_target_registries) ... ok
+test_actual_mtp_method_preserves_tied_path_and_uses_private_for_untied (test_production.ProductionTests.test_actual_mtp_method_preserves_tied_path_and_uses_private_for_untied) ... ok
+test_external_command_exact_tokens_and_environment (test_production.ProductionTests.test_external_command_exact_tokens_and_environment) ... ok
+test_invalid_gate_rejected_and_default_shared (test_production.ProductionTests.test_invalid_gate_rejected_and_default_shared) ... ok
+test_only_hf_path_correction_differs_between_profiles (test_production.ProductionTests.test_only_hf_path_correction_differs_between_profiles) ... ok
+test_production_clean_reconstruction (test_production.ProductionTests.test_production_clean_reconstruction) ... ok
+test_builds_do_not_package_defaults_launchers (test_quickstart.QuickstartTests.test_builds_do_not_package_defaults_launchers) ... ok
+test_external_profile_matches_deployed_settings (test_quickstart.QuickstartTests.test_external_profile_matches_deployed_settings) ... ok
+test_both_ranks_64_local_128_global_and_padding (test_tp2.TP2Tests.test_both_ranks_64_local_128_global_and_padding) ... ok
+test_constructor_allocates_only_local_padded_bytes (test_tp2.TP2Tests.test_constructor_allocates_only_local_padded_bytes) ... ok
+test_crossing_shard_simulated_sum_matches_tp1_and_reference (test_tp2.TP2Tests.test_crossing_shard_simulated_sum_matches_tp1_and_reference) ... ok
+test_duplicate_completed_offrank_tensor_rejected_immediately (test_tp2.TP2Tests.test_duplicate_completed_offrank_tensor_rejected_immediately) ... ok
+test_malformed_source_identifiers_are_not_silently_ignored (test_tp2.TP2Tests.test_malformed_source_identifiers_are_not_silently_ignored) ... ok
+test_missing_half_and_duplicate_pending_offrank_rejected (test_tp2.TP2Tests.test_missing_half_and_duplicate_pending_offrank_rejected) ... ok
+test_missing_nonintersecting_pair_fails_global_finalization (test_tp2.TP2Tests.test_missing_nonintersecting_pair_fails_global_finalization) ... ok
+test_offrank_malformed_dtype_rejected_before_buffering (test_tp2.TP2Tests.test_offrank_malformed_dtype_rejected_before_buffering) ... ok
+test_offrank_shapes_scales_and_partition_boundaries_fail_closed (test_tp2.TP2Tests.test_offrank_shapes_scales_and_partition_boundaries_fail_closed) ... ok
+test_pending_offrank_has_no_payload_and_local_budget_fails_closed (test_tp2.TP2Tests.test_pending_offrank_has_no_payload_and_local_budget_fails_closed) ... ok
+test_synthetic_metadata_both_ranks_without_payload_allocation (test_tp2.TP2Tests.test_synthetic_metadata_both_ranks_without_payload_allocation) ... ok
+test_trailing_newline_shards_rejected_before_local_or_offrank_loading (test_tp2.TP2Tests.test_trailing_newline_shards_rejected_before_local_or_offrank_loading) ... ok
+test_normal_and_prefetch_reduce_exactly_once_or_reject_scattered (test_tp2_collectives.CollectiveSeamTests.test_normal_and_prefetch_reduce_exactly_once_or_reject_scattered) ... ok
+test_fc1_padding_preserves_weights_scales_and_slices_before_bias (test_vision_cpu.VisionTests.test_fc1_padding_preserves_weights_scales_and_slices_before_bias) ... ok
+test_fc1_rejects_wrong_group_layout (test_vision_cpu.VisionTests.test_fc1_rejects_wrong_group_layout) ... ok
+test_fc2_rejects_unproven_output_padding (test_vision_cpu.VisionTests.test_fc2_rejects_unproven_output_padding) ... ok
+test_fc2_restores_logical_order_and_handles_no_bias (test_vision_cpu.VisionTests.test_fc2_restores_logical_order_and_handles_no_bias) ... ok
+
+----------------------------------------------------------------------
+Ran 77 tests in 6.490s
+
+OK
+
+
+=== parser-smoke.log ===
+{"actual_installed_parser": "sglang.srt.server_args.ServerArgs", "speculation": [3, 1, 4], "tp": 2, "context_length": 524288, "all_external_tokens_parsed": 47}
+
+
+=== published-import.log ===
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/awq/awq.py:52: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+digest_pinned_imports_ok /sgl-workspace/sglang/python/sglang/__init__.py /sgl-workspace/sglang/python/sglang/srt/layers/quantization/private_draft_head.py /sgl-workspace/sglang/python/sglang/srt/models/packed_ple.py
+cuda_available False
+
+
+=== published-source.log ===
+{"verified_source_files": 4391}
+
+
+=== independent-oci-load.log ===
+Loaded image: kanadaj/sglang-qwen38fn-sm120-turbo:production-private-draft-20260911-5413729
+
+
+=== independent-loaded-smoke.log ===
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/awq/awq.py:52: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+post_independent_OCI_load_imports_ok
+{"verified_source_files": 4391}

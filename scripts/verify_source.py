@@ -13,8 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
-def verify(tree, complete=False):
-    records = json.loads((ROOT / 'provenance/runtime-files.json').read_text())
+def verify(tree, complete=False, profile='combined'):
+    prefix = 'provenance/production' if profile == 'production' else 'provenance'
+    records = json.loads((ROOT / prefix / 'runtime-files.json').read_text())
     checked = 0
     for rel, row in records.items():
         if complete or row['changed_from_day0']:
@@ -28,9 +29,11 @@ def verify(tree, complete=False):
             raise ValueError('Full package path inventory differs')
     return checked
 
-def apply(tree):
-    manifest = json.loads((ROOT / 'provenance/patches.json').read_text())
-    names = (ROOT / 'patches/series').read_text().splitlines()
+def apply(tree, profile='combined'):
+    prefix = 'provenance/production' if profile == 'production' else 'provenance'
+    series = 'series.production' if profile == 'production' else 'series'
+    manifest = json.loads((ROOT / prefix / 'patches.json').read_text())
+    names = (ROOT / 'patches' / series).read_text().splitlines()
     if names != [p['file'] for p in manifest]:
         raise ValueError('Patch order differs from manifest')
     for p in (ROOT / 'upstream-preimages').rglob('*'):
@@ -42,23 +45,24 @@ def apply(tree):
             raise ValueError('Patch hash mismatch')
         subprocess.run(['git', 'apply', '--check', str(path)], cwd=tree, check=True)
         subprocess.run(['git', 'apply', str(path)], cwd=tree, check=True)
-    return verify(tree)
+    return verify(tree, profile=profile)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument('--profile', choices=['combined', 'production'], default='combined')
     parser.add_argument('--tree', type=Path, help='SGLang checkout root')
     parser.add_argument('--apply', action='store_true', help='Modify the supplied tree by applying patches')
     parser.add_argument('--complete', action='store_true', help='Require exact full package inventory')
     args = parser.parse_args()
     if args.tree:
         if args.apply:
-            apply(args.tree.resolve())
-        print(json.dumps({'verified_source_files': verify(args.tree.resolve(), args.complete)}))
+            apply(args.tree.resolve(), args.profile)
+        print(json.dumps({'verified_source_files': verify(args.tree.resolve(), args.complete, args.profile)}))
     else:
         with tempfile.TemporaryDirectory() as tmp:
             tree = Path(tmp) / 'tree'
             shutil.copytree(ROOT / 'upstream-preimages', tree)
-            count = apply(tree)
+            count = apply(tree, args.profile)
             compiled = 0
             for p in tree.rglob('*.py'):
                 compile(p.read_bytes(), str(p), 'exec')

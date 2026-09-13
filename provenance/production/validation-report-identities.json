@@ -1,0 +1,21 @@
+{
+  "scope": "Identities of retained operator reports underlying sanitized historical validation narrative; reports and private payloads are intentionally not distributed.",
+  "reports": [
+    {
+      "report": "draft-head-only-trial/REPORT.md",
+      "sha256": "0c9b87baf424f815733763738bac06292b235cde015a5c3743a753228e47c09c"
+    },
+    {
+      "report": "draft-head-only-trial/qualification/REPORT.md",
+      "sha256": "77449dfe15a0fa6fd6caebbdd350cd6a7f68fe1678bcf10228680bac1ca6318c"
+    },
+    {
+      "report": "draft-head-production-rollout/REPORT.md",
+      "sha256": "0fe03b318e1ce442b055da22c5b72d822b6ca8659b971ff162c1edb6bd9cf2ed"
+    },
+    {
+      "report": "nextn3-production-rollout/REPORT.md",
+      "sha256": "c7b37a1e92b86cc106a429bfb1bd4cc7e4a007da310616b8865f35be504574d9"
+    }
+  ]
+}

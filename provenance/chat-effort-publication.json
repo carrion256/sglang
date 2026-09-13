@@ -1,0 +1,38 @@
+{
+  "repository": "kanadaj/sglang-qwen38fn-sm120-turbo",
+  "tag": "production-chat-effort-20260913-v2",
+  "index_digest": "sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+  "anonymous_manifest_verified": true,
+  "empty_auth_pull_verified": true,
+  "cold_cache_transfer": false,
+  "layer_safety": {
+    "v2_image": "sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+    "v1_v2_layers_identical": true,
+    "public_base_first68_identical": true,
+    "findings_match_dispositioned_public_base": true,
+    "scanned_layers": 95,
+    "new_layer_findings": 0,
+    "entrypoint": [
+      "python3",
+      "-m",
+      "sglang.launch_server"
+    ]
+  },
+  "audit_regular_file_versions": 289416,
+  "audit_bytes_scanned": 32354726682,
+  "validation": {
+    "cpu_suite": {
+      "passed": 77,
+      "failed": 0
+    },
+    "actual_chat_methods": {
+      "passed": 4,
+      "failed": 0
+    },
+    "full_source_files": 4391,
+    "external_parser_tokens": 47,
+    "clean_patch_preimage_and_result_full_files": 4391
+  },
+  "runtime_cpu_log_sha256": "83304c4e6c7f12e966099f2425dfab49a44ad70c142810664b69ab62610b5828",
+  "image_acquisition_note": "Actual production ancestry retained; Dockerfile-derived, no docker commit. Published image bypasses inherited unused legacy launch files; arguments external."
+}

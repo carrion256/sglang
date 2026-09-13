@@ -1,0 +1,74 @@
+{
+  "status": "PASS",
+  "image": "docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+  "tag": "production-chat-effort-20260913-v2",
+  "backend": "qwen-chat-effort-20260913-v2-custom",
+  "git_fix_commit": "39a7649230161d0edd4d9efdd01bce47343f50ec",
+  "desired": 2,
+  "ready": 2,
+  "instances": [
+    {
+      "id": 259,
+      "gpu_indexes": [
+        2,
+        3
+      ],
+      "port": 40032,
+      "state": "running",
+      "health": true,
+      "image": "sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+      "started": "2026-09-13T19:46:24.58804772Z",
+      "settings": {
+        "tp_size": 2,
+        "context_length": 524288,
+        "speculative_num_steps": 3,
+        "speculative_eagle_topk": 1,
+        "speculative_num_draft_tokens": 4,
+        "max_mamba_cache_size": 512,
+        "mamba_track_interval": 128,
+        "default_chat_template_kwargs": {
+          "reasoning_effort": "medium"
+        }
+      }
+    },
+    {
+      "id": 258,
+      "gpu_indexes": [
+        0,
+        1
+      ],
+      "port": 40063,
+      "state": "running",
+      "health": true,
+      "image": "sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+      "started": "2026-09-13T19:38:38.587260904Z",
+      "settings": {
+        "tp_size": 2,
+        "context_length": 524288,
+        "speculative_num_steps": 3,
+        "speculative_eagle_topk": 1,
+        "speculative_num_draft_tokens": 4,
+        "max_mamba_cache_size": 512,
+        "mamba_track_interval": 128,
+        "default_chat_template_kwargs": {
+          "reasoning_effort": "medium"
+        }
+      }
+    }
+  ],
+  "source_paths_verified": 4391,
+  "cpu_suite": 77,
+  "chat_test_methods": 4,
+  "flags_and_model_env_unchanged": true,
+  "render_xhigh57_default_medium15_both": true,
+  "direct_and_routed_text_vision": true,
+  "protected_route_target_ids_unchanged": true,
+  "fallback18_preserved": true,
+  "glm38_zero": true,
+  "native_both_up1_mamba": true,
+  "routed_counter_proof_both": true,
+  "availability_samples": 53,
+  "availability_zero_healthy": 0,
+  "availability_unknown": 0,
+  "availability_scope": "Watcher began during first candidate startup; excludes its earlier maintenance window, whose peer health was separately checked."
+}

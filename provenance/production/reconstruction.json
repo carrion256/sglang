@@ -1,0 +1,17 @@
+{
+  "production": {
+    "exit_code": 0,
+    "result": {
+      "verified_source_files": 4391
+    },
+    "stderr": ""
+  },
+  "combined": {
+    "exit_code": 0,
+    "result": {
+      "verified_source_files": 4391
+    },
+    "stderr": ""
+  },
+  "method": "Clean full retained day0 source export plus tracked fresh-image-verified .clang-format preimage; preimage modes restored from tracked fixtures; ordered checked patch application and complete final path/hash inventory."
+}

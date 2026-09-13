@@ -106,14 +106,6 @@
     ]
   },
   {
-    "file": "0012-ple-resolved-checkpoint-source.patch",
-    "sha256": "31ceb532128db7793c49ca55b78016c0d521c692119c914f6b7bc1b068cb5809",
-    "paths": [
-      "python/sglang/srt/model_loader/loader.py",
-      "python/sglang/srt/models/qwen4_exp.py"
-    ]
-  },
-  {
     "file": "0013-private-draft-nvfp4-a16.patch",
     "sha256": "d8854a4f7751182406425058c679d71e5d88ed157d9cb82b4056167c8fdac635",
     "paths": [

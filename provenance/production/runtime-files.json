@@ -18455,9 +18455,9 @@
     "changed_from_day0": false
   },
   "python/sglang/srt/model_loader/loader.py": {
-    "sha256": "14573b0f4bcbf9bf43fa2ce9384913ace2a0850655b25953aaef894684c69059",
+    "sha256": "5746f08e47e8a21e173a0df6036a9c1d58d0ffee5d392ef5361deb7d77d0a539",
     "accepted_sha256": "5746f08e47e8a21e173a0df6036a9c1d58d0ffee5d392ef5361deb7d77d0a539",
-    "changed_from_day0": true
+    "changed_from_day0": false
   },
   "python/sglang/srt/model_loader/remote_instance_weight_loader_utils.py": {
     "sha256": "6e4743a6715a7a24bd854144b9d9383fd6479da8ca39991845f4e96d5a5c6b2a",
@@ -19565,7 +19565,7 @@
     "changed_from_day0": false
   },
   "python/sglang/srt/models/qwen4_exp.py": {
-    "sha256": "e0188ebd4fb01ab98029eae0a1ed73622338297af5483ad79459747eb104a8ab",
+    "sha256": "311375b089b05091bb1a99d95eeec238a03268381f491854322abf40e3f3328e",
     "accepted_sha256": "311375b089b05091bb1a99d95eeec238a03268381f491854322abf40e3f3328e",
     "changed_from_day0": true
   },

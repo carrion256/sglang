@@ -1,0 +1,15 @@
+{
+  "method": "Read-only trusted production container, isolated Python -I -S -B; source-root containment assertion; no-follow file descriptors and nonregular rejection. The one known .clang-format symlink was resolved only within the source root; all other symlinks rejected. Complete inventory comparison, no container config export.",
+  "replicas": [
+    {
+      "source_files_verified": 4391,
+      "image_id": "sha256:69f1f64c62ca2b5d919d69bcd60efb7fc89d7bf410ba406a5de586051f358465",
+      "running": true
+    },
+    {
+      "source_files_verified": 4391,
+      "image_id": "sha256:69f1f64c62ca2b5d919d69bcd60efb7fc89d7bf410ba406a5de586051f358465",
+      "running": true
+    }
+  ]
+}
