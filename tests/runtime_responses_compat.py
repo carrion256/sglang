@@ -628,6 +628,75 @@ class MockHTTPTest(unittest.TestCase):
                         self.assertEqual(json.loads(call['arguments']),
                                          {parameter: value})
 
+    def test_native_tool_implicitly_closes_open_reasoning(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = 'qwen3_coder'
+        cases = [
+            ([{'type': 'function', 'name': 'inspect',
+               'parameters': {'type': 'object', 'properties': {}}}],
+             'inspect', '', 'function_call'),
+            ([{'type': 'custom', 'name': 'patch'}],
+             'patch', '<parameter=input></parameter>', 'custom_tool_call'),
+        ]
+        for tools, name, parameters, output_type in cases:
+            self.text = (f'<think>Plan<tool_call><function={name}>{parameters}</function>'
+                         '</tool_call>After')
+            for stream in (False, True):
+                with self.subTest(name=name, stream=stream):
+                    response = self.send(
+                        stream=stream, tools=tools, tool_choice='auto',
+                        reasoning={'effort': 'medium'})
+                    if stream:
+                        events = self.events(response)
+                        completed = [event['response'] for event in events
+                                     if event['type'] == 'response.completed']
+                        self.assertTrue(completed, events)
+                        body = completed[0]
+                    else:
+                        self.assertEqual(response.status_code, 200, response.text)
+                        body = response.json()
+                    self.assertEqual(
+                        [item['type'] for item in body['output']],
+                        ['reasoning', output_type, 'message'],
+                    )
+                    self.assertEqual(self.phase_semantics(
+                        [body['output'][0], body['output'][2]]), [
+                            ('reasoning', 'Plan'),
+                            ('message', 'final_answer', 'After'),
+                        ])
+
+    def test_qwen4_stream_reasoning_is_chunking_negative_control(self):
+        self.serving.tokenizer_manager.model_config.hf_config.model_type = 'qwen4_exp'
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = None
+        raw = '<think>First</think>Checking.<think>Second</think>Final'
+        expected = [
+            ('reasoning', 'First'),
+            ('message', 'final_answer',
+             'Checking.<think>Second</think>Final'),
+        ]
+        for parts in ([raw], ['<think>', 'First', '</think>', 'Checking.',
+                              '<think>', 'Second', '</think>', 'Final']):
+            with self.subTest(parts=parts):
+                async def generate(request, *args, **kwargs):
+                    cumulative = ''
+                    for index, part in enumerate(parts):
+                        cumulative += part
+                        yield {'text': cumulative, 'output_ids': [1] * (index + 1),
+                               'meta_info': {'prompt_tokens': 10,
+                                             'completion_tokens': index + 1,
+                                             'finish_reason': ({'type': 'stop'}
+                                                               if index == len(parts) - 1
+                                                               else None)}}
+
+                self.serving.tokenizer_manager.generate_request = generate
+                events = self.events(self.send(
+                    stream=True, tools=[], tool_choice='none',
+                    reasoning={'effort': 'medium'}))
+                output = next(event['response']['output'] for event in events
+                              if event['type'] == 'response.completed')
+                self.assertEqual(self.phase_semantics(output), expected)
+
     def test_text_streams_before_phase_is_resolved(self):
         async def check():
             self.serving.reasoning_parser = None
