@@ -1,6 +1,6 @@
 {
-  "status": "CPU-only candidate; uncommitted, not published or deployed",
-  "base_alias_commit": "04e0816a68638e85ddd4ff8764b401d3ed27997e",
+  "status": "CPU-only candidate; not published or deployed",
+  "base_alias_commit": "dccd493277c1adb71a3aefe3b4f2513e13e14206",
   "base_image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
   "predecessor_profile": "qwen-effort-alias",
   "patch": "0016-responses-namespace-custom-boundary.patch",

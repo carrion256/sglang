@@ -62,7 +62,7 @@ index c120d0a..44c91a1 100644
                              continue
                          for c in it.content:
 diff --git a/python/sglang/srt/entrypoints/openai/serving_responses.py b/python/sglang/srt/entrypoints/openai/serving_responses.py
-index 2fda942..18931fb 100644
+index 2fda942..49881f0 100644
 --- a/python/sglang/srt/entrypoints/openai/serving_responses.py
 +++ b/python/sglang/srt/entrypoints/openai/serving_responses.py
 @@ -7,6 +7,7 @@ from __future__ import annotations
@@ -91,7 +91,51 @@ index 2fda942..18931fb 100644
      ResponsesRequest,
      ResponsesResponse,
      Tool,
-@@ -1009,6 +1012,7 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -737,6 +740,43 @@ class OpenAIServingResponses(OpenAIServingChat):
+                 meta_info.get("finish_reason") if meta_info is not None else None
+             )
+ 
++            final_text = final_res["text"]
++            model_type = self.tokenizer_manager.model_config.hf_config.model_type
++            leading_text, think_marker, _ = final_text.partition("<think>")
++            needs_ordered_qwen_parse = (
++                status == "completed"
++                and model_type
++                in {"qwen3_8_flash_next", "qwen3_8_flash_next_text", "qwen4_exp"}
++                and (
++                    re.search(
++                        r"</function>\s*</tool_call>\s*\S", final_text, re.DOTALL
++                    )
++                    or (think_marker and leading_text.strip())
++                )
++            )
++            if needs_ordered_qwen_parse:
++                async def final_result():
++                    yield final_res
++
++                terminal_response = None
++                async for frame in self.responses_stream_generator_non_harmony(
++                    request,
++                    sampling_params,
++                    final_result(),
++                    model_name,
++                    tokenizer,
++                    request_metadata,
++                    created_time=created_time,
++                    require_reasoning=require_reasoning,
++                ):
++                    event = json.loads(frame.split("data: ", 1)[1])
++                    if event.get("type") == "response.completed":
++                        terminal_response = event["response"]
++                if terminal_response is None:
++                    raise ValueError("Ordered Qwen output did not complete")
++                terminal_response["tools"] = request.model_dump()["tools"]
++                return ResponsesResponse.model_validate(terminal_response)
++
+             output_logprobs = (
+                 _build_output_text_logprobs(meta_info)
+                 if request.is_include_output_logprobs() and isinstance(meta_info, dict)
+@@ -1009,6 +1049,7 @@ class OpenAIServingResponses(OpenAIServingChat):
                  role="assistant",
                  status="completed",
                  type="message",
@@ -99,7 +143,7 @@ index 2fda942..18931fb 100644
              )
              output_items.append(message)
          output_items.extend(tool_call_items)
-@@ -1232,10 +1236,39 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -1232,10 +1273,39 @@ class OpenAIServingResponses(OpenAIServingChat):
      @staticmethod
      def _merge_consecutive_assistant_messages(
          messages: list,
@@ -139,7 +183,7 @@ index 2fda942..18931fb 100644
          merged: list = []
          for msg in messages:
              if (
-@@ -1244,8 +1277,16 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -1244,8 +1314,16 @@ class OpenAIServingResponses(OpenAIServingChat):
                  and merged
                  and isinstance(merged[-1], dict)
                  and merged[-1].get("role") == "assistant"
@@ -156,7 +200,7 @@ index 2fda942..18931fb 100644
                  # Lift mixed str/list content to list parts so non-text parts
                  # (e.g. image_url) survive when the two sides differ in shape.
                  new_content = msg.get("content")
-@@ -1305,13 +1346,9 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -1305,13 +1383,9 @@ class OpenAIServingResponses(OpenAIServingChat):
              messages.extend(prev_msg)
  
              for output_item in prev_response.output:
@@ -173,7 +217,7 @@ index 2fda942..18931fb 100644
  
          # Append the new input
          # Responses API supports simple text inputs without chat format
-@@ -1326,7 +1363,15 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -1326,7 +1400,15 @@ class OpenAIServingResponses(OpenAIServingChat):
          # One Responses-API assistant turn maps to multiple input items
          # (message + function_call(s)); collapse them into one chat message
          # so chat templates render a single assistant block per turn.
@@ -190,7 +234,7 @@ index 2fda942..18931fb 100644
  
          # Most chat templates expect a single leading ``system`` message;
          # coalesce any ``instructions`` + interleaved ``developer`` entries.
-@@ -2091,6 +2136,16 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -2091,6 +2173,16 @@ class OpenAIServingResponses(OpenAIServingChat):
                  tool_call_parser_active=isinstance(tool_parser, FunctionCallParser),
              )
  
@@ -207,7 +251,7 @@ index 2fda942..18931fb 100644
          current_output_index = -1
          reasoning_state = {
              "open": False,
-@@ -2211,7 +2266,7 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -2211,7 +2303,7 @@ class OpenAIServingResponses(OpenAIServingChat):
              )
              return item_id
  
@@ -216,7 +260,7 @@ index 2fda942..18931fb 100644
              if not message_state["open"]:
                  return []
              text = message_state["text"]
-@@ -2224,6 +2279,7 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -2224,6 +2316,7 @@ class OpenAIServingResponses(OpenAIServingChat):
                  role="assistant",
                  content=[text_content],
                  status="completed",
@@ -224,7 +268,7 @@ index 2fda942..18931fb 100644
              )
              events = [
                  _send_event(
-@@ -2248,7 +2304,7 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -2248,7 +2341,7 @@ class OpenAIServingResponses(OpenAIServingChat):
                      )
                  ),
                  _send_event(
@@ -233,7 +277,7 @@ index 2fda942..18931fb 100644
                          type="response.output_item.done",
                          sequence_number=-1,
                          output_index=message_state["output_index"],
-@@ -2335,241 +2391,259 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -2335,241 +2428,259 @@ class OpenAIServingResponses(OpenAIServingChat):
                  )
                  flushed = flushed or flush
  
@@ -300,10 +344,7 @@ index 2fda942..18931fb 100644
 -                                    ),
 -                                    sequence_number=-1,
 -                                )
-+                        if flush:
-+                            end_reasoning, end_normal = (
-+                                reasoning_parser_obj.parse_stream_end()
-                             )
+-                            )
 -                    reasoning_state["text"] += reasoning_chunk
 -                    if wants_summary:
 -                        yield _send_event(
@@ -314,7 +355,10 @@ index 2fda942..18931fb 100644
 -                                summary_index=0,
 -                                delta=reasoning_chunk,
 -                                sequence_number=-1,
--                            )
++                        if flush:
++                            end_reasoning, end_normal = (
++                                reasoning_parser_obj.parse_stream_end()
+                             )
 -                        )
 +                            if end_reasoning:
 +                                reasoning_chunk = (reasoning_chunk or "") + end_reasoning
@@ -331,11 +375,11 @@ index 2fda942..18931fb 100644
 -                                sequence_number=-1,
 -                            )
 -                        )
-+                        reasoning_chunk = None
- 
+-
 -                if not delta and not flush:
 -                    continue
--
++                        reasoning_chunk = None
+ 
 -                if isinstance(tool_parser, JsonArrayParser):
 -                    required_buffer += delta
 -                    normal_text, tool_calls = "", []

@@ -740,6 +740,43 @@ class OpenAIServingResponses(OpenAIServingChat):
                 meta_info.get("finish_reason") if meta_info is not None else None
             )
 
+            final_text = final_res["text"]
+            model_type = self.tokenizer_manager.model_config.hf_config.model_type
+            leading_text, think_marker, _ = final_text.partition("<think>")
+            needs_ordered_qwen_parse = (
+                status == "completed"
+                and model_type
+                in {"qwen3_8_flash_next", "qwen3_8_flash_next_text", "qwen4_exp"}
+                and (
+                    re.search(
+                        r"</function>\s*</tool_call>\s*\S", final_text, re.DOTALL
+                    )
+                    or (think_marker and leading_text.strip())
+                )
+            )
+            if needs_ordered_qwen_parse:
+                async def final_result():
+                    yield final_res
+
+                terminal_response = None
+                async for frame in self.responses_stream_generator_non_harmony(
+                    request,
+                    sampling_params,
+                    final_result(),
+                    model_name,
+                    tokenizer,
+                    request_metadata,
+                    created_time=created_time,
+                    require_reasoning=require_reasoning,
+                ):
+                    event = json.loads(frame.split("data: ", 1)[1])
+                    if event.get("type") == "response.completed":
+                        terminal_response = event["response"]
+                if terminal_response is None:
+                    raise ValueError("Ordered Qwen output did not complete")
+                terminal_response["tools"] = request.model_dump()["tools"]
+                return ResponsesResponse.model_validate(terminal_response)
+
             output_logprobs = (
                 _build_output_text_logprobs(meta_info)
                 if request.is_include_output_logprobs() and isinstance(meta_info, dict)

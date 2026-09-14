@@ -1,6 +1,9 @@
 # Responses compatibility and Qwen phase/order — CPU candidate only
 
-This profile follows alias commit `04e0816a68638e85ddd4ff8764b401d3ed27997e`.
+This profile is rebased on main `de9abbe3d10c0510ac7eba898fcf721b6a73a41d`.
+Its alias predecessor commit `dccd493277c1adb71a3aefe3b4f2513e13e14206`
+includes the Qwen `minimal` → `low` rendering alias as well as `high`/`max` →
+`xhigh`.
 It does not upgrade the engine, change kernels/schedulers/checkpoints, or change
 any deployment. No image is built or published. Historical production, combined,
 Chat-effort and alias manifests/series retain their original meanings.
@@ -86,9 +89,11 @@ The only new installed module is `responses_compat.py`.
   Streaming text is emitted immediately; an added message leaves phase unresolved
   when later reasoning or tool output can still change it. The completed item sets
   commentary when a tool call or renewed reasoning follows and final_answer when
-  the text ends the response.
+  the text ends the response. For affected Qwen complete outputs, nonstream reuses
+  that ordered parser path when a tool or renewed-reasoning boundary would otherwise
+  collapse items, preserving text → tool → text and text → reasoning → final parity.
 - Qwen3.8 Flash-Next markup is fed to the existing reasoning and tool parsers at
-  markup boundaries. Coalesced and fragmented engine chunks therefore preserve
+  markup boundaries. Coalesced, fragmented, and affected complete outputs preserve
   `reasoning -> text -> tool -> text` wire order instead of merging text across a
   tool call. Literal angle-bracket text still passes through the parsers.
 - Replay groups adjacent Qwen assistant items only while their stage order remains

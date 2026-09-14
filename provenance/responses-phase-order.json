@@ -1,9 +1,9 @@
 {
   "status": "CPU-only candidate; not deployed",
-  "base_main_commit": "93463c3466b0de9d21776fbeff95657285df8269",
+  "base_main_commit": "de9abbe3d10c0510ac7eba898fcf721b6a73a41d",
   "predecessor_profile": "responses-compat",
   "patch": "0017-responses-phase-order.patch",
-  "patch_sha256": "b076ed8dcf170e8a0116866618547b0b5399e912eb26153f6d5b8fcc6f4707b1",
+  "patch_sha256": "194a4d818cbf1484565a7c52f31480476046d21d4fd6488c4afdb27c8fc5e7e2",
   "files": {
     "python/sglang/srt/entrypoints/openai/protocol.py": {
       "before": "fbc60d3206612f408d93f786b18446ab96c258ff60bf1f1c4cf0e36e3c88eca1",
@@ -11,16 +11,17 @@
     },
     "python/sglang/srt/entrypoints/openai/serving_responses.py": {
       "before": "d46f648b557db07a430869471fcf4d7a898d50f99e495efd5eb01911c428f215",
-      "after": "2d74b6b58076ae90770198c73f99bee6442fa6d006ae49f2118d02012ea51371"
+      "after": "a0862c742ff1d8586808c4cbf077e8897d26b2497e0088af44f0f59868908748"
     }
   },
   "source_files_before": 4392,
   "source_files_after": 4392,
   "inventory": "responses-phase-order-runtime-files.json",
-  "inventory_sha256": "32d6b2d6749c2a7d99822805bf331291e03a153d872f71eded2df6d33615be9c",
+  "inventory_sha256": "c0fa153a33b23a25e7b97ec432c518afb7b49dc8391f971138afda14f30c9759",
   "scope": [
     "Responses message phase serialization",
     "Qwen reasoning, text, and tool replay ordering",
-    "Qwen streaming markup boundary ordering"
+    "Qwen streaming markup boundary ordering",
+    "Qwen nonstream ordered-item parity with streaming"
   ]
 }

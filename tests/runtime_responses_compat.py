@@ -280,6 +280,20 @@ class MockHTTPTest(unittest.TestCase):
                     self.assertTrue(all(item.get('phase') is None
                                         for item in added_messages))
 
+    def test_qwen_nonstream_preserves_text_tool_text_order(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.text = ('Checking.<tool_call><function=inspect></function></tool_call>'
+                     'Final answer.')
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        output = self.send(tools=tools, tool_choice='auto').json()['output']
+        self.assertEqual(self.phase_semantics(output), [
+            ('message', 'commentary', 'Checking.'),
+            ('function_call', 'inspect', {}),
+            ('message', 'final_answer', 'Final answer.'),
+        ])
+
     def test_nonstream_message_phase_matches_remaining_tool_calls(self):
         self.text = 'Final answer.'
         final = self.send(tools=[], tool_choice='none').json()['output']
@@ -296,6 +310,19 @@ class MockHTTPTest(unittest.TestCase):
         self.assertEqual(self.phase_semantics(mixed), [
             ('message', 'commentary', 'Checking.'),
             ('function_call', 'inspect', {}),
+        ])
+
+    def test_qwen_nonstream_preserves_renewed_reasoning_order(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = None
+        self.text = 'Checking.<think>Again</think>Final answer.'
+        output = self.send(
+            tools=[], tool_choice='none', reasoning={'effort': 'medium'}
+        ).json()['output']
+        self.assertEqual(self.phase_semantics(output), [
+            ('message', 'commentary', 'Checking.'),
+            ('reasoning', 'Again'),
+            ('message', 'final_answer', 'Final answer.'),
         ])
 
     def test_qwen_stream_preserves_renewed_reasoning_order(self):
