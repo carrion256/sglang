@@ -537,32 +537,55 @@ class MockHTTPTest(unittest.TestCase):
                         if stream else response.json())
                 self.assertEqual(self.phase_semantics(body['output']), expected)
 
+    def test_qwen_adjacent_reasoning_blocks_remain_distinct(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = None
+        self.text = '<think>First</think><think>Again</think>Final answer.'
+        expected = [
+            ('reasoning', 'First'),
+            ('reasoning', 'Again'),
+            ('message', 'final_answer', 'Final answer.'),
+        ]
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                response = self.send(
+                    stream=stream, tools=[], tool_choice='none',
+                    reasoning={'effort': 'medium'})
+                body = (next(event['response'] for event in self.events(response)
+                             if event['type'] == 'response.completed')
+                        if stream else response.json())
+                self.assertEqual(self.phase_semantics(body['output']), expected)
+
     def test_required_json_marker_like_values_remain_data(self):
-        self.serving.reasoning_parser = None
         self.serving.tool_call_parser = None
         cases = [
             ([{'type': 'function', 'name': 'inspect', 'parameters': {
                 'type': 'object', 'properties': {'text': {'type': 'string'}}}}],
-             'inspect', {'text': '<think>'}, 'function_call'),
+             'inspect', {'text': '<think>literal</think>'}, 'function_call'),
             ([{'type': 'custom', 'name': 'patch'}],
              'patch', {'input': '</function></tool_call>tail'},
              'custom_tool_call'),
             (self.tools, 'workspace.read', {'path': '<tag>file</tag>'},
              'function_call'),
         ]
-        for tools, generated_name, arguments, output_type in cases:
-            with self.subTest(generated_name=generated_name):
-                self.text = json.dumps([
-                    {'name': generated_name, 'parameters': arguments}
-                ])
-                response = self.send(tools=tools, tool_choice='required')
-                self.assertEqual(response.status_code, 200, response.text)
-                item = response.json()['output'][0]
-                self.assertEqual(item['type'], output_type)
-                if output_type == 'custom_tool_call':
-                    self.assertEqual(item['input'], arguments['input'])
-                else:
-                    self.assertEqual(json.loads(item['arguments']), arguments)
+        for reasoning_parser in (None, 'qwen3'):
+            self.serving.reasoning_parser = reasoning_parser
+            for tools, generated_name, arguments, output_type in cases:
+                with self.subTest(reasoning_parser=reasoning_parser,
+                                  generated_name=generated_name):
+                    self.text = json.dumps([
+                        {'name': generated_name, 'parameters': arguments}
+                    ])
+                    response = self.send(
+                        tools=tools, tool_choice='required',
+                        reasoning={'effort': 'none'})
+                    self.assertEqual(response.status_code, 200, response.text)
+                    item = response.json()['output'][0]
+                    self.assertEqual(item['type'], output_type)
+                    if output_type == 'custom_tool_call':
+                        self.assertEqual(item['input'], arguments['input'])
+                    else:
+                        self.assertEqual(json.loads(item['arguments']), arguments)
 
     def test_text_streams_before_phase_is_resolved(self):
         async def check():
