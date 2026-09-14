@@ -1,0 +1,15 @@
+# Qwen Flash-Next API compatibility plus invalid generated-token failures.
+# All model paths, serving arguments, and runtime settings remain external.
+FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/kanadaj/sglang" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}"
+COPY runtime/python/sglang/srt/entrypoints/openai/protocol.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py
+COPY runtime/python/sglang/srt/entrypoints/openai/responses_compat.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py
+COPY runtime/python/sglang/srt/function_call/qwen3_coder_detector.py /sgl-workspace/sglang/python/sglang/srt/function_call/qwen3_coder_detector.py
+COPY runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_chat.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py
+COPY runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_responses.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py
+COPY runtime.invalid-token-failure/python/sglang/srt/managers/schedule_batch.py /sgl-workspace/sglang/python/sglang/srt/managers/schedule_batch.py
+RUN python3 -B -c 'import pathlib; p=pathlib.Path("/sgl-workspace/sglang/python/sglang/srt"); files=[p/"entrypoints/openai"/n for n in ("serving_chat.py", "protocol.py", "serving_responses.py", "responses_compat.py")]+[p/"function_call/qwen3_coder_detector.py", p/"managers/schedule_batch.py"]; [compile(f.read_bytes(), str(f), "exec") for f in files]'
+ENTRYPOINT ["python3", "-m", "sglang.launch_server"]
+CMD ["--help"]

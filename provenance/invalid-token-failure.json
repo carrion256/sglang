@@ -1,0 +1,30 @@
+{
+  "status": "CPU-tested candidate only; not built, published, or deployed",
+  "base_git_commit": "93463c3466b0de9d21776fbeff95657285df8269",
+  "base_profile": "responses-compat-candidate",
+  "base_image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+  "base_inventory_sha256": "e574ce136e79576c3970da7f479b729b21d18ef8e4fe3e49ae3a5fd521866138",
+  "patch": "0019-invalid-generated-token-failure.patch",
+  "patch_sha256": "e72fea4871a88e9d4fbffe06e2e6788e7b17992bc01cdf25f80ea4699e823742",
+  "files": {
+    "python/sglang/srt/entrypoints/openai/serving_chat.py": {
+      "before": "6d881d19da2c4a7028b0fb179cf5cdb958480612d4192c1606dfd25f98a9ba56",
+      "after": "fafda72ae4ed93165917bfc1b0bb90a1b676837f9e5a7611b9f3e0be6b595f83"
+    },
+    "python/sglang/srt/entrypoints/openai/serving_responses.py": {
+      "before": "d46f648b557db07a430869471fcf4d7a898d50f99e495efd5eb01911c428f215",
+      "after": "3ffe860246810037ad58a6e79cd370fa0199bc130c1752cfe1feef4a11e87096"
+    },
+    "python/sglang/srt/managers/schedule_batch.py": {
+      "before": "4965156c669a536b40250605794de9d9aa7582fde71d188ab2ecf22e766e755a",
+      "after": "56b475c078d2aed7fc626dd7f41559b169498da285bf729d94b76e8abda13c42"
+    }
+  },
+  "source_files": 4392,
+  "result_inventory_sha256": "83e45a5d191a3998a68a4c9bd41227d737e5a5e4d44513bcdebb2c713db6abd5",
+  "cpu_regression": {
+    "unpatched": "11 methods: 20 failures and 2 errors",
+    "patched": "11 methods passed",
+    "scope": "Scheduler classification and Chat, Anthropic Messages, and Responses propagation"
+  }
+}

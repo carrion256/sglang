@@ -1,0 +1,163 @@
+--- a/python/sglang/srt/entrypoints/openai/serving_chat.py
++++ b/python/sglang/srt/entrypoints/openai/serving_chat.py
+@@ -1618,16 +1618,17 @@
+                     # to the normal chunk path, matching the non-stream behavior
+                     # in tokenizer_manager._handle_abort_finish_reason.
+                     if finish_reason_type == "abort" and isinstance(
+-                        finish_reason.get("status_code"), HTTPStatus
++                        finish_reason.get("status_code"), int
+                     ):
+-                        code = finish_reason["status_code"]
++                        code = HTTPStatus(finish_reason["status_code"])
+                         error = self.create_streaming_error_response(
+                             finish_reason.get("message", "Generation aborted."),
+                             code.name,
+                             code.value,
+                         )
+                         yield f"data: {error}\n\n"
+-                        break
++                        yield "data: [DONE]\n\n"
++                        return
+                     finish_reasons[index] = finish_reason
+ 
+                 # First chunk with role
+--- a/python/sglang/srt/entrypoints/openai/serving_responses.py
++++ b/python/sglang/srt/entrypoints/openai/serving_responses.py
+@@ -710,6 +710,7 @@
+             return self.create_error_response(str(e))
+ 
+         status = "completed"
++        finish_reason = None
+         if self.use_harmony:
+             assert isinstance(context, HarmonyContext)
+             output = self._make_response_output_items_with_harmony(context)
+@@ -718,7 +719,8 @@
+             num_generated_tokens = context.num_output_tokens
+             num_cached_tokens = context.num_cached_tokens
+             num_reasoning_tokens = context.num_reasoning_tokens
+-            status = self._status_from_finish_reason(context.finish_reason)
++            finish_reason = context.finish_reason
++            status = self._status_from_finish_reason(finish_reason)
+         else:
+             assert isinstance(context, SimpleContext)
+             final_res = context.last_output
+@@ -733,9 +735,10 @@
+             elif hasattr(final_res, "meta_info"):
+                 meta_info = final_res.meta_info
+ 
+-            status = self._status_from_finish_reason(
++            finish_reason = (
+                 meta_info.get("finish_reason") if meta_info is not None else None
+             )
++            status = self._status_from_finish_reason(finish_reason)
+ 
+             output_logprobs = (
+                 _build_output_text_logprobs(meta_info)
+@@ -756,7 +759,8 @@
+                 num_generated_tokens = meta_info.get("completion_tokens", 0)
+                 num_cached_tokens = meta_info.get("cached_tokens", 0)
+                 num_reasoning_tokens = meta_info.get("reasoning_tokens", 0)
+-                status = self._status_from_finish_reason(meta_info.get("finish_reason"))
++                finish_reason = meta_info.get("finish_reason")
++                status = self._status_from_finish_reason(finish_reason)
+             elif isinstance(final_res, dict) and (
+                 final_res.get("prompt_token_ids") is not None
+                 or final_res.get("output_ids") is not None
+@@ -812,6 +816,7 @@
+             status=status,
+             usage=usage,
+         )
++        response.error = self._error_from_finish_reason(finish_reason)
+ 
+         if request.store:
+             async with self.response_store_lock:
+@@ -835,9 +840,27 @@
+             reason = finish_reason.get("type")
+         elif isinstance(finish_reason, str):
+             reason = finish_reason
++        if reason == "length":
++            return "incomplete"
++        if reason == "error":
++            return "failed"
+         if reason == "abort":
++            if (
++                isinstance(finish_reason, dict)
++                and finish_reason.get("status_code") is not None
++            ):
++                return "failed"
+             return "cancelled"
+-        return "incomplete" if reason == "length" else "completed"
++        return "completed"
++
++    @classmethod
++    def _error_from_finish_reason(cls, finish_reason: Any) -> Optional[dict]:
++        if cls._status_from_finish_reason(finish_reason) != "failed":
++            return None
++        message = (
++            finish_reason.get("message") if isinstance(finish_reason, dict) else None
++        )
++        return {"code": "server_error", "message": message or "Generation aborted"}
+ 
+     def _is_thinking_enabled_for_request(self, request: ResponsesRequest) -> bool:
+         if not self.reasoning_parser:
+@@ -2627,6 +2650,7 @@
+             status=status,
+             usage=usage,
+         )
++        final_response.error = self._error_from_finish_reason(finish_reason)
+         if request.store:
+             async with self.response_store_lock:
+                 stored = self.response_store.get(final_response.id)
+@@ -2638,12 +2662,19 @@
+ 
+         terminal_event = (
+             openai_responses_types.ResponseIncompleteEvent if status == "incomplete"
+-            else openai_responses_types.ResponseFailedEvent if status == "cancelled"
+-            else openai_responses_types.ResponseCompletedEvent
++            else (
++                openai_responses_types.ResponseFailedEvent
++                if status in ("failed", "cancelled")
++                else openai_responses_types.ResponseCompletedEvent
++            )
+         )
+         terminal_type = (
+             "response.incomplete" if status == "incomplete"
+-            else "response.failed" if status == "cancelled" else "response.completed"
++            else (
++                "response.failed"
++                if status in ("failed", "cancelled")
++                else "response.completed"
++            )
+         )
+         yield _send_event(
+             terminal_event(
+--- a/python/sglang/srt/managers/schedule_batch.py
++++ b/python/sglang/srt/managers/schedule_batch.py
+@@ -1603,8 +1603,14 @@
+                     )
+                 if self.eos_token_ids:
+                     self.output_ids[offset] = next(iter(self.eos_token_ids))
+-                self.finished_reason = FINISH_MATCHED_STR(matched="NaN happened")
+-                self.finished_len = offset + 1
++                self.finished_reason = FINISH_ABORT(
++                    "Generation produced an invalid token ID.",
++                    status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
++                    err_type="InvalidTokenError",
++                )
++                # Never emit the faulty token or let a speculative overrun hide
++                # the engine failure behind an ordinary length finish.
++                self.finished_len = min(offset, self.sampling_params.max_new_tokens)
+                 return True
+ 
+         return False
+@@ -1632,9 +1638,8 @@
+ 
+         new_accepted_tokens = self.output_ids[-new_accepted_len:]
+ 
+-        # Sanitize out-of-range / NaN token ids before any decode.
++        # Reject out-of-range token IDs before any decode.
+         if self._check_vocab_boundary_finish(new_accepted_tokens):
+-            self._cap_finished_len_at_max_new_tokens()
+             return
+ 
+         # Stop string beats EOS/stop-token matched in the same step (speculative
