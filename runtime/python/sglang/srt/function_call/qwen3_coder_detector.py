@@ -214,9 +214,9 @@ class Qwen3CoderDetector(BaseFormatDetector):
                         p_name = p_match[:p_idx]
                         p_val = p_match[p_idx + 1 :]
                         # Remove prefixing and trailing \n
-                        if func_name not in self.preserve_raw_input_tools and p_val.startswith("\n"):
+                        if p_val.startswith("\n"):
                             p_val = p_val[1:]
-                        if func_name not in self.preserve_raw_input_tools and p_val.endswith("\n"):
+                        if p_val.endswith("\n"):
                             p_val = p_val[:-1]
 
                         parsed_params[p_name] = self._convert_param_value(
@@ -342,9 +342,9 @@ class Qwen3CoderDetector(BaseFormatDetector):
                         raw_value = rest_of_slice[:end_pos]
 
                         # Cleanup value
-                        if self.current_func_name not in self.preserve_raw_input_tools and raw_value.startswith("\n"):
+                        if raw_value.startswith("\n"):
                             raw_value = raw_value[1:]
-                        if self.current_func_name not in self.preserve_raw_input_tools and raw_value.endswith("\n"):
+                        if raw_value.endswith("\n"):
                             raw_value = raw_value[:-1]
 
                         # JSON Construction

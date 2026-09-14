@@ -4,7 +4,7 @@
   "base_image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
   "predecessor_profile": "qwen-effort-alias",
   "patch": "0016-responses-namespace-custom-boundary.patch",
-  "patch_sha256": "b0de4bc04c45666a3cc6db0b48d30a19e4cc898cd2f7b8d6fdfc366818e1796a",
+  "patch_sha256": "8129f387d6ffdf86a61c045d5a20dad592d91d40614dffb3618d81280fdc681e",
   "files": {
     "python/sglang/srt/entrypoints/openai/protocol.py": {
       "before": "b3007a1d88e127548eca1dce13d2712123a1ecc4beb6533af41e96fd99f485a9",
@@ -20,12 +20,12 @@
     },
     "python/sglang/srt/function_call/qwen3_coder_detector.py": {
       "before": "adf38ad60548b75559e3e6b8b7b5bd20c8da29984d9b4643623cb874b263af22",
-      "after": "2906f40a1fd33b3c6137ccf957b423de1775714fd07dcedab430c3c1905eebe9"
+      "after": "4cea43b633e46ca164492ebd3a26892dbc602e29856024eaa05be65551ce4541"
     }
   },
   "source_files_before": 4391,
   "source_files_after": 4392,
-  "inventory_sha256": "a469f48f17073d22aba3e1a1aa51c9dc53015927bb5574c32ca1283401c3fdef",
+  "inventory_sha256": "e574ce136e79576c3970da7f479b729b21d18ef8e4fe3e49ae3a5fd521866138",
   "consulted_upstream": {
     "39174": "771843d0e476e24761904aba61801dd662448d42",
     "38359": "02d84e6b2bb4460a4d1a648a3a9dc2d1b4fe1905",
