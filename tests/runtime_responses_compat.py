@@ -665,6 +665,39 @@ class MockHTTPTest(unittest.TestCase):
                             ('message', 'final_answer', 'After'),
                         ])
 
+    def test_implicit_tool_close_allows_renewed_reasoning(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = 'qwen3_coder'
+        cases = [
+            ([{'type': 'function', 'name': 'inspect',
+               'parameters': {'type': 'object', 'properties': {}}}],
+             'inspect', '', 'function_call'),
+            ([{'type': 'custom', 'name': 'patch'}],
+             'patch', '<parameter=input></parameter>', 'custom_tool_call'),
+        ]
+        expected_types = ['reasoning', 'placeholder', 'reasoning', 'message']
+        for tools, name, parameters, output_type in cases:
+            self.text = (f'<think>Plan<tool_call><function={name}>{parameters}'
+                         '</function></tool_call><think>Again</think>Final')
+            for stream in (False, True):
+                with self.subTest(name=name, stream=stream):
+                    response = self.send(
+                        stream=stream, tools=tools, tool_choice='auto',
+                        reasoning={'effort': 'medium'})
+                    body = (next(event['response'] for event in self.events(response)
+                                 if event['type'] == 'response.completed')
+                            if stream else response.json())
+                    expected_types[1] = output_type
+                    self.assertEqual([item['type'] for item in body['output']],
+                                     expected_types)
+                    self.assertEqual(self.phase_semantics(
+                        [body['output'][0], body['output'][2],
+                         body['output'][3]]), [
+                            ('reasoning', 'Plan'),
+                            ('reasoning', 'Again'),
+                            ('message', 'final_answer', 'Final'),
+                        ])
+
     def test_qwen4_stream_reasoning_is_chunking_negative_control(self):
         self.serving.tokenizer_manager.model_config.hf_config.model_type = 'qwen4_exp'
         self.serving.reasoning_parser = 'qwen3'

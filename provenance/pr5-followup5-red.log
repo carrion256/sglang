@@ -1,0 +1,101 @@
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/awq/awq.py:52: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+W0914 12:54:42.051000 1 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+test_implicit_tool_close_allows_renewed_reasoning (__main__.MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning) ... /usr/local/lib/python3.12/dist-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+
+  test_implicit_tool_close_allows_renewed_reasoning (__main__.MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning) (name='inspect', stream=False) ... FAIL
+  test_implicit_tool_close_allows_renewed_reasoning (__main__.MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning) (name='inspect', stream=True) ... FAIL
+  test_implicit_tool_close_allows_renewed_reasoning (__main__.MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning) (name='patch', stream=False) ... FAIL
+  test_implicit_tool_close_allows_renewed_reasoning (__main__.MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning) (name='patch', stream=True) ... FAIL
+
+======================================================================
+FAIL: test_implicit_tool_close_allows_renewed_reasoning (__main__.MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning) (name='inspect', stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 691, in test_implicit_tool_close_allows_renewed_reasoning
+    self.assertEqual([item['type'] for item in body['output']],
+AssertionError: Lists differ: ['reasoning', 'function_call', 'message'] != ['reasoning', 'function_call', 'reasoning', 'message']
+
+First differing element 2:
+'message'
+'reasoning'
+
+Second list contains 1 additional elements.
+First extra element 3:
+'message'
+
+- ['reasoning', 'function_call', 'message']
++ ['reasoning', 'function_call', 'reasoning', 'message']
+?                                +++++++++++++
+
+
+======================================================================
+FAIL: test_implicit_tool_close_allows_renewed_reasoning (__main__.MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning) (name='inspect', stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 691, in test_implicit_tool_close_allows_renewed_reasoning
+    self.assertEqual([item['type'] for item in body['output']],
+AssertionError: Lists differ: ['reasoning', 'function_call', 'message'] != ['reasoning', 'function_call', 'reasoning', 'message']
+
+First differing element 2:
+'message'
+'reasoning'
+
+Second list contains 1 additional elements.
+First extra element 3:
+'message'
+
+- ['reasoning', 'function_call', 'message']
++ ['reasoning', 'function_call', 'reasoning', 'message']
+?                                +++++++++++++
+
+
+======================================================================
+FAIL: test_implicit_tool_close_allows_renewed_reasoning (__main__.MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning) (name='patch', stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 691, in test_implicit_tool_close_allows_renewed_reasoning
+    self.assertEqual([item['type'] for item in body['output']],
+AssertionError: Lists differ: ['reasoning', 'custom_tool_call', 'message'] != ['reasoning', 'custom_tool_call', 'reasoning', 'message']
+
+First differing element 2:
+'message'
+'reasoning'
+
+Second list contains 1 additional elements.
+First extra element 3:
+'message'
+
+- ['reasoning', 'custom_tool_call', 'message']
++ ['reasoning', 'custom_tool_call', 'reasoning', 'message']
+?                                   +++++++++++++
+
+
+======================================================================
+FAIL: test_implicit_tool_close_allows_renewed_reasoning (__main__.MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning) (name='patch', stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 691, in test_implicit_tool_close_allows_renewed_reasoning
+    self.assertEqual([item['type'] for item in body['output']],
+AssertionError: Lists differ: ['reasoning', 'custom_tool_call', 'message'] != ['reasoning', 'custom_tool_call', 'reasoning', 'message']
+
+First differing element 2:
+'message'
+'reasoning'
+
+Second list contains 1 additional elements.
+First extra element 3:
+'message'
+
+- ['reasoning', 'custom_tool_call', 'message']
++ ['reasoning', 'custom_tool_call', 'reasoning', 'message']
+?                                   +++++++++++++
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.918s
+
+FAILED (failures=4)
