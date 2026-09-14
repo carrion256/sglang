@@ -19,8 +19,10 @@ to overwrite that error.
 - **Completions:** uses the same integer-status and error-type behavior, emits
   `[DONE]`, and returns before any ordinary abort choice or usage event.
 - **Responses:** non-stream and stream terminals use `status=failed`, attach a
-  `server_error`, retain partial output, and emit `response.failed`. Stored failed
-  responses remain retrievable. A failed response used as
+  `server_error`, retain partial output, and emit `response.failed`, including
+  the Harmony streaming path. Incomplete, failed/cancelled, and completed
+  Harmony terminals now select the same event classes as non-Harmony. Stored
+  failed responses remain retrievable. A failed response used as
   `previous_response_id` is rejected with HTTP 400 and
   `param=previous_response_id` before registry replay, preprocessing, or
   generation.
@@ -46,7 +48,7 @@ effort behavior. The PR #7 `qwen_vl.py` bytes remain unchanged at SHA-256
 The four post-0019 runtime files, including `serving_completions.py`, are under
 `runtime.invalid-token-failure/`. The full 4,392-file result inventory is
 `provenance/invalid-token-failure-runtime-files.json`; its SHA-256 is
-`414b43dec378538ca1e5785f4855115947d824c2b42fe6fa4bcb2943815c05f3`.
+`f7293cc004161bcad39bc3772939fd868f8fc9d6f09d2cdb7b7ffd5a23333e1d`.
 `provenance/invalid-token-failure.json` binds base/head identities, patch and
 inventory hashes, every changed-file preimage/result, test counts, and evidence
 log hashes. The verifier fails closed on chain, series, runtime, patch,
@@ -57,7 +59,8 @@ inventory, PR #7 byte, count, or evidence drift.
 Pinned tokenizer/config metadata came from the recorded local release snapshot.
 CPU/GPU-disabled checks completed against the exact base image:
 
-- 15 focused runtime tests for scheduler/API error behavior;
+- 16 focused runtime tests for scheduler/API error behavior, including the
+  Harmony terminal-event regression captured RED before the runtime fix;
 - 4 invalid-token packaging contract tests;
 - 75 cumulative Responses tests;
 - 14 effort tests;
@@ -66,10 +69,10 @@ CPU/GPU-disabled checks completed against the exact base image:
 - 17 dedicated packaging tests;
 - two independent exact-image reconstructions, each checking all 4,392 source
   files and producing tree digest
-  `f98edc6b100d20bfd993b0f02183e53ac8f5b7bf41c849779877ee2090878482`;
+  `72d547ccf24958a58b97a931b8535b97327f4b8bfc03ef368e478d5abd58a490`;
 - local Docker build plus image readback: 4,392 expected, 4,392 present, zero
   missing, extra, or mismatched source files. The recorded candidate build digest
-  is `sha256:a4627d598748483bad601e53b7500940374d12b1226016d99a79a18569deec60`.
+  is `sha256:6122dbac2c26cb7852b9e8e44787e95ade096de82929dc9d2d93d53a86aaa227`.
 
 Run the focused gate:
 

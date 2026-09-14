@@ -8,7 +8,7 @@
   "base_inventory": "qwen-multimodal-alias-runtime-files.json",
   "base_inventory_sha256": "c88e18731d4ef0b4cd5a71c5f4b486def1677802c86303907ee50f2317714395",
   "patch": "0019-invalid-generated-token-failure.patch",
-  "patch_sha256": "4d1f7a71b2907d79d6075a9d2b1b9f0fd2dd96ec97c08bc8d246ba15979c6a75",
+  "patch_sha256": "21c16814e9e3cfa3bc521ad1ee60cc6a9fe99a320b0b2c2717ba51e08b637e71",
   "series": [
     "0015-qwen-flash-next-effort-alias.patch",
     "0016-responses-namespace-custom-boundary.patch",
@@ -27,7 +27,7 @@
     },
     "python/sglang/srt/entrypoints/openai/serving_responses.py": {
       "before": "e65084c831bb3755bcef6a3288587582c065538857b58d09c8d2c2bc3ecf696c",
-      "after": "a30b96b8b1393e8d1cf53fb180e602eeae07bd160bb88a3146eaafdf0ef0f4e7"
+      "after": "b971172798d974217a43127f3a831d28974bbad6c36f2dc8754ca940edf6e4d2"
     },
     "python/sglang/srt/managers/schedule_batch.py": {
       "before": "4965156c669a536b40250605794de9d9aa7582fde71d188ab2ecf22e766e755a",
@@ -37,9 +37,9 @@
   "source_files_before": 4392,
   "source_files_after": 4392,
   "inventory": "invalid-token-failure-runtime-files.json",
-  "inventory_sha256": "414b43dec378538ca1e5785f4855115947d824c2b42fe6fa4bcb2943815c05f3",
+  "inventory_sha256": "f7293cc004161bcad39bc3772939fd868f8fc9d6f09d2cdb7b7ffd5a23333e1d",
   "validation": {
-    "invalid_token_runtime_tests": 15,
+    "invalid_token_runtime_tests": 16,
     "invalid_token_packaging_tests": 4,
     "responses_tests": 75,
     "effort_tests": 14,
@@ -47,25 +47,27 @@
     "full_package_tests": 90,
     "dedicated_packaging_tests": 17,
     "exact_image_reconstructions": 2,
-    "exact_image_tree_digest_sha256": "f98edc6b100d20bfd993b0f02183e53ac8f5b7bf41c849779877ee2090878482",
-    "local_candidate_image_digest": "sha256:a4627d598748483bad601e53b7500940374d12b1226016d99a79a18569deec60",
+    "exact_image_tree_digest_sha256": "72d547ccf24958a58b97a931b8535b97327f4b8bfc03ef368e478d5abd58a490",
+    "local_candidate_image_digest": "sha256:6122dbac2c26cb7852b9e8e44787e95ade096de82929dc9d2d93d53a86aaa227",
     "logs": {
-      "pr8-final-invalid-token-green.log": "d70f998e10597b3d33c9ee5ebbb5b69f03b71e96b97ef96a585db52289d3aa13",
-      "pr8-final-responses-75.log": "eeb2f440d737a0a5f0f1f686c7dfab7e9399733e45cad32110d9d9e33255719a",
-      "pr8-final-effort-14.log": "c91d898de13ded814c6abd96a7028c5d2cffa36db0c05709516009d76de12506",
-      "pr8-final-multimodal-4.log": "b0f726e94944c0035e02d80319aecd788d16c42e9346afdceb2643f7f8786b3d",
-      "pr8-final-full-package.log": "9584ca1c8725c16d69812491fe802f4345c0312d92366cf4d50856fb09079796",
-      "pr8-final-packaging-17.log": "f0ed380b08e2a24c2d2bfe7072f492a40d0f0600b2db7a605c66a032c5e6b58b",
-      "pr8-final-exact-image-reconstruction-twice.log": "b979d29167bb1e0f39275de0acac87e06e14abd5012e27376f792c895f3872ea",
-      "pr8-final-docker-build-readback.log": "c90c1240d352226a0467412353f2b8601aa203652a8c22528f1fedb72f617da1",
-      "pr8-final-compile-diff-security.log": "32cceb049709ca854a9a52c4b326e79c822f5d8b37a4f9d178b213c2f66eecbf"
+      "pr8-final-invalid-token-green.log": "13bba3308630c9f717e34471232baa9de7b98a76f67dd8580f9adc6ade814169",
+      "pr8-final-responses-75.log": "632433f45858173ad07267127c83600cee6605c759c4e6d4e7e4e5eef49dbfa7",
+      "pr8-final-effort-14.log": "ee686891fc42e268d9e8b0d9b7f013c6dec903c4665b7873d7ed4a44c0c57d8f",
+      "pr8-final-multimodal-4.log": "971be1d1103932de55cb49a92c42a3b5b7f4409a1cfb1c182c80523ce6de9aca",
+      "pr8-final-full-package.log": "9bd74e7c9de43b61156ad6b547c9e8bf6f5838afd4a79d153785b427896d8847",
+      "pr8-final-packaging-17.log": "28f8f82e4e95c8de296c75f35c475104d9a92e86e629d8a21828389144fbbed3",
+      "pr8-final-exact-image-reconstruction-twice.log": "8d70ea13623e3bf30992790819581bbd632ce4eb57a78e09ddc935f14be73dae",
+      "pr8-final-docker-build-readback.log": "cd5a2a86f239f79ac002b1f40bb9ed73683839d2006ee3d1c40ed235dfba5950",
+      "pr8-final-compile-diff-security.log": "80e47f0993b198cf1ab22695be8415e11d52df3e95a13875f9dc74b0631cf892",
+      "pr8-harmony-terminal-red.log": "cb00fd10231239dca54a539de85143dea571a27639025bc7acf22f220b8e47e3"
     }
   },
   "scope": [
     "Scheduler invalid generated-token classification without faulty-token emission",
     "Chat and Completions InvalidTokenError streaming propagation",
-    "Responses failed terminals, storage, retrieval, and pre-generation replay rejection",
+    "Responses failed terminals (Harmony and non-Harmony), storage, retrieval, and pre-generation replay rejection",
     "Graceful cancellation behavior preservation",
     "PR5 Responses phase/order behavior and PR7 Qwen VL bytes preservation"
-  ]
+  ],
+  "terminal_event_fix_base_head": "cb8a491af7ad664e207fe2fb7d7bded4fd8a4dbb"
 }

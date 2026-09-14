@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from runtime_chat_effort import ChatEffortTest
 from sglang.srt.entrypoints.anthropic.protocol import AnthropicMessagesRequest
 from sglang.srt.entrypoints.anthropic.serving import AnthropicServing
-from sglang.srt.entrypoints.context import SimpleContext
+from sglang.srt.entrypoints.context import SimpleContext, StreamingHarmonyContext
 from sglang.srt.entrypoints.openai.protocol import (
     ChatCompletionRequest,
     CompletionRequest,
@@ -344,6 +344,47 @@ class InvalidTokenFailureTest(unittest.TestCase):
         self.assertIn(
             "invalid token ID", events[-1]["response"]["error"]["message"]
         )
+        self.assertFalse(any(event["type"] == "response.completed" for event in events))
+
+    def test_harmony_responses_stream_failure_uses_failed_terminal_event(self):
+        request = ResponsesRequest(
+            model="fixture-qwen", input="Hi", stream=True, store=True
+        )
+        metadata = RequestResponseMetadata(request_id=request.request_id)
+        self.responses.use_harmony = True
+        self.responses._make_response_output_items_with_harmony = lambda context: []
+        context = StreamingHarmonyContext.__new__(StreamingHarmonyContext)
+        context.parser = SimpleNamespace(messages=[], last_content_delta=None)
+        context.is_expecting_start = lambda: False
+        context.is_assistant_action_turn = lambda: False
+        context.num_init_messages = 0
+        context.num_prompt_tokens = 0
+        context.num_cached_tokens = 0
+        context.num_output_tokens = 0
+        context.num_reasoning_tokens = 0
+        context.finish_reason = invalid_finish(serialized=True)
+
+        async def stream_result():
+            yield context
+
+        async def collect_responses():
+            return [
+                frame
+                async for frame in self.responses.responses_stream_generator(
+                    request,
+                    {},
+                    stream_result(),
+                    context,
+                    "fixture-qwen",
+                    self.chat.tokenizer_manager.tokenizer,
+                    metadata,
+                    require_reasoning=False,
+                )
+            ]
+
+        events = data_payloads(asyncio.run(collect_responses()))
+        self.assertEqual(events[-1]["type"], "response.failed")
+        self.assertEqual(events[-1]["response"]["status"], "failed")
         self.assertFalse(any(event["type"] == "response.completed" for event in events))
 
     def test_failed_response_retrieval_preserves_failure_and_partial_output(self):

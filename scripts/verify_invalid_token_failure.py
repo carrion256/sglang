@@ -92,7 +92,7 @@ def package_records():
 
     validation = manifest["validation"]
     expected_counts = {
-        "invalid_token_runtime_tests": 15,
+        "invalid_token_runtime_tests": 16,
         "invalid_token_packaging_tests": 4,
         "responses_tests": 75,
         "effort_tests": 14,

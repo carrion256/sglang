@@ -59,7 +59,7 @@ index d5587765bd73ab98afa51643ae0382aa22ec31f8..1f701086f196ddc593e02809a63ba744
                  choice_data = CompletionResponseStreamChoice(
                      index=index,
 diff --git a/python/sglang/srt/entrypoints/openai/serving_responses.py b/python/sglang/srt/entrypoints/openai/serving_responses.py
-index 844e0114bf269a864666c98a0e39c57127834580..2a242a3640181ae753d6b884a47f9a00c8ac64fb 100644
+index 844e0114bf269a864666c98a0e39c57127834580..b37663dc191991c53d29248c275d4fa6dbbf1153 100644
 --- a/python/sglang/srt/entrypoints/openai/serving_responses.py
 +++ b/python/sglang/srt/entrypoints/openai/serving_responses.py
 @@ -315,6 +315,10 @@ class OpenAIServingResponses(OpenAIServingChat):
@@ -176,7 +176,36 @@ index 844e0114bf269a864666c98a0e39c57127834580..2a242a3640181ae753d6b884a47f9a00
      async def responses_stream_generator(
          self,
          request: ResponsesRequest,
-@@ -3125,6 +3164,7 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -2372,9 +2411,26 @@ class OpenAIServingResponses(OpenAIServingChat):
+         # OpenAI SDK's Tool union may not know extended types; drop echo.
+         response_dict["tools"] = []
+ 
++        status = final_response.status
++        terminal_event = (
++            openai_responses_types.ResponseIncompleteEvent if status == "incomplete"
++            else (
++                openai_responses_types.ResponseFailedEvent
++                if status in ("failed", "cancelled")
++                else openai_responses_types.ResponseCompletedEvent
++            )
++        )
++        terminal_type = (
++            "response.incomplete" if status == "incomplete"
++            else (
++                "response.failed"
++                if status in ("failed", "cancelled")
++                else "response.completed"
++            )
++        )
+         yield _send_event(
+-            openai_responses_types.ResponseCompletedEvent(
+-                type="response.completed",
++            terminal_event(
++                type=terminal_type,
+                 sequence_number=-1,
+                 response=response_dict,
+             )
+@@ -3125,6 +3181,7 @@ class OpenAIServingResponses(OpenAIServingChat):
              status=status,
              usage=usage,
          )
@@ -184,7 +213,7 @@ index 844e0114bf269a864666c98a0e39c57127834580..2a242a3640181ae753d6b884a47f9a00
          if request.store:
              async with self.response_store_lock:
                  stored = self.response_store.get(final_response.id)
-@@ -3136,12 +3176,19 @@ class OpenAIServingResponses(OpenAIServingChat):
+@@ -3136,12 +3193,19 @@ class OpenAIServingResponses(OpenAIServingChat):
  
          terminal_event = (
              openai_responses_types.ResponseIncompleteEvent if status == "incomplete"

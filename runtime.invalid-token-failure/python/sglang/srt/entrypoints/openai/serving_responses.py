@@ -2411,9 +2411,26 @@ class OpenAIServingResponses(OpenAIServingChat):
         # OpenAI SDK's Tool union may not know extended types; drop echo.
         response_dict["tools"] = []
 
+        status = final_response.status
+        terminal_event = (
+            openai_responses_types.ResponseIncompleteEvent if status == "incomplete"
+            else (
+                openai_responses_types.ResponseFailedEvent
+                if status in ("failed", "cancelled")
+                else openai_responses_types.ResponseCompletedEvent
+            )
+        )
+        terminal_type = (
+            "response.incomplete" if status == "incomplete"
+            else (
+                "response.failed"
+                if status in ("failed", "cancelled")
+                else "response.completed"
+            )
+        )
         yield _send_event(
-            openai_responses_types.ResponseCompletedEvent(
-                type="response.completed",
+            terminal_event(
+                type=terminal_type,
                 sequence_number=-1,
                 response=response_dict,
             )

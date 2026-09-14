@@ -91,6 +91,6 @@ test_fc2_rejects_unproven_output_padding (test_vision_cpu.VisionTests.test_fc2_r
 test_fc2_restores_logical_order_and_handles_no_bias (test_vision_cpu.VisionTests.test_fc2_restores_logical_order_and_handles_no_bias) ... ok
 
 ----------------------------------------------------------------------
-Ran 90 tests in 5.552s
+Ran 90 tests in 5.471s
 
 OK

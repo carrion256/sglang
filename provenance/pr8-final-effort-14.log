@@ -2,11 +2,11 @@
   warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
 /sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
   warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
-W0914 14:08:50.350000 1 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+W0914 14:33:11.444000 1 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
 test_direct_renderer_policy_unchanged (runtime_chat_effort.ChatEffortTest.test_direct_renderer_policy_unchanged) ... ok
 test_effort_matrix_and_no_cross_request_leak (runtime_chat_effort.ChatEffortTest.test_effort_matrix_and_no_cross_request_leak) ... ok
 test_invalid_effort_rejected_in_both_forms (runtime_chat_effort.ChatEffortTest.test_invalid_effort_rejected_in_both_forms) ... ok
-test_top_level_xhigh_reaches_real_tokenizer (runtime_chat_effort.ChatEffortTest.test_top_level_xhigh_reaches_real_tokenizer) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py:1034: DeprecationWarning: max_tokens is deprecated in favor of the max_completion_tokens field
+test_top_level_xhigh_reaches_real_tokenizer (runtime_chat_effort.ChatEffortTest.test_top_level_xhigh_reaches_real_tokenizer) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py:1039: DeprecationWarning: max_tokens is deprecated in favor of the max_completion_tokens field
   "max_new_tokens": self.max_completion_tokens or self.max_tokens,
 ok
 test_anthropic_messages_effort_uses_shared_aliases (__main__.QwenAliasTest.test_anthropic_messages_effort_uses_shared_aliases) ... ok
@@ -23,6 +23,6 @@ test_tokenize_precedence_null_and_provenance (__main__.QwenAliasTest.test_tokeni
 test_unrelated_model_native_efforts_are_not_aliased (__main__.QwenAliasTest.test_unrelated_model_native_efforts_are_not_aliased) ... ok
 
 ----------------------------------------------------------------------
-Ran 14 tests in 2.532s
+Ran 14 tests in 2.536s
 
 OK

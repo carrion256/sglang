@@ -2,7 +2,7 @@
   warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
 /sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
   warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
-W0914 14:08:23.679000 1 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+W0914 14:32:59.050000 1 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
 test_direct_renderer_policy_unchanged (runtime_chat_effort.ChatEffortTest.test_direct_renderer_policy_unchanged) ... ok
 test_effort_matrix_and_no_cross_request_leak (runtime_chat_effort.ChatEffortTest.test_effort_matrix_and_no_cross_request_leak) ... ok
 test_invalid_effort_rejected_in_both_forms (runtime_chat_effort.ChatEffortTest.test_invalid_effort_rejected_in_both_forms) ... ok
@@ -91,9 +91,9 @@ test_mock_http_forced_choice_cannot_emit_other_declared_tool (__main__.MockHTTPT
   return self.create_error_response(str(e))
 Error while streaming /v1/responses
 Traceback (most recent call last):
-  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 3102, in responses_stream_generator_non_harmony
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 3119, in responses_stream_generator_non_harmony
     for ev in _emit_tool_calls(opening):
-  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2993, in _emit_tool_calls
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 3010, in _emit_tool_calls
     request._compat_registry.output_identity(state["name"])
   File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 121, in output_identity
     raise ValueError("Generated tool call does not match forced tool choice")
@@ -107,9 +107,9 @@ test_mock_http_native_auto_and_required (__main__.MockHTTPTest.test_mock_http_na
 test_mock_http_native_unknown_fails_closed (__main__.MockHTTPTest.test_mock_http_native_unknown_fails_closed) ... Tool 'workspace.NOT_DECLARED' is not defined in the tools list.
 Error while streaming /v1/responses
 Traceback (most recent call last):
-  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 3102, in responses_stream_generator_non_harmony
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 3119, in responses_stream_generator_non_harmony
     for ev in _emit_tool_calls(opening):
-  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2993, in _emit_tool_calls
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 3010, in _emit_tool_calls
     request._compat_registry.output_identity(state["name"])
   File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 122, in output_identity
     return self.identity(qualified)
@@ -157,6 +157,6 @@ test_qwen_replay_preserves_assistant_stage_order (__main__.ResponsesCompatTest.t
 test_stored_response_replays_reasoning_phase_and_call_together (__main__.ResponsesCompatTest.test_stored_response_replays_reasoning_phase_and_call_together) ... ok
 
 ----------------------------------------------------------------------
-Ran 75 tests in 5.024s
+Ran 75 tests in 5.002s
 
 OK

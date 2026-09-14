@@ -17,6 +17,6 @@ test_patch_and_inventory_drift_fail_closed (tests.test_invalid_token_packaging.I
 test_runtime_drift_fails_closed (tests.test_invalid_token_packaging.InvalidTokenPackagingTest.test_runtime_drift_fails_closed) ... ok
 
 ----------------------------------------------------------------------
-Ran 17 tests in 0.188s
+Ran 17 tests in 0.219s
 
 OK

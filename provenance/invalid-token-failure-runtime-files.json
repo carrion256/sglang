@@ -2488,7 +2488,7 @@
   "python/sglang/srt/entrypoints/openai/serving_completions.py": "0d21d557ef38d0639e4030bff764ecca8a266ef6d60284cf959c56d9dec751a1",
   "python/sglang/srt/entrypoints/openai/serving_embedding.py": "cf1b283df88e1286b7f803f2173bf89499c65e25c93462bc299b2c64539d77b8",
   "python/sglang/srt/entrypoints/openai/serving_rerank.py": "5242cd42c8ccba74fbdf13e2c7eee63b5551e3d6bef09933aba213d690cb3329",
-  "python/sglang/srt/entrypoints/openai/serving_responses.py": "a30b96b8b1393e8d1cf53fb180e602eeae07bd160bb88a3146eaafdf0ef0f4e7",
+  "python/sglang/srt/entrypoints/openai/serving_responses.py": "b971172798d974217a43127f3a831d28974bbad6c36f2dc8754ca940edf6e4d2",
   "python/sglang/srt/entrypoints/openai/serving_score.py": "203748c564cd979d03d54dee44140c63caef59490d1ca508ccb1aca3f69ffccd",
   "python/sglang/srt/entrypoints/openai/serving_tokenize.py": "f1791dbe89245cf80f2ae3c3f052e944c0b602deaf45909a31d2e4aabfc95711",
   "python/sglang/srt/entrypoints/openai/serving_transcription.py": "0f15eac62ea22d5cd531f19e9419a5db61f6a3109a25f0e6d87e84d215c4128d",
