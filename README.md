@@ -1,8 +1,8 @@
 # Qwen TP2 packed-PLE vision on SM120
 
-**Unpublished CPU candidate:** [Responses namespace/custom compatibility](docs/responses-compat.md)
-adds a separately attested boundary backport after the effort-alias profile.
-Historical production profiles below are unchanged; no deployment is implied.
+**Unpublished CPU candidate:** [Responses compatibility and Qwen phase/order](docs/responses-compat.md)
+adds separately attested boundary and streaming-order patches after the effort-alias
+profile. Historical production profiles below are unchanged; no deployment is implied.
 
 Publishable source and deployment package for the locally accepted Qwen3.8
 Flash-Next LIL NVFP4 stack. **No model weights, container archives, credentials,

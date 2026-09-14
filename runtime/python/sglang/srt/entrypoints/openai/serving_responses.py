@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from contextlib import AsyncExitStack
 from http import HTTPStatus
@@ -18,7 +19,6 @@ import orjson
 from fastapi import Request
 from fastapi.responses import ORJSONResponse
 from openai.types.responses import (
-    ResponseOutputMessage,
     ResponseOutputText,
     ResponseReasoningItem,
 )
@@ -61,6 +61,9 @@ from sglang.srt.entrypoints.openai.protocol import (
     MessageProcessingResult,
     PromptTokenUsageInfo,
     RequestResponseMetadata,
+    ResponseOutputMessage,
+    ResponsePhasedOutputItemAddedEvent,
+    ResponsePhasedOutputItemDoneEvent,
     ResponsesRequest,
     ResponsesResponse,
     Tool,
@@ -1009,6 +1012,7 @@ class OpenAIServingResponses(OpenAIServingChat):
                 role="assistant",
                 status="completed",
                 type="message",
+                phase="commentary" if tool_call_items else "final_answer",
             )
             output_items.append(message)
         output_items.extend(tool_call_items)
@@ -1232,10 +1236,39 @@ class OpenAIServingResponses(OpenAIServingChat):
     @staticmethod
     def _merge_consecutive_assistant_messages(
         messages: list,
+        *,
+        preserve_qwen_order: bool = False,
     ) -> list:
         """Collapse runs of consecutive ``assistant`` dicts into one entry,
         joining ``content`` and concatenating ``tool_calls`` and
         ``reasoning_content`` so a logical turn renders as a single block."""
+
+        def compatible(left: dict, right: dict) -> bool:
+            left_phase, right_phase = left.get("phase"), right.get("phase")
+            if not preserve_qwen_order:
+                return left_phase == right_phase
+            if (
+                left_phase is not None
+                and right_phase is not None
+                and left_phase != right_phase
+            ):
+                return False
+            if left_phase == "final_answer" and (
+                right.get("reasoning_content") or right.get("tool_calls")
+            ):
+                return False
+
+            # Qwen renders reasoning, then content, then calls within each block.
+            # A restarted sequence must remain in a separate assistant block.
+            fields = ("reasoning_content", "content", "tool_calls")
+            left_stages = [i for i, field in enumerate(fields) if left.get(field)]
+            right_stages = [i for i, field in enumerate(fields) if right.get(field)]
+            return (
+                not left_stages
+                or not right_stages
+                or max(left_stages) <= min(right_stages)
+            )
+
         merged: list = []
         for msg in messages:
             if (
@@ -1244,8 +1277,16 @@ class OpenAIServingResponses(OpenAIServingChat):
                 and merged
                 and isinstance(merged[-1], dict)
                 and merged[-1].get("role") == "assistant"
+                and compatible(merged[-1], msg)
             ):
                 prev = merged[-1] = dict(merged[-1])
+                # Reasoning and calls have no phase; retain the text item's phase.
+                if (
+                    preserve_qwen_order
+                    and prev.get("phase") is None
+                    and msg.get("phase") is not None
+                ):
+                    prev["phase"] = msg["phase"]
                 # Lift mixed str/list content to list parts so non-text parts
                 # (e.g. image_url) survive when the two sides differ in shape.
                 new_content = msg.get("content")
@@ -1305,13 +1346,9 @@ class OpenAIServingResponses(OpenAIServingChat):
             messages.extend(prev_msg)
 
             for output_item in prev_response.output:
-                if isinstance(output_item, ResponseFunctionToolCall):
-                    messages.append(self._normalize_response_message_for_chat(output_item))
-                    continue
-                assistant_text = self._output_message_text(output_item)
-                if assistant_text is None:
-                    continue
-                messages.append({"role": "assistant", "content": assistant_text})
+                normalized = self._normalize_response_message_for_chat(output_item)
+                if normalized is not None:
+                    messages.append(normalized)
 
         # Append the new input
         # Responses API supports simple text inputs without chat format
@@ -1326,7 +1363,15 @@ class OpenAIServingResponses(OpenAIServingChat):
         # One Responses-API assistant turn maps to multiple input items
         # (message + function_call(s)); collapse them into one chat message
         # so chat templates render a single assistant block per turn.
-        messages = self._merge_consecutive_assistant_messages(messages)
+        is_qwen = self.tokenizer_manager.model_config.hf_config.model_type in {
+            "qwen3_8_flash_next",
+            "qwen3_8_flash_next_text",
+            "qwen4_exp",
+        }
+        messages = self._merge_consecutive_assistant_messages(
+            messages,
+            preserve_qwen_order=is_qwen,
+        )
 
         # Most chat templates expect a single leading ``system`` message;
         # coalesce any ``instructions`` + interleaved ``developer`` entries.
@@ -2091,6 +2136,16 @@ class OpenAIServingResponses(OpenAIServingChat):
                 tool_call_parser_active=isinstance(tool_parser, FunctionCallParser),
             )
 
+        # These parsers return separate text and call collections. Feed Qwen
+        # markup boundaries separately so their original order remains visible.
+        split_qwen_markup = (
+            self.tokenizer_manager.model_config.hf_config.model_type
+            in {"qwen3_8_flash_next", "qwen3_8_flash_next_text", "qwen4_exp"}
+            and self.reasoning_parser in {None, "qwen3", "qwen3-thinking"}
+            and self.tool_call_parser in {None, "qwen3_coder"}
+            and (reasoning_parser_obj is not None or tool_parser is not None)
+        )
+
         current_output_index = -1
         reasoning_state = {
             "open": False,
@@ -2211,7 +2266,7 @@ class OpenAIServingResponses(OpenAIServingChat):
             )
             return item_id
 
-        def _close_message_item():
+        def _close_message_item(phase: str = "final_answer"):
             if not message_state["open"]:
                 return []
             text = message_state["text"]
@@ -2224,6 +2279,7 @@ class OpenAIServingResponses(OpenAIServingChat):
                 role="assistant",
                 content=[text_content],
                 status="completed",
+                phase=phase,
             )
             events = [
                 _send_event(
@@ -2248,7 +2304,7 @@ class OpenAIServingResponses(OpenAIServingChat):
                     )
                 ),
                 _send_event(
-                    openai_responses_types.ResponseOutputItemDoneEvent(
+                    ResponsePhasedOutputItemDoneEvent(
                         type="response.output_item.done",
                         sequence_number=-1,
                         output_index=message_state["output_index"],
@@ -2335,241 +2391,259 @@ class OpenAIServingResponses(OpenAIServingChat):
                 )
                 flushed = flushed or flush
 
-                if reasoning_parser_obj is not None:
-                    reasoning_chunk, delta = reasoning_parser_obj.parse_stream_chunk(
-                        delta
-                    )
-                    if flush:
-                        end_reasoning, end_normal = (
-                            reasoning_parser_obj.parse_stream_end()
+                parts = (
+                    [part for part in re.split(r"(?=<)|(?<=>)", delta) if part]
+                    or [""]
+                    if split_qwen_markup
+                    else [delta]
+                )
+                flush_chunk = flush
+                for part_index, delta in enumerate(parts):
+                    # Flush parser state once, after the terminal piece.
+                    flush = flush_chunk and part_index == len(parts) - 1
+                    if reasoning_parser_obj is not None:
+                        reasoning_chunk, delta = reasoning_parser_obj.parse_stream_chunk(
+                            delta
                         )
-                        if end_reasoning:
-                            reasoning_chunk = (reasoning_chunk or "") + end_reasoning
-                        if end_normal:
-                            delta = (delta or "") + end_normal
-                else:
-                    reasoning_chunk = None
-
-                if reasoning_chunk:
-                    if message_state["open"]:
-                        for ev in _close_message_item():
-                            yield ev
-                    if not reasoning_state["open"]:
-                        item_id = _open_reasoning_item()
-                        yield _send_event(
-                            openai_responses_types.ResponseOutputItemAddedEvent(
-                                type="response.output_item.added",
-                                sequence_number=-1,
-                                output_index=reasoning_state["output_index"],
-                                item=ResponseReasoningItem(
-                                    id=item_id,
-                                    type="reasoning",
-                                    summary=[],
-                                    content=[],
-                                    status="in_progress",
-                                ),
+                        if flush:
+                            end_reasoning, end_normal = (
+                                reasoning_parser_obj.parse_stream_end()
                             )
-                        )
-                        # Clients that opt into ``reasoning.summary`` render
-                        # off the ``reasoning_summary_text.*`` event stream,
-                        # so mirror the trace into a summary part.
-                        if wants_summary:
-                            yield _send_event(
-                                openai_responses_types.ResponseReasoningSummaryPartAddedEvent(
-                                    type="response.reasoning_summary_part.added",
-                                    item_id=item_id,
-                                    output_index=reasoning_state["output_index"],
-                                    summary_index=0,
-                                    part=ResponseReasoningSummaryAddedPart(
-                                        type="summary_text", text=""
-                                    ),
-                                    sequence_number=-1,
-                                )
-                            )
-                    reasoning_state["text"] += reasoning_chunk
-                    if wants_summary:
-                        yield _send_event(
-                            openai_responses_types.ResponseReasoningSummaryTextDeltaEvent(
-                                type="response.reasoning_summary_text.delta",
-                                item_id=reasoning_state["item_id"],
-                                output_index=reasoning_state["output_index"],
-                                summary_index=0,
-                                delta=reasoning_chunk,
-                                sequence_number=-1,
-                            )
-                        )
+                            if end_reasoning:
+                                reasoning_chunk = (reasoning_chunk or "") + end_reasoning
+                            if end_normal:
+                                delta = (delta or "") + end_normal
                     else:
-                        yield _send_event(
-                            openai_responses_types.ResponseReasoningTextDeltaEvent(
-                                type="response.reasoning_text.delta",
-                                item_id=reasoning_state["item_id"],
-                                output_index=reasoning_state["output_index"],
-                                content_index=0,
-                                delta=reasoning_chunk,
-                                sequence_number=-1,
-                            )
-                        )
+                        reasoning_chunk = None
 
-                if not delta and not flush:
-                    continue
-
-                if isinstance(tool_parser, JsonArrayParser):
-                    required_buffer += delta
-                    normal_text, tool_calls = "", []
-                    if flush and required_buffer.strip():
-                        tool_calls = [
-                            ToolCallItem(tool_index=index, name=name, parameters=arguments)
-                            for index, (name, arguments) in enumerate(
-                                validated_json_calls(required_buffer, {tool.function.name for tool in chat_tools})
-                            )
-                        ]
-                elif tool_parser is not None:
-                    normal_text, tool_calls = tool_parser.parse_stream_chunk(delta)
-                    if flush:
-                        end_text, end_calls = tool_parser.parse_stream_end()
-                        normal_text = (normal_text or "") + end_text
-                        tool_calls = list(tool_calls) + end_calls
-                else:
-                    normal_text, tool_calls = delta, []
-
-                def _emit_tool_calls(calls):
-                    nonlocal current_output_index
-                    if calls:
-                        if reasoning_state["open"]:
-                            for ev in _close_reasoning_item():
-                                yield ev
+                    if reasoning_chunk:
                         if message_state["open"]:
-                            for ev in _close_message_item():
+                            for ev in _close_message_item(phase="commentary"):
                                 yield ev
-
-                    for call in calls:
-                        tool_index = call.tool_index
-                        state = tool_call_states.get(tool_index)
-                        if state is None or state.get("done"):
-                            # Close other open calls first, so their
-                            # output_item.done precedes the next added.
-                            for other_index in list(tool_call_states):
-                                if other_index != tool_index:
-                                    for ev in _close_tool_call_state(other_index):
-                                        yield ev
-                            current_output_index += 1
-                            item_id = f"fc_{random_uuid()[:8]}"
-                            call_id = f"call_{random_uuid()[:24]}"
-                            state = {
-                                "item_id": item_id,
-                                "call_id": call_id,
-                                "output_index": current_output_index,
-                                "name": call.name or "",
-                                "arguments": "",
-                                "added": False,
-                                "done": False,
-                            }
-                            tool_call_states[tool_index] = state
-                        if not state["added"]:
-                            if request._compat_registry is not None:
-                                request._compat_registry.output_identity(state["name"])
-                            state["added"] = True
+                        if not reasoning_state["open"]:
+                            item_id = _open_reasoning_item()
                             yield _send_event(
                                 openai_responses_types.ResponseOutputItemAddedEvent(
                                     type="response.output_item.added",
                                     sequence_number=-1,
-                                    output_index=state["output_index"],
-                                    item=ResponseFunctionToolCall(
-                                        arguments="",
-                                        call_id=state["call_id"],
-                                        name=state["name"],
-                                        type="function_call",
-                                        id=state["item_id"],
-                                        status="in_progress",
-                                    ),
-                                )
-                            )
-                        if call.parameters:
-                            state["arguments"] += call.parameters
-                            yield _send_event(
-                                openai_responses_types.ResponseFunctionCallArgumentsDeltaEvent(
-                                    type="response.function_call_arguments.delta",
-                                    sequence_number=-1,
-                                    item_id=state["item_id"],
-                                    output_index=state["output_index"],
-                                    delta=call.parameters,
-                                )
-                            )
-
-                def _emit_normal_text():
-                    if normal_text and _should_emit_normal_text_as_message(
-                        normal_text,
-                        any_tool_call_in_progress=any(
-                            not s.get("done") for s in tool_call_states.values()
-                        ),
-                    ):
-                        if reasoning_state["open"]:
-                            for ev in _close_reasoning_item():
-                                yield ev
-                        for tool_index in list(tool_call_states):
-                            for ev in _close_tool_call_state(tool_index):
-                                yield ev
-                        if not message_state["open"]:
-                            item_id = _open_message_item()
-                            yield _send_event(
-                                openai_responses_types.ResponseOutputItemAddedEvent(
-                                    type="response.output_item.added",
-                                    sequence_number=-1,
-                                    output_index=message_state["output_index"],
-                                    item=ResponseOutputMessage(
+                                    output_index=reasoning_state["output_index"],
+                                    item=ResponseReasoningItem(
                                         id=item_id,
-                                        type="message",
-                                        role="assistant",
+                                        type="reasoning",
+                                        summary=[],
                                         content=[],
                                         status="in_progress",
                                     ),
                                 )
                             )
+                            # Clients that opt into ``reasoning.summary`` render
+                            # off the ``reasoning_summary_text.*`` event stream,
+                            # so mirror the trace into a summary part.
+                            if wants_summary:
+                                yield _send_event(
+                                    openai_responses_types.ResponseReasoningSummaryPartAddedEvent(
+                                        type="response.reasoning_summary_part.added",
+                                        item_id=item_id,
+                                        output_index=reasoning_state["output_index"],
+                                        summary_index=0,
+                                        part=ResponseReasoningSummaryAddedPart(
+                                            type="summary_text", text=""
+                                        ),
+                                        sequence_number=-1,
+                                    )
+                                )
+                        reasoning_state["text"] += reasoning_chunk
+                        if wants_summary:
                             yield _send_event(
-                                openai_responses_types.ResponseContentPartAddedEvent(
-                                    type="response.content_part.added",
+                                openai_responses_types.ResponseReasoningSummaryTextDeltaEvent(
+                                    type="response.reasoning_summary_text.delta",
+                                    item_id=reasoning_state["item_id"],
+                                    output_index=reasoning_state["output_index"],
+                                    summary_index=0,
+                                    delta=reasoning_chunk,
                                     sequence_number=-1,
-                                    output_index=message_state["output_index"],
-                                    item_id=message_state["item_id"],
-                                    content_index=0,
-                                    part=openai_responses_types.ResponseOutputText(
-                                        type="output_text",
-                                        text="",
-                                        annotations=[],
-                                        logprobs=None,
-                                    ),
                                 )
                             )
-                        message_state["text"] += normal_text
-                        yield _send_event(
-                            openai_responses_types.ResponseTextDeltaEvent(
-                                type="response.output_text.delta",
-                                sequence_number=-1,
-                                content_index=0,
-                                output_index=message_state["output_index"],
-                                item_id=message_state["item_id"],
-                                delta=normal_text,
-                                logprobs=[],
+                        else:
+                            yield _send_event(
+                                openai_responses_types.ResponseReasoningTextDeltaEvent(
+                                    type="response.reasoning_text.delta",
+                                    item_id=reasoning_state["item_id"],
+                                    output_index=reasoning_state["output_index"],
+                                    content_index=0,
+                                    delta=reasoning_chunk,
+                                    sequence_number=-1,
+                                )
                             )
-                        )
 
-                # The parser's (text, calls) tuple is unordered, but positions
-                # are recoverable: continuing arguments precede this delta's
-                # text, a newly opened call follows it. Classify first --
-                # emitting mutates tool_call_states.
-                def _is_continuing(call):
-                    state = tool_call_states.get(call.tool_index)
-                    return state is not None and not state.get("done")
+                    if not delta and not flush:
+                        continue
 
-                continuing = [c for c in tool_calls if _is_continuing(c)]
-                opening = [c for c in tool_calls if not _is_continuing(c)]
+                    if isinstance(tool_parser, JsonArrayParser):
+                        required_buffer += delta
+                        normal_text, tool_calls = "", []
+                        if flush and required_buffer.strip():
+                            tool_calls = [
+                                ToolCallItem(tool_index=index, name=name, parameters=arguments)
+                                for index, (name, arguments) in enumerate(
+                                    validated_json_calls(required_buffer, {tool.function.name for tool in chat_tools})
+                                )
+                            ]
+                    elif tool_parser is not None:
+                        normal_text, tool_calls = tool_parser.parse_stream_chunk(delta)
+                        if flush:
+                            end_text, end_calls = tool_parser.parse_stream_end()
+                            normal_text = (normal_text or "") + end_text
+                            tool_calls = list(tool_calls) + end_calls
+                    else:
+                        normal_text, tool_calls = delta, []
 
-                for ev in _emit_tool_calls(continuing):
-                    yield ev
-                for ev in _emit_normal_text():
-                    yield ev
-                for ev in _emit_tool_calls(opening):
-                    yield ev
+                    def _emit_tool_calls(calls):
+                        nonlocal current_output_index
+                        if calls:
+                            if reasoning_state["open"]:
+                                for ev in _close_reasoning_item():
+                                    yield ev
+                            if message_state["open"]:
+                                for ev in _close_message_item(phase="commentary"):
+                                    yield ev
+
+                        for call in calls:
+                            tool_index = call.tool_index
+                            state = tool_call_states.get(tool_index)
+                            if state is None or state.get("done"):
+                                # Close other open calls first, so their
+                                # output_item.done precedes the next added.
+                                for other_index in list(tool_call_states):
+                                    if other_index != tool_index:
+                                        for ev in _close_tool_call_state(other_index):
+                                            yield ev
+                                current_output_index += 1
+                                item_id = f"fc_{random_uuid()[:8]}"
+                                call_id = f"call_{random_uuid()[:24]}"
+                                state = {
+                                    "item_id": item_id,
+                                    "call_id": call_id,
+                                    "output_index": current_output_index,
+                                    "name": call.name or "",
+                                    "arguments": "",
+                                    "added": False,
+                                    "done": False,
+                                }
+                                tool_call_states[tool_index] = state
+                            if not state["added"]:
+                                if request._compat_registry is not None:
+                                    request._compat_registry.output_identity(state["name"])
+                                state["added"] = True
+                                yield _send_event(
+                                    openai_responses_types.ResponseOutputItemAddedEvent(
+                                        type="response.output_item.added",
+                                        sequence_number=-1,
+                                        output_index=state["output_index"],
+                                        item=ResponseFunctionToolCall(
+                                            arguments="",
+                                            call_id=state["call_id"],
+                                            name=state["name"],
+                                            type="function_call",
+                                            id=state["item_id"],
+                                            status="in_progress",
+                                        ),
+                                    )
+                                )
+                            if call.parameters:
+                                state["arguments"] += call.parameters
+                                yield _send_event(
+                                    openai_responses_types.ResponseFunctionCallArgumentsDeltaEvent(
+                                        type="response.function_call_arguments.delta",
+                                        sequence_number=-1,
+                                        item_id=state["item_id"],
+                                        output_index=state["output_index"],
+                                        delta=call.parameters,
+                                    )
+                                )
+
+                    def _emit_normal_text():
+                        if normal_text and _should_emit_normal_text_as_message(
+                            normal_text,
+                            any_tool_call_in_progress=any(
+                                not s.get("done") for s in tool_call_states.values()
+                            ),
+                        ):
+                            if reasoning_state["open"]:
+                                for ev in _close_reasoning_item():
+                                    yield ev
+                            for tool_index in list(tool_call_states):
+                                for ev in _close_tool_call_state(tool_index):
+                                    yield ev
+                            if not message_state["open"]:
+                                item_id = _open_message_item()
+                                yield _send_event(
+                                    ResponsePhasedOutputItemAddedEvent(
+                                        type="response.output_item.added",
+                                        sequence_number=-1,
+                                        output_index=message_state["output_index"],
+                                        item=ResponseOutputMessage(
+                                            id=item_id,
+                                            type="message",
+                                            role="assistant",
+                                            content=[],
+                                            status="in_progress",
+                                            # Later reasoning or a tool call may make
+                                            # this message commentary.
+                                            phase=(
+                                                None
+                                                if tool_parser is not None
+                                                or reasoning_parser_obj is not None
+                                                else "final_answer"
+                                            ),
+                                        ),
+                                    )
+                                )
+                                yield _send_event(
+                                    openai_responses_types.ResponseContentPartAddedEvent(
+                                        type="response.content_part.added",
+                                        sequence_number=-1,
+                                        output_index=message_state["output_index"],
+                                        item_id=message_state["item_id"],
+                                        content_index=0,
+                                        part=openai_responses_types.ResponseOutputText(
+                                            type="output_text",
+                                            text="",
+                                            annotations=[],
+                                            logprobs=None,
+                                        ),
+                                    )
+                                )
+                            message_state["text"] += normal_text
+                            yield _send_event(
+                                openai_responses_types.ResponseTextDeltaEvent(
+                                    type="response.output_text.delta",
+                                    sequence_number=-1,
+                                    content_index=0,
+                                    output_index=message_state["output_index"],
+                                    item_id=message_state["item_id"],
+                                    delta=normal_text,
+                                    logprobs=[],
+                                )
+                            )
+
+                    # The parser's (text, calls) tuple is unordered, but positions
+                    # are recoverable: continuing arguments precede this delta's
+                    # text, a newly opened call follows it. Classify first --
+                    # emitting mutates tool_call_states.
+                    def _is_continuing(call):
+                        state = tool_call_states.get(call.tool_index)
+                        return state is not None and not state.get("done")
+
+                    continuing = [c for c in tool_calls if _is_continuing(c)]
+                    opening = [c for c in tool_calls if not _is_continuing(c)]
+
+                    for ev in _emit_tool_calls(continuing):
+                        yield ev
+                    for ev in _emit_normal_text():
+                        yield ev
+                    for ev in _emit_tool_calls(opening):
+                        yield ev
         except Exception:
             logger.exception("Error while streaming /v1/responses")
             failed = _sanitize_response_dict(

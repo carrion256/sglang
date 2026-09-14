@@ -1,4 +1,4 @@
-# Responses namespace/custom boundary — CPU candidate only
+# Responses compatibility and Qwen phase/order — CPU candidate only
 
 This profile follows alias commit `04e0816a68638e85ddd4ff8764b401d3ed27997e`.
 It does not upgrade the engine, change kernels/schedulers/checkpoints, or change
@@ -9,7 +9,8 @@ The exact base image and upstream reference heads are recorded in
 `provenance/responses-compat.json`. References #39174, #38359, #38690 and #35216
 informed the design; this is not a wholesale serving-file transplant. The serving
 file starts from the attested installed runtime; patch 0016 contains its narrow
-delta. The only new installed module is `responses_compat.py`.
+delta. Patch 0017 adds phase and ordering behavior on top of that exact result.
+The only new installed module is `responses_compat.py`.
 
 ## Contract
 
@@ -81,6 +82,19 @@ delta. The only new installed module is `responses_compat.py`.
   parser silently drops unknown names. Custom argument JSON is decoded only when
   complete, then emitted as a raw-input delta and done event. There is no claim of
   token-by-token custom-input latency.
+- Response message items carry `phase="commentary"` or `phase="final_answer"`.
+  Streaming text is emitted immediately; an added message leaves phase unresolved
+  when later reasoning or tool output can still change it. The completed item sets
+  commentary when a tool call or renewed reasoning follows and final_answer when
+  the text ends the response.
+- Qwen3.8 Flash-Next markup is fed to the existing reasoning and tool parsers at
+  markup boundaries. Coalesced and fragmented engine chunks therefore preserve
+  `reasoning -> text -> tool -> text` wire order instead of merging text across a
+  tool call. Literal angle-bracket text still passes through the parsers.
+- Replay groups adjacent Qwen assistant items only while their stage order remains
+  renderable as one native assistant turn. Explicit phase changes and restarted
+  reasoning/tool sequences remain separate turns. Stored response replay retains
+  reasoning and phase fields as well as text and calls.
 
 ## CPU reproduction
 
@@ -93,7 +107,7 @@ QWEN_TOKENIZER_PATH=/absolute/pinned/tokenizer bash scripts/test_qwen_effort_ali
 ```
 
 The candidate runner verifies all five mounted runtime files against the cumulative
-inventory, as well as patch/tokenizer hashes. It uses the exact
+inventory, as well as all three patch and tokenizer hashes. It uses the exact
 existing image with no pull/network/GPU, read-only root and mounts, scratch caches,
 dropped capabilities and CPU/memory/PID limits. Tests import the actual serving
 modules and exercise `http_server.app` endpoints through ASGI TestClient. Only
@@ -120,8 +134,8 @@ python3 scripts/verify_responses_compat.py --tree TREE --from-image
 python3 scripts/verify_responses_compat.py --tree TREE
 ```
 
-The verifier checks all 4,391 image files, applies 0015 then 0016, and checks all
-4,392 resulting paths and hashes including the new module. Alternatively, `--apply`
+The verifier checks all 4,391 image files, applies 0015, 0016, then 0017, and checks
+all 4,392 resulting paths and hashes including the new module. Alternatively, `--apply`
 accepts a completely verified alias predecessor tree. Neither modifies historical
 profiles. Source equivalence is not byte-identical image reproduction. Do not use
 historical Dockerfiles with the changed overlay to claim reproduction of an

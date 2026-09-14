@@ -1,4 +1,4 @@
-# API-only compatibility overlay. All serving arguments remain external.
+# API-only compatibility and phase/order overlay. All serving arguments remain external.
 # Immutable rollback/base; no private snapshot, checkpoint or docker commit.
 FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404
 ARG SOURCE_REVISION
