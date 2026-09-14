@@ -1,0 +1,117 @@
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/awq/awq.py:52: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+W0914 12:42:15.978000 1 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+test_native_tool_implicitly_closes_open_reasoning (__main__.MockHTTPTest.test_native_tool_implicitly_closes_open_reasoning) ... /usr/local/lib/python3.12/dist-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+
+  test_native_tool_implicitly_closes_open_reasoning (__main__.MockHTTPTest.test_native_tool_implicitly_closes_open_reasoning) (name='inspect', stream=False) ... FAIL
+  test_native_tool_implicitly_closes_open_reasoning (__main__.MockHTTPTest.test_native_tool_implicitly_closes_open_reasoning) (name='inspect', stream=True) ... FAIL
+  test_native_tool_implicitly_closes_open_reasoning (__main__.MockHTTPTest.test_native_tool_implicitly_closes_open_reasoning) (name='patch', stream=False) ... FAIL
+  test_native_tool_implicitly_closes_open_reasoning (__main__.MockHTTPTest.test_native_tool_implicitly_closes_open_reasoning) (name='patch', stream=True) ... FAIL
+test_qwen4_stream_reasoning_is_chunking_negative_control (__main__.MockHTTPTest.test_qwen4_stream_reasoning_is_chunking_negative_control) ...
+  test_qwen4_stream_reasoning_is_chunking_negative_control (__main__.MockHTTPTest.test_qwen4_stream_reasoning_is_chunking_negative_control) (parts=['<think>', 'First', '</think>', 'Checking.', '<think>', 'Second', '</think>', 'Final']) ... FAIL
+
+======================================================================
+FAIL: test_native_tool_implicitly_closes_open_reasoning (__main__.MockHTTPTest.test_native_tool_implicitly_closes_open_reasoning) (name='inspect', stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 658, in test_native_tool_implicitly_closes_open_reasoning
+    self.assertEqual(
+AssertionError: Lists differ: ['reasoning', 'function_call', 'reasoning'] != ['reasoning', 'function_call', 'message']
+
+First differing element 2:
+'reasoning'
+'message'
+
+- ['reasoning', 'function_call', 'reasoning']
+?                                 ^  -----
+
++ ['reasoning', 'function_call', 'message']
+?                                 ^ ++  +
+
+
+======================================================================
+FAIL: test_native_tool_implicitly_closes_open_reasoning (__main__.MockHTTPTest.test_native_tool_implicitly_closes_open_reasoning) (name='inspect', stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 658, in test_native_tool_implicitly_closes_open_reasoning
+    self.assertEqual(
+AssertionError: Lists differ: ['reasoning', 'function_call', 'reasoning'] != ['reasoning', 'function_call', 'message']
+
+First differing element 2:
+'reasoning'
+'message'
+
+- ['reasoning', 'function_call', 'reasoning']
+?                                 ^  -----
+
++ ['reasoning', 'function_call', 'message']
+?                                 ^ ++  +
+
+
+======================================================================
+FAIL: test_native_tool_implicitly_closes_open_reasoning (__main__.MockHTTPTest.test_native_tool_implicitly_closes_open_reasoning) (name='patch', stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 658, in test_native_tool_implicitly_closes_open_reasoning
+    self.assertEqual(
+AssertionError: Lists differ: ['reasoning', 'custom_tool_call', 'reasoning'] != ['reasoning', 'custom_tool_call', 'message']
+
+First differing element 2:
+'reasoning'
+'message'
+
+- ['reasoning', 'custom_tool_call', 'reasoning']
+?                                    ^  -----
+
++ ['reasoning', 'custom_tool_call', 'message']
+?                                    ^ ++  +
+
+
+======================================================================
+FAIL: test_native_tool_implicitly_closes_open_reasoning (__main__.MockHTTPTest.test_native_tool_implicitly_closes_open_reasoning) (name='patch', stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 658, in test_native_tool_implicitly_closes_open_reasoning
+    self.assertEqual(
+AssertionError: Lists differ: ['reasoning', 'custom_tool_call', 'reasoning'] != ['reasoning', 'custom_tool_call', 'message']
+
+First differing element 2:
+'reasoning'
+'message'
+
+- ['reasoning', 'custom_tool_call', 'reasoning']
+?                                    ^  -----
+
++ ['reasoning', 'custom_tool_call', 'message']
+?                                    ^ ++  +
+
+
+======================================================================
+FAIL: test_qwen4_stream_reasoning_is_chunking_negative_control (__main__.MockHTTPTest.test_qwen4_stream_reasoning_is_chunking_negative_control) (parts=['<think>', 'First', '</think>', 'Checking.', '<think>', 'Second', '</think>', 'Final'])
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 698, in test_qwen4_stream_reasoning_is_chunking_negative_control
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('re[28 chars]e', 'commentary', 'Checking.'), ('reasoning', [43 chars]al')] != [('re[28 chars]e', 'final_answer', 'Checking.<think>Second</think>Final')]
+
+First differing element 1:
+('message', 'commentary', 'Checking.')
+('message', 'final_answer', 'Checking.<think>Second</think>Final')
+
+First list contains 2 additional elements.
+First extra element 2:
+('reasoning', 'Second')
+
+  [('reasoning', 'First'),
++  ('message', 'final_answer', 'Checking.<think>Second</think>Final')]
+-  ('message', 'commentary', 'Checking.'),
+-  ('reasoning', 'Second'),
+-  ('message', 'final_answer', 'Final')]
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.891s
+
+FAILED (failures=5)

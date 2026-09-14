@@ -15,13 +15,16 @@ spec.loader.exec_module(verifier)
 
 class ResponsesPackagingTest(unittest.TestCase):
     def test_full_manifest_chain_and_new_file_count(self):
-        manifest, inventory = verifier.package_records()
+        base_manifest, manifest, inventory = verifier.package_records()
         self.assertEqual(len(inventory), 4392)
-        self.assertEqual([name for name, hashes in manifest['files'].items() if hashes['before'] is None],
+        self.assertEqual([name for name, hashes in base_manifest['files'].items()
+                          if hashes['before'] is None],
                          ['python/sglang/srt/entrypoints/openai/responses_compat.py'])
+        self.assertFalse([name for name, hashes in manifest['files'].items()
+                          if hashes['before'] is None])
         base = json.loads((ROOT / 'provenance/production/runtime-files.json').read_text())
         self.assertEqual(len(base), 4391)
-        for name in manifest['files']:
+        for name in set(base_manifest['files']) | set(manifest['files']):
             compile((ROOT / 'runtime' / name).read_bytes(), name, 'exec')
 
     def test_packaged_source_drift_fails_closed(self):
@@ -47,10 +50,11 @@ class ResponsesPackagingTest(unittest.TestCase):
 
     def test_patch_drift_fails_closed(self):
         original = verifier.digest
+        for prefix in ('0016-', '0017-'):
+            with self.subTest(prefix=prefix):
+                def changed(path):
+                    return '0' * 64 if path.name.startswith(prefix) else original(path)
 
-        def changed(path):
-            return '0' * 64 if path.name.startswith('0016-') else original(path)
-
-        with patch.object(verifier, 'digest', side_effect=changed):
-            with self.assertRaisesRegex(ValueError, 'patch hash mismatch'):
-                verifier.package_records()
+                with patch.object(verifier, 'digest', side_effect=changed):
+                    with self.assertRaisesRegex(ValueError, 'patch hash mismatch'):
+                        verifier.package_records()

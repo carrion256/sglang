@@ -39,11 +39,13 @@ from openai.types.responses import (
     ResponseFunctionToolCall,
     ResponseInputItemParam,
     ResponseOutputItem,
-    ResponseOutputMessage,
+    ResponseOutputItemAddedEvent,
+    ResponseOutputItemDoneEvent,
     ResponseOutputText,
     ResponseReasoningItem,
     ResponseTextConfig,
 )
+from openai.types.responses import ResponseOutputMessage as OpenAIResponseOutputMessage
 from openai.types.responses.response import ToolChoice
 from openai.types.responses.response_custom_tool_call import ResponseCustomToolCall
 from openai.types.responses.response_format_text_json_schema_config import (
@@ -630,6 +632,7 @@ class ChatCompletionMessageGenericParam(BaseModel):
     )
     tool_call_id: Optional[str] = None
     name: Optional[str] = None
+    phase: Optional[Literal["commentary", "final_answer"]] = None
     reasoning_content: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = Field(default=None, examples=[None])
     tools: Optional[List[Tool]] = Field(default=None, examples=[None])
@@ -1789,6 +1792,18 @@ class ResponseNamespacedCustomToolCall(ResponseCustomToolCall):
     namespace: str
 
 
+class ResponseOutputMessage(OpenAIResponseOutputMessage):
+    phase: Optional[Literal["commentary", "final_answer"]] = None
+
+
+class ResponsePhasedOutputItemAddedEvent(ResponseOutputItemAddedEvent):
+    item: Union[ResponseOutputMessage, ResponseOutputItem]
+
+
+class ResponsePhasedOutputItemDoneEvent(ResponseOutputItemDoneEvent):
+    item: Union[ResponseOutputMessage, ResponseOutputItem]
+
+
 class ResponsesResponse(BaseModel):
     """Response body for v1/responses endpoint."""
 
@@ -1799,6 +1814,7 @@ class ResponsesResponse(BaseModel):
 
     output: List[
         Union[
+            ResponseOutputMessage,
             ResponseNamespacedFunctionToolCall,
             ResponseNamespacedCustomToolCall,
             ResponseOutputItem,
@@ -1890,7 +1906,7 @@ class ResponsesResponse(BaseModel):
                 try:
                     if isinstance(it, ResponseOutputText):
                         continue
-                    elif isinstance(it, ResponseOutputMessage):
+                    elif isinstance(it, OpenAIResponseOutputMessage):
                         if not it.content:
                             continue
                         for c in it.content:

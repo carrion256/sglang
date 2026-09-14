@@ -1,15 +1,109 @@
 """Imported exact-runtime CPU tests. No model/GPU conformance claim."""
+import asyncio
 import copy
+import inspect
 import json
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from runtime_chat_effort import ChatEffortTest
 
-from sglang.srt.entrypoints.openai.protocol import ResponsesRequest, ResponsesResponse
+from sglang.srt.entrypoints.openai.protocol import (
+    RequestResponseMetadata,
+    ResponseOutputMessage,
+    ResponsesRequest,
+    ResponsesResponse,
+)
 from sglang.srt.entrypoints.openai.serving_responses import OpenAIServingResponses
 
 
 class ResponsesCompatTest(unittest.TestCase):
+    @staticmethod
+    def phase_serving(model_type='qwen3_8_flash_next'):
+        serving = object.__new__(OpenAIServingResponses)
+        serving.msg_store = {}
+        serving.tokenizer_manager = SimpleNamespace(
+            model_config=SimpleNamespace(
+                hf_config=SimpleNamespace(model_type=model_type)
+            )
+        )
+        return serving
+
+    def test_message_phase_survives_response_models(self):
+        from openai.types.responses import ResponseOutputText
+        from sglang.srt.entrypoints.openai.responses_compat import ToolRegistry
+
+        message = ResponseOutputMessage(
+            id='msg_phase', type='message', role='assistant', status='completed',
+            phase='commentary', content=[ResponseOutputText(
+                type='output_text', text='Checking', annotations=[], logprobs=None)],
+        )
+        response = ResponsesResponse(
+            id='resp_phase', model='fixture', status='completed', output=[message]
+        )
+        self.assertEqual(response.model_dump()['output'][0]['phase'], 'commentary')
+        converted = ToolRegistry([]).response_model(response)
+        self.assertEqual(converted.model_dump()['output'][0]['phase'], 'commentary')
+
+    def test_qwen_replay_preserves_assistant_stage_order(self):
+        serving = self.phase_serving()
+        request = ResponsesRequest(model='fixture', input=[
+            {'role': 'user', 'content': 'Inspect and report'},
+            {'type': 'reasoning', 'summary': [
+                {'type': 'summary_text', 'text': 'PLAN'}]},
+            {'role': 'assistant', 'content': 'CHECKING', 'phase': 'commentary'},
+            {'type': 'function_call', 'name': 'inspect', 'call_id': 'call_1',
+             'arguments': '{}'},
+            {'type': 'reasoning', 'summary': [
+                {'type': 'summary_text', 'text': 'SECOND'}]},
+            {'role': 'assistant', 'content': 'REPORT', 'phase': 'final_answer'},
+        ])
+        messages = serving._construct_input_messages(request)
+        assistants = [message for message in messages if message['role'] == 'assistant']
+        self.assertEqual(len(assistants), 2)
+        self.assertEqual(
+            (assistants[0]['reasoning_content'], assistants[0]['content'],
+             assistants[0]['phase'], len(assistants[0]['tool_calls'])),
+            ('PLAN', 'CHECKING', 'commentary', 1),
+        )
+        self.assertEqual(
+            (assistants[1]['reasoning_content'], assistants[1]['content'],
+             assistants[1]['phase']),
+            ('SECOND', 'REPORT', 'final_answer'),
+        )
+
+    def test_stored_response_replays_reasoning_phase_and_call_together(self):
+        serving = self.phase_serving()
+        serving.msg_store['resp_prior'] = [
+            {'role': 'user', 'content': 'Inspect and report'}
+        ]
+        previous = ResponsesResponse.model_validate({
+            'id': 'resp_prior', 'model': 'fixture', 'status': 'completed',
+            'output': [
+                {'id': 'rs_1', 'type': 'reasoning', 'status': 'completed',
+                 'summary': [{'type': 'summary_text', 'text': 'PLAN'}],
+                 'content': []},
+                {'id': 'msg_1', 'type': 'message', 'role': 'assistant',
+                 'status': 'completed', 'phase': 'commentary',
+                 'content': [{'type': 'output_text', 'text': 'CHECKING',
+                              'annotations': []}]},
+                {'id': 'fc_1', 'type': 'function_call', 'status': 'completed',
+                 'name': 'inspect', 'call_id': 'call_1', 'arguments': '{}'},
+            ],
+        })
+        request = ResponsesRequest(model='fixture', previous_response_id='resp_prior',
+                                   input=[{'type': 'function_call_output',
+                                           'call_id': 'call_1', 'output': 'HEALTHY'}])
+        messages = serving._construct_input_messages(request, previous)
+        self.assertEqual([message['role'] for message in messages],
+                         ['user', 'assistant', 'tool'])
+        assistant = messages[1]
+        self.assertEqual(assistant['reasoning_content'], 'PLAN')
+        self.assertEqual(assistant['content'], [{'type': 'text', 'text': 'CHECKING'}])
+        self.assertEqual(assistant['phase'], 'commentary')
+        self.assertEqual(assistant['tool_calls'][0]['id'], 'call_1')
+
     def test_harmony_same_request_call_replay(self):
         serving = object.__new__(OpenAIServingResponses)
         serving.tool_server = None
@@ -123,6 +217,602 @@ class MockHTTPTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return [json.loads(line[6:]) for line in response.text.splitlines()
                 if line.startswith('data: ') and line != 'data: [DONE]']
+
+    @staticmethod
+    def phase_semantics(output):
+        result = []
+        for item in output:
+            if item['type'] == 'message':
+                result.append(('message', item['phase'],
+                               ''.join(part['text'] for part in item['content'])))
+            elif item['type'] == 'reasoning':
+                result.append(('reasoning', ''.join(
+                    part['text'] for part in item.get('content', []))))
+            else:
+                result.append(('function_call', item['name'],
+                               json.loads(item['arguments'])))
+        return result
+
+    def test_qwen_stream_preserves_text_tool_text_order_for_any_chunking(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        raw = ('Checking.<tool_call><function=inspect></function></tool_call>'
+               'Final answer.')
+        for incremental in (False, True):
+            for delivery in ('coalesced', 'characters'):
+                with self.subTest(incremental=incremental, delivery=delivery):
+                    self.serving.tokenizer_manager.server_args.incremental_streaming_output = incremental
+                    parts = [raw] if delivery == 'coalesced' else list(raw)
+
+                    async def generate(request, *args, **kwargs):
+                        cumulative = ''
+                        for index, part in enumerate(parts):
+                            cumulative += part
+                            yield {
+                                'text': part if incremental else cumulative,
+                                'output_ids': [1] * (index + 1),
+                                'meta_info': {
+                                    'prompt_tokens': 10,
+                                    'completion_tokens': index + 1,
+                                    'finish_reason': (
+                                        {'type': 'stop'} if index == len(parts) - 1 else None
+                                    ),
+                                },
+                            }
+
+                    self.serving.tokenizer_manager.generate_request = generate
+                    events = self.events(self.send(
+                        stream=True, tools=tools, tool_choice='auto'))
+                    output = next(event['response']['output'] for event in events
+                                  if event['type'] == 'response.completed')
+                    self.assertEqual(self.phase_semantics(output), [
+                        ('message', 'commentary', 'Checking.'),
+                        ('function_call', 'inspect', {}),
+                        ('message', 'final_answer', 'Final answer.'),
+                    ])
+                    done = [event['item'] for event in events
+                            if event['type'] == 'response.output_item.done']
+                    self.assertEqual(done, output)
+                    added_messages = [event['item'] for event in events
+                                      if event['type'] == 'response.output_item.added'
+                                      and event['item']['type'] == 'message']
+                    self.assertTrue(all(item.get('phase') is None
+                                        for item in added_messages))
+
+    def test_qwen_nonstream_preserves_text_tool_text_order(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.text = ('Checking.<tool_call><function=inspect></function></tool_call>'
+                     'Final answer.')
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        output = self.send(tools=tools, tool_choice='auto').json()['output']
+        self.assertEqual(self.phase_semantics(output), [
+            ('message', 'commentary', 'Checking.'),
+            ('function_call', 'inspect', {}),
+            ('message', 'final_answer', 'Final answer.'),
+        ])
+
+    def test_qwen_ordered_nonstream_preserves_usage_details(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.serving.enable_prompt_tokens_details = True
+        raw = ('Checking.<tool_call><function=inspect></function></tool_call>'
+               'Final answer.')
+
+        async def generate(request, *args, **kwargs):
+            yield {
+                'text': raw,
+                'output_ids': [1] * 108,
+                'meta_info': {
+                    'prompt_tokens': 10,
+                    'completion_tokens': 108,
+                    'cached_tokens': 4,
+                    'reasoning_tokens': 7,
+                    'finish_reason': {'type': 'stop'},
+                },
+            }
+
+        self.serving.tokenizer_manager.generate_request = generate
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        body = self.send(tools=tools, tool_choice='auto').json()
+        self.assertEqual(body['usage'], {
+            'input_tokens': 10,
+            'input_tokens_details': {
+                'cached_tokens': 4,
+                'cache_write_tokens': 0,
+            },
+            'output_tokens': 108,
+            'output_tokens_details': {'reasoning_tokens': 7},
+            'total_tokens': 118,
+        })
+
+    def test_qwen_ordered_nonstream_preserves_requested_logprobs(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        raw = ('Checking.<tool_call><function=inspect></function></tool_call>'
+               'Final answer.')
+
+        async def generate(request, *args, **kwargs):
+            yield {
+                'text': raw,
+                'output_ids': [1, 2, 3, 4, 5, 6],
+                'meta_info': {
+                    'prompt_tokens': 10,
+                    'completion_tokens': 6,
+                    'output_token_logprobs': [
+                        (-0.25, 1, 'Checking.'),
+                        (-0.1, 2, '<tool_call>'),
+                        (-0.1, 3, '<function=inspect>'),
+                        (-0.1, 4, '</function>'),
+                        (-0.1, 5, '</tool_call>'),
+                        (-0.5, 6, 'Final answer.'),
+                    ],
+                    'output_top_logprobs': [
+                        [(-0.25, 1, 'Checking.'), (-1.0, 7, 'Inspecting.')],
+                        [(-0.1, 2, '<tool_call>')],
+                        [(-0.1, 3, '<function=inspect>')],
+                        [(-0.1, 4, '</function>')],
+                        [(-0.1, 5, '</tool_call>')],
+                        [(-0.5, 6, 'Final answer.')],
+                    ],
+                    'finish_reason': {'type': 'stop'},
+                },
+            }
+
+        self.serving.tokenizer_manager.generate_request = generate
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        body = self.send(
+            tools=tools,
+            tool_choice='auto',
+            include=['message.output_text.logprobs'],
+            top_logprobs=2,
+        ).json()
+        messages = [item for item in body['output'] if item['type'] == 'message']
+        self.assertTrue(all(item['content'][0]['logprobs'] is not None
+                            for item in messages), messages)
+        self.assertEqual(
+            [[entry['token'] for entry in item['content'][0]['logprobs']]
+             for item in messages],
+            [['Checking.'], ['Final answer.']],
+        )
+        self.assertEqual(
+            messages[0]['content'][0]['logprobs'][0]['top_logprobs'][1]['token'],
+            'Inspecting.',
+        )
+
+    def test_qwen_literal_angle_brackets_survive_text_tool_text(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.text = ('Compare <left> and 1 < 2.'
+                     '<tool_call><function=inspect></function></tool_call>'
+                     'Final <right> and 3 > 2.')
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        body = self.send(tools=tools, tool_choice='auto').json()
+        self.assertEqual(self.phase_semantics(body['output']), [
+            ('message', 'commentary', 'Compare <left> and 1 < 2.'),
+            ('function_call', 'inspect', {}),
+            ('message', 'final_answer', 'Final <right> and 3 > 2.'),
+        ])
+
+    def test_qwen_stream_has_no_generic_angle_boundary_split(self):
+        source = inspect.getsource(
+            OpenAIServingResponses.responses_stream_generator_non_harmony)
+        self.assertFalse(
+            're.split(r"(?=<)|(?<=>)"' in source,
+            'generic angle-boundary splitting is forbidden',
+        )
+
+    def test_qwen4_exp_is_negative_control_for_ordered_nonstream(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.serving.tokenizer_manager.model_config.hf_config.model_type = 'qwen4_exp'
+        self.text = ('Checking.<tool_call><function=inspect></function></tool_call>'
+                     'Final answer.')
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        output = self.send(tools=tools, tool_choice='auto').json()['output']
+        self.assertEqual(self.phase_semantics(output), [
+            ('message', 'commentary', 'Checking.'),
+            ('function_call', 'inspect', {}),
+        ])
+
+    def test_nonstream_message_phase_matches_remaining_tool_calls(self):
+        self.text = 'Final answer.'
+        final = self.send(tools=[], tool_choice='none').json()['output']
+        self.assertEqual(self.phase_semantics(final), [
+            ('message', 'final_answer', 'Final answer.'),
+        ])
+
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.text = ('Checking.<tool_call><function=inspect></function>'
+                     '</tool_call>')
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        mixed = self.send(tools=tools, tool_choice='auto').json()['output']
+        self.assertEqual(self.phase_semantics(mixed), [
+            ('message', 'commentary', 'Checking.'),
+            ('function_call', 'inspect', {}),
+        ])
+
+    def test_qwen_nonstream_preserves_renewed_reasoning_order(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = None
+        self.text = 'Checking.<think>Again</think>Final answer.'
+        output = self.send(
+            tools=[], tool_choice='none', reasoning={'effort': 'medium'}
+        ).json()['output']
+        self.assertEqual(self.phase_semantics(output), [
+            ('message', 'commentary', 'Checking.'),
+            ('reasoning', 'Again'),
+            ('message', 'final_answer', 'Final answer.'),
+        ])
+
+    def test_qwen_stream_preserves_renewed_reasoning_order(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = None
+        self.text = 'Checking.<think>Again</think>Final answer.'
+        events = self.events(self.send(
+            stream=True, tools=[], tool_choice='none', reasoning={'effort': 'medium'}))
+        output = next(event['response']['output'] for event in events
+                      if event['type'] == 'response.completed')
+        self.assertEqual(self.phase_semantics(output), [
+            ('message', 'commentary', 'Checking.'),
+            ('reasoning', 'Again'),
+            ('message', 'final_answer', 'Final answer.'),
+        ])
+
+    def test_qwen_stream_preserves_split_reasoning_marker_boundaries(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = None
+        raw = 'Checking.<think>Again</think>Final answer.'
+        expected = [
+            ('message', 'commentary', 'Checking.'),
+            ('reasoning', 'Again'),
+            ('message', 'final_answer', 'Final answer.'),
+        ]
+        start = raw.index('<think>')
+        for incremental in (False, True):
+            for cut in range(start + 1, start + len('<think>')):
+                with self.subTest(incremental=incremental, cut=cut):
+                    self.serving.tokenizer_manager.server_args.incremental_streaming_output = incremental
+
+                    async def generate(request, *args, **kwargs):
+                        yield {'text': raw[:cut], 'output_ids': [1] * cut,
+                               'meta_info': {'prompt_tokens': 10,
+                                             'completion_tokens': cut,
+                                             'finish_reason': None}}
+                        yield {'text': raw[cut:] if incremental else raw,
+                               'output_ids': [1] * len(raw),
+                               'meta_info': {'prompt_tokens': 10,
+                                             'completion_tokens': len(raw),
+                                             'finish_reason': {'type': 'stop'}}}
+
+                    self.serving.tokenizer_manager.generate_request = generate
+                    events = self.events(self.send(
+                        stream=True, tools=[], tool_choice='none',
+                        reasoning={'effort': 'medium'}))
+                    output = next(event['response']['output'] for event in events
+                                  if event['type'] == 'response.completed')
+                    self.assertEqual(self.phase_semantics(output), expected)
+
+    def test_qwen_tool_then_renewed_reasoning_preserves_order(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.text = ('Checking.<tool_call><function=inspect></function></tool_call>'
+                     '<think>Again</think>Final answer.')
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        expected = [
+            ('message', 'commentary', 'Checking.'),
+            ('function_call', 'inspect', {}),
+            ('reasoning', 'Again'),
+            ('message', 'final_answer', 'Final answer.'),
+        ]
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                response = self.send(
+                    stream=stream, tools=tools, tool_choice='auto',
+                    reasoning={'effort': 'medium'})
+                body = (next(event['response'] for event in self.events(response)
+                             if event['type'] == 'response.completed')
+                        if stream else response.json())
+                self.assertEqual(self.phase_semantics(body['output']), expected)
+
+    def test_qwen_second_reasoning_block_preserves_order(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = None
+        self.text = ('<think>First</think>Checking.'
+                     '<think>Again</think>Final answer.')
+        expected = [
+            ('reasoning', 'First'),
+            ('message', 'commentary', 'Checking.'),
+            ('reasoning', 'Again'),
+            ('message', 'final_answer', 'Final answer.'),
+        ]
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                response = self.send(
+                    stream=stream, tools=[], tool_choice='none',
+                    reasoning={'effort': 'medium'})
+                body = (next(event['response'] for event in self.events(response)
+                             if event['type'] == 'response.completed')
+                        if stream else response.json())
+                self.assertEqual(self.phase_semantics(body['output']), expected)
+
+    def test_qwen_adjacent_reasoning_blocks_remain_distinct(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = None
+        self.text = '<think>First</think><think>Again</think>Final answer.'
+        expected = [
+            ('reasoning', 'First'),
+            ('reasoning', 'Again'),
+            ('message', 'final_answer', 'Final answer.'),
+        ]
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                response = self.send(
+                    stream=stream, tools=[], tool_choice='none',
+                    reasoning={'effort': 'medium'})
+                body = (next(event['response'] for event in self.events(response)
+                             if event['type'] == 'response.completed')
+                        if stream else response.json())
+                self.assertEqual(self.phase_semantics(body['output']), expected)
+
+    def test_required_json_marker_like_values_remain_data(self):
+        self.serving.tool_call_parser = None
+        cases = [
+            ([{'type': 'function', 'name': 'inspect', 'parameters': {
+                'type': 'object', 'properties': {'text': {'type': 'string'}}}}],
+             'inspect', {'text': '<think>literal</think>'}, 'function_call'),
+            ([{'type': 'custom', 'name': 'patch'}],
+             'patch', {'input': '</function></tool_call>tail'},
+             'custom_tool_call'),
+            (self.tools, 'workspace.read', {'path': '<tag>file</tag>'},
+             'function_call'),
+        ]
+        for reasoning_parser in (None, 'qwen3'):
+            self.serving.reasoning_parser = reasoning_parser
+            for tools, generated_name, arguments, output_type in cases:
+                with self.subTest(reasoning_parser=reasoning_parser,
+                                  generated_name=generated_name):
+                    self.text = json.dumps([
+                        {'name': generated_name, 'parameters': arguments}
+                    ])
+                    response = self.send(
+                        tools=tools, tool_choice='required',
+                        reasoning={'effort': 'none'})
+                    self.assertEqual(response.status_code, 200, response.text)
+                    item = response.json()['output'][0]
+                    self.assertEqual(item['type'], output_type)
+                    if output_type == 'custom_tool_call':
+                        self.assertEqual(item['input'], arguments['input'])
+                    else:
+                        self.assertEqual(json.loads(item['arguments']), arguments)
+
+    def test_native_tool_payload_markers_after_reasoning_remain_data(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = 'qwen3_coder'
+        cases = [
+            ([{'type': 'function', 'name': 'inspect', 'parameters': {
+                'type': 'object', 'properties': {'text': {'type': 'string'}}}}],
+             'inspect', 'text', '<think>literal</think>', 'function_call'),
+            ([{'type': 'custom', 'name': 'patch'}],
+             'patch', 'input', '<think>literal</think>', 'custom_tool_call'),
+        ]
+        for tools, name, parameter, value, output_type in cases:
+            self.text = (
+                '<think>Plan</think>Before'
+                f'<tool_call><function={name}><parameter={parameter}>{value}'
+                '</parameter></function></tool_call>After'
+            )
+            for stream in (False, True):
+                with self.subTest(name=name, stream=stream):
+                    response = self.send(
+                        stream=stream, tools=tools, tool_choice='auto',
+                        reasoning={'effort': 'medium'})
+                    if stream:
+                        events = self.events(response)
+                        completed = [event['response'] for event in events
+                                     if event['type'] == 'response.completed']
+                        self.assertTrue(completed, events)
+                        body = completed[0]
+                    else:
+                        body = response.json()
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertEqual(
+                        [item['type'] for item in body['output']],
+                        ['reasoning', 'message', output_type, 'message'],
+                    )
+                    call = body['output'][2]
+                    if output_type == 'custom_tool_call':
+                        self.assertEqual(call['input'], value)
+                    else:
+                        self.assertEqual(json.loads(call['arguments']),
+                                         {parameter: value})
+
+    def test_native_tool_implicitly_closes_open_reasoning(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = 'qwen3_coder'
+        cases = [
+            ([{'type': 'function', 'name': 'inspect',
+               'parameters': {'type': 'object', 'properties': {}}}],
+             'inspect', '', 'function_call'),
+            ([{'type': 'custom', 'name': 'patch'}],
+             'patch', '<parameter=input></parameter>', 'custom_tool_call'),
+        ]
+        for tools, name, parameters, output_type in cases:
+            self.text = (f'<think>Plan<tool_call><function={name}>{parameters}</function>'
+                         '</tool_call>After')
+            for stream in (False, True):
+                with self.subTest(name=name, stream=stream):
+                    response = self.send(
+                        stream=stream, tools=tools, tool_choice='auto',
+                        reasoning={'effort': 'medium'})
+                    if stream:
+                        events = self.events(response)
+                        completed = [event['response'] for event in events
+                                     if event['type'] == 'response.completed']
+                        self.assertTrue(completed, events)
+                        body = completed[0]
+                    else:
+                        self.assertEqual(response.status_code, 200, response.text)
+                        body = response.json()
+                    self.assertEqual(
+                        [item['type'] for item in body['output']],
+                        ['reasoning', output_type, 'message'],
+                    )
+                    self.assertEqual(self.phase_semantics(
+                        [body['output'][0], body['output'][2]]), [
+                            ('reasoning', 'Plan'),
+                            ('message', 'final_answer', 'After'),
+                        ])
+
+    def test_implicit_tool_close_allows_renewed_reasoning(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = 'qwen3_coder'
+        cases = [
+            ([{'type': 'function', 'name': 'inspect',
+               'parameters': {'type': 'object', 'properties': {}}}],
+             'inspect', '', 'function_call'),
+            ([{'type': 'custom', 'name': 'patch'}],
+             'patch', '<parameter=input></parameter>', 'custom_tool_call'),
+        ]
+        expected_types = ['reasoning', 'placeholder', 'reasoning', 'message']
+        for tools, name, parameters, output_type in cases:
+            self.text = (f'<think>Plan<tool_call><function={name}>{parameters}'
+                         '</function></tool_call><think>Again</think>Final')
+            for stream in (False, True):
+                with self.subTest(name=name, stream=stream):
+                    response = self.send(
+                        stream=stream, tools=tools, tool_choice='auto',
+                        reasoning={'effort': 'medium'})
+                    body = (next(event['response'] for event in self.events(response)
+                                 if event['type'] == 'response.completed')
+                            if stream else response.json())
+                    expected_types[1] = output_type
+                    self.assertEqual([item['type'] for item in body['output']],
+                                     expected_types)
+                    self.assertEqual(self.phase_semantics(
+                        [body['output'][0], body['output'][2],
+                         body['output'][3]]), [
+                            ('reasoning', 'Plan'),
+                            ('reasoning', 'Again'),
+                            ('message', 'final_answer', 'Final'),
+                        ])
+
+    def test_empty_reasoning_implicit_tool_close_allows_renewal(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = 'qwen3_coder'
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        self.text = ('<think><tool_call><function=inspect></function></tool_call>'
+                     '<think>Again</think>Final')
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                response = self.send(
+                    stream=stream, tools=tools, tool_choice='auto',
+                    reasoning={'effort': 'medium'})
+                body = (next(event['response'] for event in self.events(response)
+                             if event['type'] == 'response.completed')
+                        if stream else response.json())
+                self.assertEqual([item['type'] for item in body['output']],
+                                 ['function_call', 'reasoning', 'message'])
+                self.assertEqual(self.phase_semantics(body['output'][1:]), [
+                    ('reasoning', 'Again'),
+                    ('message', 'final_answer', 'Final'),
+                ])
+
+    def test_qwen4_stream_reasoning_is_chunking_negative_control(self):
+        self.serving.tokenizer_manager.model_config.hf_config.model_type = 'qwen4_exp'
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = None
+        raw = '<think>First</think>Checking.<think>Second</think>Final'
+        expected = [
+            ('reasoning', 'First'),
+            ('message', 'final_answer',
+             'Checking.<think>Second</think>Final'),
+        ]
+        for parts in ([raw], ['<think>', 'First', '</think>', 'Checking.',
+                              '<think>', 'Second', '</think>', 'Final']):
+            with self.subTest(parts=parts):
+                async def generate(request, *args, **kwargs):
+                    cumulative = ''
+                    for index, part in enumerate(parts):
+                        cumulative += part
+                        yield {'text': cumulative, 'output_ids': [1] * (index + 1),
+                               'meta_info': {'prompt_tokens': 10,
+                                             'completion_tokens': index + 1,
+                                             'finish_reason': ({'type': 'stop'}
+                                                               if index == len(parts) - 1
+                                                               else None)}}
+
+                self.serving.tokenizer_manager.generate_request = generate
+                events = self.events(self.send(
+                    stream=True, tools=[], tool_choice='none',
+                    reasoning={'effort': 'medium'}))
+                output = next(event['response']['output'] for event in events
+                              if event['type'] == 'response.completed')
+                self.assertEqual(self.phase_semantics(output), expected)
+
+    def test_text_streams_before_phase_is_resolved(self):
+        async def check():
+            self.serving.reasoning_parser = None
+            self.serving.tool_call_parser = 'qwen3_coder'
+            request = ResponsesRequest(
+                model='fixture-qwen', input='Tell a story', stream=True,
+                tools=[{'type': 'function', 'name': 'inspect',
+                        'parameters': {'type': 'object'}}], tool_choice='auto',
+            )
+            release = asyncio.Event()
+
+            async def generate():
+                yield {'text': 'Once upon a time', 'meta_info': {
+                    'prompt_tokens': 10, 'completion_tokens': 4,
+                    'finish_reason': None}}
+                await release.wait()
+                yield {'text': 'Once upon a time. The end.', 'meta_info': {
+                    'prompt_tokens': 10, 'completion_tokens': 8,
+                    'finish_reason': {'type': 'stop'}}}
+
+            stream = self.serving.responses_stream_generator_non_harmony(
+                request, {}, generate(), 'fixture-qwen', Mock(),
+                RequestResponseMetadata(request_id=request.request_id),
+                require_reasoning=False,
+            )
+            events = []
+            try:
+                async def first_text():
+                    async for frame in stream:
+                        event = json.loads(frame.split('data: ', 1)[1])
+                        events.append(event)
+                        if event['type'] == 'response.output_text.delta':
+                            return event['delta']
+                    self.fail('stream ended before emitting text')
+
+                self.assertEqual(
+                    await asyncio.wait_for(first_text(), timeout=1),
+                    'Once upon a time',
+                )
+                added = next(event['item'] for event in events
+                             if event['type'] == 'response.output_item.added')
+                self.assertIsNone(added.get('phase'))
+                release.set()
+                async for frame in stream:
+                    events.append(json.loads(frame.split('data: ', 1)[1]))
+                done = next(event['item'] for event in events
+                            if event['type'] == 'response.output_item.done')
+                self.assertEqual(done['phase'], 'final_answer')
+            finally:
+                release.set()
+                await stream.aclose()
+
+        asyncio.run(check())
 
     def test_fix2_embedded_identity_rejection(self):
         for stream in (False, True):
@@ -928,6 +1618,35 @@ class MockHTTPTest(unittest.TestCase):
                 response = self.send(tool_choice='auto', stream=stream)
                 body = next(event['response'] for event in self.events(response) if event.get('type') == 'response.completed') if stream else response.json()
                 self.assertEqual(body['output'][0]['input'], raw)
+
+    def test_mock_http_custom_literal_angles_preserve_order_and_payload(self):
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.tools = [{'type': 'custom', 'name': 'patch'}]
+        raw = '<tag>keep</tag> 1 < 2 and 3 > 2'
+        tool = {'type': 'function', 'function': {'name': 'patch', 'parameters': {
+            'type': 'object', 'properties': {'input': {'type': 'string'}},
+            'required': ['input']}}}
+        rendered = self.serving.tokenizer_manager.tokenizer.apply_chat_template([
+            {'role': 'user', 'content': 'Call patch'},
+            {'role': 'assistant', 'content': '', 'tool_calls': [
+                {'type': 'function', 'function': {
+                    'name': 'patch', 'arguments': {'input': raw}}}]}],
+            tools=[tool], tokenize=False, add_generation_prompt=False)
+        start = rendered.rindex('<tool_call>')
+        tool_block = rendered[start:rendered.index(
+            '</tool_call>', start) + len('</tool_call>')]
+        self.text = 'Before <literal>.' + tool_block + 'After </literal>.'
+        body = self.send(tool_choice='auto').json()
+        self.assertEqual(
+            [(item['type'], item.get('phase')) for item in body['output']],
+            [('message', 'commentary'), ('custom_tool_call', None),
+             ('message', 'final_answer')],
+        )
+        self.assertEqual(body['output'][0]['content'][0]['text'],
+                         'Before <literal>.')
+        self.assertEqual(body['output'][1]['input'], raw)
+        self.assertEqual(body['output'][2]['content'][0]['text'],
+                         'After </literal>.')
 
     def test_mock_http_replay_cannot_forge_flat_dotted_identity(self):
         self.tools = [{'type': 'function', 'name': 'workspace.read'}]

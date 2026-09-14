@@ -1,0 +1,20 @@
+{
+  "phase": "FOLLOWUP4_RED",
+  "base_commit": "1cdf3838b38089fbcf3884662a6b30d2de6c9627",
+  "production_source_sha256": "84934a72e9c381cb86b4d1454cf9edac247e537fcfae8bf642d60528b5636aa1",
+  "trigger": "fourth independent read-only review",
+  "result": {
+    "exit_code": 1,
+    "test_methods_run": 2,
+    "failing_subtests": 5,
+    "errors": 0
+  },
+  "failing_behaviors": [
+    "native tool implicitly closes an open reasoning block before payload shielding",
+    "qwen4_exp streaming behavior is independent of marker-aligned chunking"
+  ],
+  "sha256": {
+    "tests/runtime_responses_compat.py": "023dc25f1f8c011f2f79fda67b12d62b209aa279942fdea93640316f135ce20a",
+    "provenance/pr5-followup4-red.log": "bdde78b1e45273d083fb14148bf180536816815c583d5a39ae31f17e96b073be"
+  }
+}

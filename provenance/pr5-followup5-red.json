@@ -1,0 +1,18 @@
+{
+  "phase": "FOLLOWUP5_RED",
+  "base_commit": "7fe50de3595dad2a6425f54c23f59cb46e8db409",
+  "production_source_sha256": "b5387927a4ad72165c74557f1deb1e39cfd5c6aa3fae14bd23db83fafdbec670",
+  "trigger": "final independent read-only review suggestion converted to regression test",
+  "command": "exact pinned image, read-only/no-network CPU runner: python3 /repo/tests/runtime_responses_compat.py MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning -v",
+  "result": {
+    "exit_code": 1,
+    "test_methods_run": 1,
+    "failing_subtests": 4,
+    "errors": 0
+  },
+  "failing_behavior": "an explicitly renewed reasoning block after an implicitly closed native function/custom call is emitted as final-answer text",
+  "sha256": {
+    "tests/runtime_responses_compat.py": "81e68fa7138f33a1dab3911bf983032e6a8d4aa15b967803b117b0df623f8f6f",
+    "provenance/pr5-followup5-red.log": "9e9774959574a801f33723dacb6a3328c42fce90afec54483a329c795c3f6504"
+  }
+}

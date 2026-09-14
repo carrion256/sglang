@@ -1,0 +1,30 @@
+{
+  "phase": "RED",
+  "reviewed_head": "ed43202a522bc2a09eb08ebdc89705afc355030e",
+  "image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+  "command": "docker run --rm --pull never --network none --read-only --cap-drop ALL --security-opt no-new-privileges --cpus 4 --memory 12g --pids-limit 512 --tmpfs /tmp:rw,exec,size=2g --tmpfs /root/.cache:rw,exec,size=1g -e CUDA_VISIBLE_DEVICES= -e OMP_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e XDG_CACHE_HOME=/tmp/cache -e PYTHONDONTWRITEBYTECODE=1 -e QWEN_TOKENIZER_PATH=/tokenizer -v /home/kanadaj/sglang-tuning/qwen-effort-alias-patch/tokenizer:/tokenizer:ro -v $PWD:/repo:ro [five candidate runtime mounts] --entrypoint python3 <image> /repo/tests/runtime_responses_compat.py -v",
+  "result": {
+    "exit_code": 1,
+    "tests_run": 65,
+    "failures": 4,
+    "errors": 0
+  },
+  "expected_failures": [
+    "test_qwen_ordered_nonstream_preserves_usage_details",
+    "test_qwen_ordered_nonstream_preserves_requested_logprobs",
+    "test_qwen_stream_has_no_generic_angle_boundary_split",
+    "test_qwen4_exp_is_negative_control_for_ordered_nonstream"
+  ],
+  "required_order_controls_that_passed": [
+    "test_qwen_nonstream_preserves_text_tool_text_order",
+    "test_qwen_nonstream_preserves_renewed_reasoning_order",
+    "test_qwen_stream_preserves_text_tool_text_order_for_any_chunking",
+    "test_qwen_stream_preserves_renewed_reasoning_order",
+    "test_qwen_literal_angle_brackets_survive_text_tool_text",
+    "test_mock_http_custom_literal_angles_preserve_order_and_payload"
+  ],
+  "sha256": {
+    "tests/runtime_responses_compat.py": "425fa143fab49c3d50f5e64d4d196b54d0eabb46597173c2e30d70d4632ca0ce",
+    "provenance/pr5-merge-gate-red.log": "334ded3fd795f667a6399d96ba80adbee07f968564e9dc898dd9e691dddcf1ab"
+  }
+}

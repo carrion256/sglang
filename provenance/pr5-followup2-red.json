@@ -1,0 +1,20 @@
+{
+  "phase": "FOLLOWUP2_RED",
+  "base_commit": "6968c13f44b251feb86bd7d179d3b483ed434a49",
+  "production_source_sha256": "04fd2308677bb399f5911df89ee1a64e0d83b449dbdd9851b52be60b4ed88f9a",
+  "trigger": "second independent read-only review",
+  "result": {
+    "exit_code": 1,
+    "test_methods_run": 2,
+    "failing_subtests": 3,
+    "errors": 0
+  },
+  "failing_behaviors": [
+    "required JSON marker-like values with configured qwen3 reasoning parser",
+    "adjacent repeated explicit reasoning blocks remain distinct"
+  ],
+  "sha256": {
+    "tests/runtime_responses_compat.py": "9c100524ca72cee5139af6310e8372eae21f0e00892fd322df7f4907b70202cd",
+    "provenance/pr5-followup2-red.log": "a10bc67cb2203c425b5e260d20b7f6b96d018300360408babf3235fb745a6a74"
+  }
+}
