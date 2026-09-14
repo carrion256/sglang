@@ -1,19 +1,18 @@
 # Qwen TP2 packed-PLE vision on SM120
 
-**Unpublished CPU candidate:** [Responses compatibility and Qwen phase/order](docs/responses-compat.md)
-adds separately attested boundary and streaming/nonstream ordering patches after the
-effort-alias profile, including its `minimal` → `low` alias. The ordered nonstream
-path constructs typed output directly and retains usage details and requested
-logprobs; structural splitting is limited to recognized Qwen markers and the loaded
-`qwen3_8_flash_next` / `_text` model types. The cumulative
-[Qwen Flash-Next multimodal alias profile](docs/qwen-multimodal-alias.md) additionally
-restores four existing Qwen VL processor paths under the release model type. The
-[invalid generated-token failure profile](docs/invalid-token-failure.md) completes
-the cumulative `0015` → `0016` → `0017` → `0018` → `0019` stack: scheduler
-faults retain `InvalidTokenError` through Chat and Completions SSE, Responses
-failures remain retrievable but cannot be replayed as `previous_response_id`, and
-graceful cancellations are unchanged.
-Historical production profiles below are unchanged; no deployment is implied.
+**Published cumulative compatibility runtime:**
+[`production-cumulative-compat-20260914-v3`](docs/production-cumulative-compat-20260914.md)
+contains the ordered `0015` → `0016` → `0017` → `0018` → `0019` stack at
+`docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458`.
+It includes the Qwen effort aliases, [Responses namespace/custom and phase/order
+compatibility](docs/responses-compat.md), [Flash-Next multimodal processor
+aliases](docs/qwen-multimodal-alias.md), and [invalid generated-token failure
+propagation](docs/invalid-token-failure.md). The image was rebuilt from clean
+`main`, verified against all 4,392 source hashes, and anonymously pulled by tag
+and digest. Publication does not imply production deployment.
+
+Historical production profiles below remain available as rollback and audit
+records.
 
 Publishable source and deployment package for the locally accepted Qwen3.8
 Flash-Next LIL NVFP4 stack. **No model weights, container archives, credentials,
