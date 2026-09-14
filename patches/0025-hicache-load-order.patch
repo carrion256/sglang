@@ -1,0 +1,65 @@
+--- a/python/sglang/srt/managers/cache_controller.py
++++ b/python/sglang/srt/managers/cache_controller.py
+@@ -316,6 +316,8 @@
+         self.load_queue: List[CacheOperation] = []
+         self.write_queue: List[CacheOperation] = []
+         self.ack_load_queue: List[HiCacheAck] = []
++        # Load-back must follow in-flight forwards that may still write reclaimed pages.
++        self.load_fence_stream = None
+         self.ack_write_queue: List[HiCacheAck] = []
+ 
+         self.l2_transfer_engine = L2TransferEngine(io_backend)
+@@ -845,6 +847,11 @@
+         producer_event = self.layer_done_counter.events[producer_id]
+         producer_event.start_event.record()
+ 
++        if self.load_fence_stream is not None:
++            self.l2_transfer_engine.host_to_device_stream.wait_stream(
++                self.load_fence_stream
++            )
++
+         completion = self.l2_transfer_engine.submit_host_to_device(
+             self._l2_load_transfers(host_indices, device_indices, pool_transfers),
+             start_event=producer_event.start_event,
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -554,6 +554,12 @@
+         self.token_to_kv_pool_allocator = result.token_to_kv_pool_allocator
+         self.disable_radix_cache = result.disable_radix_cache
+         self.tree_cache = result.tree_cache
++        if self.enable_hierarchical_cache:
++            cache_controller = self.tree_cache.cache_controller
++            if cache_controller is not None:
++                cache_controller.load_fence_stream = (
++                    self.tp_worker.model_runner.forward_stream
++                )
+         self.emit_metrics_constants()
+         self.maybe_init_hccl_dp_prewarm()
+ 
+--- a/python/sglang/srt/mem_cache/memory_pool.py
++++ b/python/sglang/srt/mem_cache/memory_pool.py
+@@ -1451,6 +1451,13 @@
+     def get_mamba_indices(self, req_indices: torch.Tensor) -> torch.Tensor:
+         return self.req_index_to_mamba_index_mapping[req_indices]
+ 
++    def wait_for_hicache_load_complete(self) -> None:
++        """Order whole-slot consumers after an active layerwise H->D load."""
++        if self.layer_transfer_counter is not None:
++            self.layer_transfer_counter.wait_until(
++                self.layer_transfer_counter.num_layers - 1
++            )
++
+     def translate_mamba_indices(self, mamba_indices: torch.Tensor) -> torch.Tensor:
+         """Virtual->physical mamba-slot translate. Identity for a static pool
+         (slots are physical); UnifiedHybridReqToTokenPool overrides it for the
+--- a/python/sglang/srt/model_executor/model_runner.py
++++ b/python/sglang/srt/model_executor/model_runner.py
+@@ -1651,6 +1651,8 @@
+             forward_batch.mamba_cow_src_indices is not None
+             and len(forward_batch.mamba_cow_src_indices) > 0
+         ):
++            # Whole-slot COW must wait for every restored layer.
++            pool.wait_for_hicache_load_complete()
+             if pool.mamba_ckpt_pool is not None:
+                 # int8 checkpoints: dequantize src int8 ckpt slot into the active bf16 dst.
+                 pool.mamba_ckpt_pool.load_to_active(

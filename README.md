@@ -11,6 +11,11 @@ propagation](docs/invalid-token-failure.md). The image was rebuilt from clean
 `main`, verified against all 4,392 source hashes, and anonymously pulled by tag
 and digest. Publication does not imply production deployment.
 
+**Opt-in HiCache profile:** [Qwen RAM/file state transfer](docs/hicache-wip.md)
+adds companion-state handling and upstream QSA, router and restore-order fixes
+after the cumulative runtime. See the configuration-specific live results and
+remaining limits before enabling it; default images and patch series are unchanged.
+
 Historical production profiles below remain available as rollback and audit
 records.
 

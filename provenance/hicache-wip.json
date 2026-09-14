@@ -1,0 +1,219 @@
+{
+  "status": "DRAFT / WIP: opt-in profile; configuration-specific qualification is recorded in docs/hicache-wip.md",
+  "base_git_commit": "b52479451e88b0c54930f285c4406f789a11c1cd",
+  "base_image": "docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458",
+  "base_inventory": "provenance/invalid-token-failure-runtime-files.json",
+  "base_inventory_sha256": "f7293cc004161bcad39bc3772939fd868f8fc9d6f09d2cdb7b7ffd5a23333e1d",
+  "source_files_before": 4392,
+  "source_files_after": 4393,
+  "patches": [
+    {
+      "file": "0020-hicache-ple-state.patch",
+      "sha256": "4864c6bdec355a097e12764da72e5842369ef011af19948054b00e4e9e2c364c",
+      "files": {
+        "python/sglang/srt/mem_cache/ple_state_pool.py": {
+          "before": "a99b71c6e3941c060e4126c212fa9a941545d4d6614af7131681dc9b696515e2",
+          "after": "3364674a48d7db3a1f36690e420d42f888c50d12bb15d9b113d437b503513515"
+        },
+        "python/sglang/srt/mem_cache/memory_pool_host.py": {
+          "before": "fd2b196b9bf39ae93f96afce6748ae2571c26308dbc150da452dd055f3b03125",
+          "after": "8a224a8434d7879c134100c1edb205a5dabb12d2d3310c68b3a720b3391e4634"
+        },
+        "python/sglang/srt/mem_cache/memory_pool.py": {
+          "before": "ebcb705f37b6f78cfb730ea43c767538a4f63b719a14336f5bbac71d20ec3f7c",
+          "after": "b5cf490ef31e5ade34b24e6e5641b0db67f411324e065458a85c18f2f3feb46b"
+        },
+        "python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py": {
+          "before": "bc06826aeae69fa9702469d6a8606fba6efafe66433e402f9a8fd488dfdb1096",
+          "after": "0c919d2416d86f30b60ff2bcc2621823c8d0021cbac6c5d3ab7dd13162a51003"
+        }
+      }
+    },
+    {
+      "file": "0021-hicache-file-integrity.patch",
+      "sha256": "569a2cabf483ad6ecbc585ecd7791d3718b75fba80f64875e802b4b378ae5715",
+      "files": {
+        "python/sglang/srt/mem_cache/hicache_storage.py": {
+          "before": "de92d6c7228f3c93d889e1c054f867235055f74663b2808c5456e53ff040be86",
+          "after": "fd7b610e978fb84b3dc69ff47577be27796770b18c673bf0c60824521d43eea9"
+        },
+        "python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py": {
+          "before": "0c919d2416d86f30b60ff2bcc2621823c8d0021cbac6c5d3ab7dd13162a51003",
+          "after": "c6ddda7a329f84b99e31629c415eaca82360c6c95b83469ac2f482cca17bd5cb"
+        }
+      }
+    },
+    {
+      "file": "0022-hicache-qsa-sidecar.patch",
+      "sha256": "a0972e94c8b31cec72dd249947fd1e9dc77adc7dab655db062be373064912db2",
+      "files": {
+        "python/sglang/srt/mem_cache/hicache_storage.py": {
+          "before": "fd7b610e978fb84b3dc69ff47577be27796770b18c673bf0c60824521d43eea9",
+          "after": "09f53cb53e4359d369a072470c54bc2fcc1141ce649c05d98ffcef50f92be21d"
+        },
+        "python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py": {
+          "before": "a348509b43c64ee979d838dfd7c6ee3350b6617edb608ccb0f593f7af86e7140",
+          "after": "c2fcd1f95bc5a7754ca22111748c76918729a593b784e04827520238174eb5d1"
+        },
+        "python/sglang/srt/mem_cache/qsa_kv_pool.py": {
+          "before": "85e7687daee0af9506b4c0e8840ec5b4c870be6f6930a3c210cbd31bf1f84412",
+          "after": "9a07709e8c6b05858d13f9418984e27916cfcb2c21cd2619c25f0db361035e29"
+        },
+        "python/sglang/srt/mem_cache/qsa_pool_host.py": {
+          "before": null,
+          "after": "b32eaab324d52ecef8e66e28dd2d270a8543b2a30cf7ab2145f0ac8d1fb38b07"
+        }
+      }
+    },
+    {
+      "file": "0023-qsa-sparse-gather-memory-safety.patch",
+      "sha256": "ea71ab2106c534d4fbe954c59d956c31fe862d74490e745769d51410801c51f8",
+      "upstream_pr": "https://github.com/sgl-project/sglang/pull/38851",
+      "files": {
+        "python/sglang/srt/layers/attention/qsa/sparse_attn.py": {
+          "before": "c7052125569f3c0fa9a0a4d62d2f57433faec636ad82a1d99c3b39e267b7904c",
+          "after": "6773d7fe83d42878efa9d65a49260b84fd13336f6192828cb093cba44ad5c930"
+        },
+        "python/sglang/srt/layers/attention/qwen_sparse_attn_backend.py": {
+          "before": "12c4d4d34774e5592c3a3ba3956d19a280606007e0161598e4e108bb6caa479b",
+          "after": "99e719d0c90be7cd43738cf06fc1a610b0d6cdd6bc42c4b235091962366885f5"
+        }
+      }
+    },
+    {
+      "file": "0024-router-pdl-bias-order.patch",
+      "sha256": "148026a93c1eb17629f17fe82ff854b3e0d7da156b7664672f68813c55a0aedf",
+      "upstream_pr": "https://github.com/sgl-project/sglang/pull/38290",
+      "adaptation": "Keep existing bias API; move PDL waits before dependent bias loads in both kernels.",
+      "files": {
+        "python/sglang/kernels/ops/moe/moe_fused_gate.py": {
+          "before": "945eae03580d034420a20f2c38adf8d9ae8fed4a13de364d8c235466ffc513b0",
+          "after": "366c124db146378a68468deafb18a24d9f02ef64effaf59425915964c45ff71c"
+        },
+        "python/sglang/kernels/jit/csrc/moe/route_radix.cuh": {
+          "before": "f93a2c03c15bf98203b0412b96aee97422020e4c3d22b55416afb99dd42e0c29",
+          "after": "82191277f1f8104eedbf6c187c62c1d460d700fed6981109332e4dbd07c5a047"
+        }
+      }
+    },
+    {
+      "file": "0025-hicache-load-order.patch",
+      "sha256": "cf73bbf2332f9c691a1a71d44134ad5eab2d50804ed91dc2e15cecb7d83bd385",
+      "upstream_prs": [
+        "https://github.com/sgl-project/sglang/pull/36738",
+        "https://github.com/sgl-project/sglang/pull/36743"
+      ],
+      "files": {
+        "python/sglang/srt/managers/cache_controller.py": {
+          "before": "3f323c0b08acb8b1de6f3ff8c08f1ed34d508afd186ae61d370f4e1087d89974",
+          "after": "005ee937a4d75bb379adb3b78c874b37ccc00fe0e201f34dba74b6249301434a"
+        },
+        "python/sglang/srt/managers/scheduler.py": {
+          "before": "8bc11f8bd2ddef96bf32adc1fe5b52c3929e23538cde1047914eb336f3994595",
+          "after": "1f7d64f0268595d8d6e03dd3233f98c523899f4e63876bef8f4683b21ddb4a19"
+        },
+        "python/sglang/srt/mem_cache/memory_pool.py": {
+          "before": "b5cf490ef31e5ade34b24e6e5641b0db67f411324e065458a85c18f2f3feb46b",
+          "after": "ca6dfe21d59623c5be325462cf877f340268c66dbd7ab63a4bfc451d9b1da795"
+        },
+        "python/sglang/srt/model_executor/model_runner.py": {
+          "before": "d93a427b8ba77128ba0752adb990a1d69a489e3249c189ee9bca67583ace2069",
+          "after": "b5d03401cad03f84bc30ca21d67c9ff1b471f251e9e745220b9348a53414adaf"
+        }
+      }
+    },
+    {
+      "file": "0026-qsa-short-extend-bounds.patch",
+      "sha256": "aa965304ad4b18ad46fa0eccf9b32675ce77917500cdc296dfec1f5a3ea9a050",
+      "upstream_pr": "https://github.com/sgl-project/sglang/pull/39446",
+      "files": {
+        "python/sglang/srt/layers/attention/qsa/qsa_indexer.py": {
+          "before": "bb57ce1e9abc4fbfcba2c9aaaf125b9e625983966497df57165b6d4c6461afe2",
+          "after": "72c5d471a67729446ec9b1c0d810bc87bc85149c381c213adfb4119eddde9a7c"
+        }
+      }
+    }
+  ],
+  "files": {
+    "python/sglang/srt/mem_cache/hicache_storage.py": {
+      "before": "de92d6c7228f3c93d889e1c054f867235055f74663b2808c5456e53ff040be86",
+      "after": "09f53cb53e4359d369a072470c54bc2fcc1141ce649c05d98ffcef50f92be21d"
+    },
+    "python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py": {
+      "before": "bc06826aeae69fa9702469d6a8606fba6efafe66433e402f9a8fd488dfdb1096",
+      "after": "c6ddda7a329f84b99e31629c415eaca82360c6c95b83469ac2f482cca17bd5cb"
+    },
+    "python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py": {
+      "before": "a348509b43c64ee979d838dfd7c6ee3350b6617edb608ccb0f593f7af86e7140",
+      "after": "c2fcd1f95bc5a7754ca22111748c76918729a593b784e04827520238174eb5d1"
+    },
+    "python/sglang/srt/mem_cache/memory_pool.py": {
+      "before": "ebcb705f37b6f78cfb730ea43c767538a4f63b719a14336f5bbac71d20ec3f7c",
+      "after": "ca6dfe21d59623c5be325462cf877f340268c66dbd7ab63a4bfc451d9b1da795"
+    },
+    "python/sglang/srt/mem_cache/memory_pool_host.py": {
+      "before": "fd2b196b9bf39ae93f96afce6748ae2571c26308dbc150da452dd055f3b03125",
+      "after": "8a224a8434d7879c134100c1edb205a5dabb12d2d3310c68b3a720b3391e4634"
+    },
+    "python/sglang/srt/mem_cache/ple_state_pool.py": {
+      "before": "a99b71c6e3941c060e4126c212fa9a941545d4d6614af7131681dc9b696515e2",
+      "after": "3364674a48d7db3a1f36690e420d42f888c50d12bb15d9b113d437b503513515"
+    },
+    "python/sglang/srt/mem_cache/qsa_kv_pool.py": {
+      "before": "85e7687daee0af9506b4c0e8840ec5b4c870be6f6930a3c210cbd31bf1f84412",
+      "after": "9a07709e8c6b05858d13f9418984e27916cfcb2c21cd2619c25f0db361035e29"
+    },
+    "python/sglang/srt/mem_cache/qsa_pool_host.py": {
+      "before": null,
+      "after": "b32eaab324d52ecef8e66e28dd2d270a8543b2a30cf7ab2145f0ac8d1fb38b07"
+    },
+    "python/sglang/srt/layers/attention/qsa/sparse_attn.py": {
+      "before": "c7052125569f3c0fa9a0a4d62d2f57433faec636ad82a1d99c3b39e267b7904c",
+      "after": "6773d7fe83d42878efa9d65a49260b84fd13336f6192828cb093cba44ad5c930"
+    },
+    "python/sglang/srt/layers/attention/qwen_sparse_attn_backend.py": {
+      "before": "12c4d4d34774e5592c3a3ba3956d19a280606007e0161598e4e108bb6caa479b",
+      "after": "99e719d0c90be7cd43738cf06fc1a610b0d6cdd6bc42c4b235091962366885f5"
+    },
+    "python/sglang/kernels/ops/moe/moe_fused_gate.py": {
+      "before": "945eae03580d034420a20f2c38adf8d9ae8fed4a13de364d8c235466ffc513b0",
+      "after": "366c124db146378a68468deafb18a24d9f02ef64effaf59425915964c45ff71c"
+    },
+    "python/sglang/kernels/jit/csrc/moe/route_radix.cuh": {
+      "before": "f93a2c03c15bf98203b0412b96aee97422020e4c3d22b55416afb99dd42e0c29",
+      "after": "82191277f1f8104eedbf6c187c62c1d460d700fed6981109332e4dbd07c5a047"
+    },
+    "python/sglang/srt/managers/cache_controller.py": {
+      "before": "3f323c0b08acb8b1de6f3ff8c08f1ed34d508afd186ae61d370f4e1087d89974",
+      "after": "005ee937a4d75bb379adb3b78c874b37ccc00fe0e201f34dba74b6249301434a"
+    },
+    "python/sglang/srt/managers/scheduler.py": {
+      "before": "8bc11f8bd2ddef96bf32adc1fe5b52c3929e23538cde1047914eb336f3994595",
+      "after": "1f7d64f0268595d8d6e03dd3233f98c523899f4e63876bef8f4683b21ddb4a19"
+    },
+    "python/sglang/srt/model_executor/model_runner.py": {
+      "before": "d93a427b8ba77128ba0752adb990a1d69a489e3249c189ee9bca67583ace2069",
+      "after": "b5d03401cad03f84bc30ca21d67c9ff1b471f251e9e745220b9348a53414adaf"
+    },
+    "python/sglang/srt/layers/attention/qsa/qsa_indexer.py": {
+      "before": "bb57ce1e9abc4fbfcba2c9aaaf125b9e625983966497df57165b6d4c6461afe2",
+      "after": "72c5d471a67729446ec9b1c0d810bc87bc85149c381c213adfb4119eddde9a7c"
+    }
+  },
+  "result_inventory_sha256": "f0f4eb40679807cb03a7c92c010df00bdeecc1262fb9a83c505b96ed9379a542",
+  "retained_validation": {
+    "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
+    "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",
+    "gpu_file": "one real GPU to RAM to reconstructed-file checkpoint case passed",
+    "gpu_qsa": "4 per card: target/draft relocation, two layouts, RAM and reconstructed file storage",
+    "live_restore": "cold 4/4, storage 4/4, GPU replay 4/4; QSA added 81,788,928 restored bytes (832 bytes/token)"
+  },
+  "known_blockers": [
+    "A later ordinary 200-tool catalogue/replay run passed only 32/48 with repeated punctuation.",
+    "That failing run recorded no new host or storage reads, so the corruption is not attributed solely to restored cache data.",
+    "Instrumented diagnostics observed NaNs in CUDA-graph draft extension; causation and a safe fix remain unresolved.",
+    "No production deployment or merge qualification is claimed; HiCache must remain disabled."
+  ],
+  "base_profile": "production-cumulative-compat-20260914-v3",
+  "retained_validation_scope": "Historical pre-rebase evidence; fresh cumulative candidate qualification is required."
+}
