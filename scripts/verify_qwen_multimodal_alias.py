@@ -18,10 +18,13 @@ def digest(path):
 
 def package_records():
     manifest = json.loads((ROOT / "provenance/qwen-multimodal-alias.json").read_text())
-    _, inventory = responses_package_records()
-    base_inventory = ROOT / "provenance/responses-compat-runtime-files.json"
+    _, _, predecessor = responses_package_records()
+    base_inventory = ROOT / "provenance" / manifest["base_inventory"]
     if digest(base_inventory) != manifest["base_inventory_sha256"]:
         raise ValueError("Base inventory digest mismatch")
+    inventory = json.loads(base_inventory.read_text())
+    if inventory != predecessor:
+        raise ValueError("Base inventory differs from Responses verifier")
     for name, hashes in manifest["files"].items():
         if inventory.get(name) != hashes["before"]:
             raise ValueError("Multimodal preimage mismatch: " + name)
@@ -35,12 +38,16 @@ def package_records():
     if series != [
         "0015-qwen-flash-next-effort-alias.patch",
         "0016-responses-namespace-custom-boundary.patch",
+        "0017-responses-phase-order.patch",
         manifest["patch"],
     ]:
         raise ValueError("Multimodal patch order differs")
-    encoded = (json.dumps(dict(sorted(inventory.items())), indent=2) + "\n").encode()
-    if hashlib.sha256(encoded).hexdigest() != manifest["result_inventory_sha256"]:
-        raise ValueError("Result inventory digest mismatch")
+    inventory_path = ROOT / "provenance" / manifest["inventory"]
+    recorded_inventory = json.loads(inventory_path.read_text())
+    if recorded_inventory != dict(sorted(inventory.items())):
+        raise ValueError("Full candidate inventory differs from predecessor chain")
+    if digest(inventory_path) != manifest["inventory_sha256"]:
+        raise ValueError("Candidate inventory digest mismatch")
     return manifest, inventory
 
 

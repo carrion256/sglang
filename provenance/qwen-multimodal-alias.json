@@ -1,9 +1,10 @@
 {
-  "status": "CPU-tested candidate only; not built, published, or deployed",
-  "base_git_commit": "93463c3466b0de9d21776fbeff95657285df8269",
-  "base_profile": "responses-compat-candidate",
+  "status": "CPU-tested and locally built candidate; not published or deployed",
+  "base_main_commit": "460545bf81f1ed24205232d9371e8eb1a02f3e46",
+  "predecessor_profile": "responses-phase-order-candidate",
   "base_image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
-  "base_inventory_sha256": "e574ce136e79576c3970da7f479b729b21d18ef8e4fe3e49ae3a5fd521866138",
+  "base_inventory": "responses-phase-order-runtime-files.json",
+  "base_inventory_sha256": "1fc662bc6553af87a0b79f2857c910de02b8aaebb0f96fd6ac11674657dbb903",
   "patch": "0018-qwen-flash-next-multimodal-alias.patch",
   "patch_sha256": "d04808b386903db5def8d309df4d0570cc007b93a45befb41b688f2178898daa",
   "files": {
@@ -12,8 +13,10 @@
       "after": "b47003e1f0840a057519adff46fc72a9318a61e2eb3ef8cedfa9eab19e98b7f7"
     }
   },
-  "source_files": 4392,
-  "result_inventory_sha256": "3735872b9eb7f4eb2aef99d9a56abc58ac52291cbec7e99ac3c889b6008eee13",
+  "source_files_before": 4392,
+  "source_files_after": 4392,
+  "inventory": "qwen-multimodal-alias-runtime-files.json",
+  "inventory_sha256": "c88e18731d4ef0b4cd5a71c5f4b486def1677802c86303907ee50f2317714395",
   "historical_live_evidence": {
     "image_cases_passed": 16,
     "video_limitation": "Short four-frame video chronology remained wrong in observed cases.",
