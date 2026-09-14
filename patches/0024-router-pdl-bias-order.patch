@@ -1,0 +1,34 @@
+--- a/python/sglang/kernels/ops/moe/moe_fused_gate.py
++++ b/python/sglang/kernels/ops/moe/moe_fused_gate.py
+@@ -126,13 +126,13 @@
+     mask_m = offs_m < M
+     mask_n = offs_n < N
+ 
+-    # prefetch bias before PDL wait
++    # Bias can come from a preceding cast or fill; wait before either input load.
++    if USE_PDL:
++        tl.extra.cuda.gdc_wait()
++
+     bias = tl.load(bias_ptr + offs_n, mask=mask_n, other=0.0).to(
+         tl.float32
+     )  # [BLOCK_N]
+-
+-    if USE_PDL:
+-        tl.extra.cuda.gdc_wait()
+ 
+     row_ptr = scores_ptr + offs_m[:, None] * stride_sm + offs_n[None, :] * stride_sn
+     mask2d = mask_m[:, None] & mask_n[None, :]
+--- a/python/sglang/kernels/jit/csrc/moe/route_radix.cuh
++++ b/python/sglang/kernels/jit/csrc/moe/route_radix.cuh
+@@ -142,9 +142,9 @@
+     // radix math below is fp32 either way — only the load width differs.
+     AlignedVector<packed_t<TScore>, kVecSize / 2> scores_vec;
+ 
+-    // prefetch bias (frozen weight) before the PDL wait
++    // Bias may be produced by a preceding cast or fill kernel.
++    PDLWaitPrimary<kUsePDL>();
+     bias_vec.load(params.bias, tx);
+-    PDLWaitPrimary<kUsePDL>();
+     scores_vec.load(scores, tx);
+ 
+ #pragma unroll
