@@ -370,7 +370,7 @@ class MockHTTPTest(unittest.TestCase):
         self.assertEqual(
             [[entry['token'] for entry in item['content'][0]['logprobs']]
              for item in messages],
-            [['Checking.', 'Final answer.'], ['Checking.', 'Final answer.']],
+            [['Checking.'], ['Final answer.']],
         )
         self.assertEqual(
             messages[0]['content'][0]['logprobs'][0]['top_logprobs'][1]['token'],
@@ -697,6 +697,28 @@ class MockHTTPTest(unittest.TestCase):
                             ('reasoning', 'Again'),
                             ('message', 'final_answer', 'Final'),
                         ])
+
+    def test_empty_reasoning_implicit_tool_close_allows_renewal(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = 'qwen3_coder'
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        self.text = ('<think><tool_call><function=inspect></function></tool_call>'
+                     '<think>Again</think>Final')
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                response = self.send(
+                    stream=stream, tools=tools, tool_choice='auto',
+                    reasoning={'effort': 'medium'})
+                body = (next(event['response'] for event in self.events(response)
+                             if event['type'] == 'response.completed')
+                        if stream else response.json())
+                self.assertEqual([item['type'] for item in body['output']],
+                                 ['function_call', 'reasoning', 'message'])
+                self.assertEqual(self.phase_semantics(body['output'][1:]), [
+                    ('reasoning', 'Again'),
+                    ('message', 'final_answer', 'Final'),
+                ])
 
     def test_qwen4_stream_reasoning_is_chunking_negative_control(self):
         self.serving.tokenizer_manager.model_config.hf_config.model_type = 'qwen4_exp'

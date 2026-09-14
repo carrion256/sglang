@@ -1,0 +1,21 @@
+{
+  "phase": "FOLLOWUP6_RED",
+  "base_commit": "8b33799e4b21ef54c8a39250b692cd3a60b3c44b",
+  "production_source_sha256": "dbd1a2c5f094b92be4c60c3db24192e4103f662dd62c939ce2b60765bdaa5e37",
+  "trigger": "final independent read-only merge-gate review",
+  "command": "exact pinned image, read-only/no-network CPU runner: two named MockHTTPTest methods",
+  "result": {
+    "exit_code": 1,
+    "test_methods_run": 2,
+    "failing_subtests": 3,
+    "errors": 0
+  },
+  "failing_behaviors": [
+    "empty reasoning implicitly closed by native tool does not reset for renewed explicit reasoning",
+    "whole-generation output logprobs are duplicated across each ordered message instead of attributed per message"
+  ],
+  "sha256": {
+    "tests/runtime_responses_compat.py": "b3e970545939632068cc47e68c3085ed2d3a01af46b02112e1e53f23b85eb8cf",
+    "provenance/pr5-followup6-red.log": "9cd9dd70b7642de394f52d763d6397eb053d521423128937c5e4546af555b703"
+  }
+}
