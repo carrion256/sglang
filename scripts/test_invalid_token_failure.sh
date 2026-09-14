@@ -46,6 +46,7 @@ run docker run --rm --pull never --network none --read-only --cap-drop all \
   -e HOME=/tmp -e XDG_CACHE_HOME=/tmp/cache -e PYTHONDONTWRITEBYTECODE=1 \
   -e QWEN_TOKENIZER_PATH="$QWEN_TOKENIZER_PATH" \
   -v "$TOKENIZER_ROOT:$TOKENIZER_ROOT:ro" -v "$ROOT:/repo:ro" \
+  -v "$ROOT/runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_completions.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_completions.py:ro" \
   -v "$ROOT/runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_chat.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py:ro" \
   -v "$ROOT/runtime/python/sglang/srt/entrypoints/openai/protocol.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py:ro" \
   -v "$ROOT/runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_responses.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:ro" \

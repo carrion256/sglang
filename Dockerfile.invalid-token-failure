@@ -8,8 +8,9 @@ COPY runtime/python/sglang/srt/entrypoints/openai/protocol.py /sgl-workspace/sgl
 COPY runtime/python/sglang/srt/entrypoints/openai/responses_compat.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py
 COPY runtime/python/sglang/srt/function_call/qwen3_coder_detector.py /sgl-workspace/sglang/python/sglang/srt/function_call/qwen3_coder_detector.py
 COPY runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_chat.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py
+COPY runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_completions.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_completions.py
 COPY runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_responses.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py
 COPY runtime.invalid-token-failure/python/sglang/srt/managers/schedule_batch.py /sgl-workspace/sglang/python/sglang/srt/managers/schedule_batch.py
-RUN python3 -B -c 'import pathlib; p=pathlib.Path("/sgl-workspace/sglang/python/sglang/srt"); files=[p/"entrypoints/openai"/n for n in ("serving_chat.py", "protocol.py", "serving_responses.py", "responses_compat.py")]+[p/"function_call/qwen3_coder_detector.py", p/"managers/schedule_batch.py"]; [compile(f.read_bytes(), str(f), "exec") for f in files]'
+RUN python3 -B -c 'import pathlib; p=pathlib.Path("/sgl-workspace/sglang/python/sglang/srt"); files=[p/"entrypoints/openai"/n for n in ("serving_chat.py", "serving_completions.py", "protocol.py", "serving_responses.py", "responses_compat.py")]+[p/"function_call/qwen3_coder_detector.py", p/"managers/schedule_batch.py"]; [compile(f.read_bytes(), str(f), "exec") for f in files]'
 ENTRYPOINT ["python3", "-m", "sglang.launch_server"]
 CMD ["--help"]

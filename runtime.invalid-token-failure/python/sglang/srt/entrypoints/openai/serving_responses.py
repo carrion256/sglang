@@ -251,6 +251,10 @@ class OpenAIServingResponses(OpenAIServingChat):
                 async with self.response_store_lock:
                     previous = self.response_store.get(request.previous_response_id)
                     previous_registry = self._compat_registries.get(request.previous_response_id)
+                    if previous is not None and previous.status == "failed":
+                        return self._make_failed_previous_response_error(
+                            request.previous_response_id
+                        )
                     if previous is not None and previous_registry is not None:
                         registry.inherit_history(previous_registry, previous.output)
             internal = request.model_dump(by_alias=True)
@@ -353,6 +357,8 @@ class OpenAIServingResponses(OpenAIServingChat):
                 prev_response = self.response_store.get(prev_response_id)
             if prev_response is None:
                 return self._make_not_found_error(prev_response_id)
+            if prev_response.status == "failed":
+                return self._make_failed_previous_response_error(prev_response_id)
         else:
             prev_response = None
 
@@ -1576,6 +1582,16 @@ class OpenAIServingResponses(OpenAIServingChat):
             err_type="invalid_request_error",
             status_code=HTTPStatus.NOT_FOUND,
             param="response_id",
+        )
+
+    def _make_failed_previous_response_error(self, response_id: str):
+        return self.create_error_response(
+            message=(
+                f"Response with id '{response_id}' cannot be used as a previous "
+                "response because its status is 'failed'."
+            ),
+            err_type="invalid_request_error",
+            param="previous_response_id",
         )
 
     async def responses_stream_generator(
