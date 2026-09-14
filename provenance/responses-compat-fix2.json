@@ -1,0 +1,71 @@
+{
+  "status": "R1/R2 implemented; CPU GREEN; uncommitted; no independent approval claimed",
+  "review_sha256": "1b33f4b72ee94b8de0fbab3af671bbd040ff3ac62fac8b0f7d13bc2cb6aa3e00",
+  "prior_fix_provenance_sha256": "2139ed859e5876aa3099d7931f97ae1b8a890ee6c80646f89530acacd4dda646",
+  "files_sha256": {
+    "runtime/python/sglang/srt/entrypoints/openai/protocol.py": "fbc60d3206612f408d93f786b18446ab96c258ff60bf1f1c4cf0e36e3c88eca1",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_chat.py": "6d881d19da2c4a7028b0fb179cf5cdb958480612d4192c1606dfd25f98a9ba56",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_responses.py": "f643dd8090a4d199e3bbe814375dd452db6a92840d7c7cbff167432b2d09690a",
+    "runtime/python/sglang/srt/entrypoints/openai/responses_compat.py": "72bfe1e5e45073d57f09dc90ba7b2ea6b87df932cfbcb67ed8116f25c5830037",
+    "runtime/python/sglang/srt/function_call/qwen3_coder_detector.py": "2906f40a1fd33b3c6137ccf957b423de1775714fd07dcedab430c3c1905eebe9",
+    "patches/0016-responses-namespace-custom-boundary.patch": "03e0eff9b0c4241015d394e61a678ea34840a7ddbd1706f6390906a6320a7414",
+    "provenance/responses-compat.json": "98507c340cb7cb569f9aaf302d17b464c24dc8ee900c69cb37b297ff3edb5f7f",
+    "provenance/responses-compat-runtime-files.json": "4ca8fb6a7fbd32927901dbd19151d338f9ee5e13ca3fe2d79b2955ae19afdbe4",
+    "tests/runtime_responses_compat.py": "efcc4b885e3e9853b10e70a3c89f274f919bed7ebfd9f6baf90179f1515abf5a",
+    "tests/test_responses_packaging.py": "4e4420a1def5380762b44d2833dffdc63f5a914a48607af7614d24092d80dd56",
+    "scripts/verify_responses_compat.py": "309085eea09fa29c734b6b3280ff86a13a80eb0177ccaeba9ea2b510ecf45688",
+    "docs/responses-compat.md": "f6a2053cc1703f99c35135315dfbd81bd1aa9feda2dc12acd980c59a4a3e1136"
+  },
+  "protected_files_sha256": {
+    "Dockerfile.responses-compat": "ef9fcc77f4ae69f67f7e96a0dfbf258f07a4d2abec9d2c31f9ee88a244875bb4",
+    "scripts/test_responses_compat.sh": "76fcbf91070f8a618d55c252013419e879e5cfe3321570d403f8ffa5b534afaa",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_chat.py": "6d881d19da2c4a7028b0fb179cf5cdb958480612d4192c1606dfd25f98a9ba56",
+    "runtime/python/sglang/srt/entrypoints/openai/protocol.py": "fbc60d3206612f408d93f786b18446ab96c258ff60bf1f1c4cf0e36e3c88eca1",
+    "runtime/python/sglang/srt/function_call/qwen3_coder_detector.py": "2906f40a1fd33b3c6137ccf957b423de1775714fd07dcedab430c3c1905eebe9",
+    "patches/0015-qwen-flash-next-effort-alias.patch": "7a05330ee503332050c80bf60d37484c12e9000223dcedba0e040d09bd0a0688",
+    "tests/runtime_qwen_effort_alias.py": "d61cd53f96399dbabaff35d04f9119d9907622b000733cbe2bb7a87a3d440327",
+    "scripts/test_qwen_effort_alias.sh": "fc669d8a7b0a2ead61231fab1f9c605fe3a920b44589f9c3ce336308294c7749",
+    "Dockerfile": "da87df86cbb2fbac73d2e32a93c6da4a7cc640f0b30e4336ef23a35c2e167c82",
+    "Dockerfile.digest": "c55cef3b1ad80afa511448a9c41c5d8db27873ae08c46314c8b166e5addd6117",
+    "Dockerfile.production": "96cf6ea71a9485b88bd730f2f9b2b1a6106ca6771820770b83acccf09f099da1",
+    "Dockerfile.reasoning-effort": "4132e75f9a15e0bfc6b664d5750ccdc6d5309f0f8beef2644bf35339df99d539",
+    "provenance/responses-compat-review.json": "441f94f0dac5d33cb4cc87a012d4cf17e9035736a8c0746fa5cfbed6508db355"
+  },
+  "red_source_sha256": {
+    "runtime/python/sglang/srt/entrypoints/openai/protocol.py": "fbc60d3206612f408d93f786b18446ab96c258ff60bf1f1c4cf0e36e3c88eca1",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_chat.py": "6d881d19da2c4a7028b0fb179cf5cdb958480612d4192c1606dfd25f98a9ba56",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_responses.py": "4af0b4f49138b884d9cc2eed032a48859c33186de68411eec3b0a3cca4142d4a",
+    "runtime/python/sglang/srt/entrypoints/openai/responses_compat.py": "195acbb23e9f2ac2dfd3d950a6b2fc5727bea0b6201c6879bc6f3f0afd7c710e",
+    "runtime/python/sglang/srt/function_call/qwen3_coder_detector.py": "2906f40a1fd33b3c6137ccf957b423de1775714fd07dcedab430c3c1905eebe9"
+  },
+  "final_red_and_green_test_sha256": "efcc4b885e3e9853b10e70a3c89f274f919bed7ebfd9f6baf90179f1515abf5a",
+  "logs_sha256": {
+    "fix2-clean-reconstruction.log": "4b7a0a9b913f8ee902db0df6653b725188ac53df219453b410051070ee4b905f",
+    "fix2-green-alias.log": "b5c180940eeb7296be8221d4c9ff67d07594c6cff7f8782378ea445f02376627",
+    "fix2-green-attempt1.log": "68424e24c90146e365cb709d319740b89ae8e7f730418b54f811a1981aeaa77c",
+    "fix2-green-attempt2.log": "c32beca2630d4ee466b899f210bdb2b79d470d262f9f5cf80445c8504eadb1b9",
+    "fix2-green-responses.log": "9c1378d02998ee0529064124ca07b1c7427edd4b9c566bfcf39aae4b874b3174",
+    "fix2-reconstruction-negative.log": "03f66fed3def8f4dcfaf63cd03bb2fca2c16e234e4fa789d05a3aec6be8bc6d5",
+    "fix2-red-final-suite.log": "bbd1e6749870b02b9e37106cad8bc3c4cfc21495c09a1f99f44e1c6122a0e6c8",
+    "fix2-red.log": "b8b2d104725b8c6cc76fffb46ee295c463d2d09eda53dd96ed61ae82d9a8ad30"
+  },
+  "counts": {
+    "initial_red_methods": 40,
+    "initial_red_subtest_failures": 84,
+    "final_retrospective_red_methods": 45,
+    "final_retrospective_red_subtest_failures": 108,
+    "green_responses_imported": 45,
+    "green_alias_imported": 13,
+    "green_package_cpu": 81,
+    "predecessor_source": 4391,
+    "candidate_source": 4392,
+    "terminal_matrix_cases": 96
+  },
+  "clean_source_tree": "/home/kanadaj/sglang-tuning/sglang-codex-compat-rollout/fix2-clean-source",
+  "limitations": [
+    "MOCK generation through real imported public ASGI endpoints; no real inference",
+    "Native custom markup is not arbitrary-string transport; delimiter limitations documented/tested",
+    "No image build/publication, GPU/SSH/credentials, commit/push, or reviewer spawning",
+    "Historical superseded PASS and previous fixer provenance preserved unchanged"
+  ]
+}

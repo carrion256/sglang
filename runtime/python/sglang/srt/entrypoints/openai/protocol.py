@@ -45,6 +45,7 @@ from openai.types.responses import (
     ResponseTextConfig,
 )
 from openai.types.responses.response import ToolChoice
+from openai.types.responses.response_custom_tool_call import ResponseCustomToolCall
 from openai.types.responses.response_format_text_json_schema_config import (
     ResponseFormatTextJSONSchemaConfig,
 )
@@ -53,6 +54,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     StrictBool,
     field_serializer,
     field_validator,
@@ -1483,6 +1485,7 @@ class ResponseTool(BaseModel):
     strict: bool = False
     # Inner schemas for ``namespace`` tools.
     tools: Optional[List[Dict[str, Any]]] = None
+    format: Optional[Dict[str, Any]] = None
 
     @model_validator(mode="after")
     def validate_function_tool(self) -> ResponseTool:
@@ -1501,6 +1504,9 @@ ResponseInputOutputItem: TypeAlias = Union[
 class ResponsesRequest(BaseModel):
     """Request body for v1/responses endpoint."""
 
+    _custom_tool_names: frozenset[str] = PrivateAttr(default_factory=frozenset)
+    _compat_registry: Any = PrivateAttr(default=None)
+
     # Core OpenAI API fields (ordered by official documentation)
     background: Optional[bool] = False
     include: Optional[
@@ -1517,7 +1523,9 @@ class ResponsesRequest(BaseModel):
     ] = None
     # Accept dict-shaped items as the loose arm; downstream normalization
     # handles replayed shapes that don't satisfy every openai TypedDict.
-    input: Union[str, List[ResponseInputOutputItem], List[Dict[str, Any]]]
+    input: Union[str, List[Dict[str, Any]], List[ResponseInputOutputItem]] = Field(
+        union_mode="left_to_right"
+    )
     instructions: Optional[str] = None
     max_output_tokens: Optional[int] = None
     max_tool_calls: Optional[int] = None
@@ -1773,6 +1781,14 @@ class PromptTokenUsageInfo(BaseModel):
     cached_tokens: int = 0
 
 
+class ResponseNamespacedFunctionToolCall(ResponseFunctionToolCall):
+    namespace: str
+
+
+class ResponseNamespacedCustomToolCall(ResponseCustomToolCall):
+    namespace: str
+
+
 class ResponsesResponse(BaseModel):
     """Response body for v1/responses endpoint."""
 
@@ -1782,7 +1798,13 @@ class ResponsesResponse(BaseModel):
     model: str
 
     output: List[
-        Union[ResponseOutputItem, ResponseReasoningItem, ResponseFunctionToolCall]
+        Union[
+            ResponseNamespacedFunctionToolCall,
+            ResponseNamespacedCustomToolCall,
+            ResponseOutputItem,
+            ResponseReasoningItem,
+            ResponseFunctionToolCall,
+        ]
     ] = Field(default_factory=list)
     status: Literal[
         "queued", "in_progress", "completed", "incomplete", "failed", "cancelled"

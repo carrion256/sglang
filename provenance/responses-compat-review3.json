@@ -1,0 +1,67 @@
+{
+  "passed": true,
+  "security_concerns": [],
+  "logic_errors": [],
+  "suggestions": [
+    "Keep the documented native custom-input delimiter limitation and explicit JSON-path alternative; this gate does not establish arbitrary-string native transport."
+  ],
+  "summary": "Independent read-only CPU/source gate passes for the complete candidate against main b8e8bebf2274e0099c3abce5718ac8813dd9001d. R3 truncation handling passes the existing regression matrix and 1,248 independent synthetic public-ASGI boundary cases; interrupted calls are not completed or retained as executable terminal output. Passing tests cover usage, terminal status/reason, metadata, storage/replay safeguards, earlier R1/R2 identity/cardinality checks, and Qwen high/max-to-xhigh rendering with literal provenance and skip_special_tokens. Fresh source-only reconstruction from the pinned local image verifies the predecessor, ordered patches 0015/0016, package hash chain, and exactly 4,392 final source paths/hashes twice. Static inspection found no exposed credentials, introduced unsafe eval/deserialization, or shell-injection path; SDK credentials and image data in tests are synthetic fixtures. All 26 reviewed files and the enumerated 16 untracked files remained unchanged across before/after hash checks. No repository edits, delegation, commits, pushes, SSH, credential access, GPU inference, image build/publication, or deployment occurred. Approval is limited to CPU/source release readiness, not real-model, built-image, or publication conformance. The report is saved at /tmp/source-r3-independent/result.json.",
+  "reviewed_file_sha256": {
+    "Dockerfile.responses-compat": "ef9fcc77f4ae69f67f7e96a0dfbf258f07a4d2abec9d2c31f9ee88a244875bb4",
+    "README.md": "a7d0b807cb1818f7d068ba1595369a376e707435c1c839b7b68f2b4925e0dd11",
+    "docs/qwen-effort-alias.md": "784e16884618258d882ee9d79f332c47d3991daf358acc6808dad93f7d810521",
+    "docs/responses-compat.md": "c71a76b8b9931e16996abf887729b4535559d8097ca9531cfa0ef4e9a3a6b773",
+    "patches/0015-qwen-flash-next-effort-alias.patch": "7a05330ee503332050c80bf60d37484c12e9000223dcedba0e040d09bd0a0688",
+    "patches/0016-responses-namespace-custom-boundary.patch": "b0de4bc04c45666a3cc6db0b48d30a19e4cc898cd2f7b8d6fdfc366818e1796a",
+    "patches/series.responses-compat": "be13f8c42ffd03304366e7168884bc02e71011aaa9be4c31939da088555d2fe3",
+    "provenance/qwen-effort-alias-review.json": "125b3bd3b4c3a9980989dbde2070ed13395ff00802e2c3e0b96f493f7bce000d",
+    "provenance/qwen-effort-alias.json": "36a465d11c1d08cb54fe92acbc01b481fa4f03189da17f6c5520497f9391fa47",
+    "provenance/responses-compat-fix.json": "2139ed859e5876aa3099d7931f97ae1b8a890ee6c80646f89530acacd4dda646",
+    "provenance/responses-compat-fix2.json": "7fdc9df017154aae2a20087e4d3e7477f59ac231e62c6609e6acfbc728dc9e38",
+    "provenance/responses-compat-review.json": "441f94f0dac5d33cb4cc87a012d4cf17e9035736a8c0746fa5cfbed6508db355",
+    "provenance/responses-compat-runtime-files.json": "a469f48f17073d22aba3e1a1aa51c9dc53015927bb5574c32ca1283401c3fdef",
+    "provenance/responses-compat.json": "13d330de96d2ae73586372a0afb118753d9b47d886e33b79a03b896240033142",
+    "runtime/python/sglang/srt/entrypoints/openai/protocol.py": "fbc60d3206612f408d93f786b18446ab96c258ff60bf1f1c4cf0e36e3c88eca1",
+    "runtime/python/sglang/srt/entrypoints/openai/responses_compat.py": "72bfe1e5e45073d57f09dc90ba7b2ea6b87df932cfbcb67ed8116f25c5830037",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_chat.py": "6d881d19da2c4a7028b0fb179cf5cdb958480612d4192c1606dfd25f98a9ba56",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_responses.py": "d46f648b557db07a430869471fcf4d7a898d50f99e495efd5eb01911c428f215",
+    "runtime/python/sglang/srt/function_call/qwen3_coder_detector.py": "2906f40a1fd33b3c6137ccf957b423de1775714fd07dcedab430c3c1905eebe9",
+    "scripts/test_qwen_effort_alias.sh": "fc669d8a7b0a2ead61231fab1f9c605fe3a920b44589f9c3ce336308294c7749",
+    "scripts/test_responses_compat.sh": "76fcbf91070f8a618d55c252013419e879e5cfe3321570d403f8ffa5b534afaa",
+    "scripts/verify_qwen_effort_alias.py": "aaf00bc8c586110503a8089b5f8965c0897fefd619dfeb844af1920c81afdd3c",
+    "scripts/verify_responses_compat.py": "309085eea09fa29c734b6b3280ff86a13a80eb0177ccaeba9ea2b510ecf45688",
+    "tests/runtime_qwen_effort_alias.py": "d61cd53f96399dbabaff35d04f9119d9907622b000733cbe2bb7a87a3d440327",
+    "tests/runtime_responses_compat.py": "6e767aa3b213e1a4be30fc3c7c375f03f0e86bde1e69ddf0618fd630863022c2",
+    "tests/test_responses_packaging.py": "4e4420a1def5380762b44d2833dffdc63f5a914a48607af7614d24092d80dd56"
+  },
+  "reviewed_diff_sha256": "1de0d3d577e9c64c1cb117f45a05c98d45edbee911f648dcdf65140d71bfa1d6",
+  "reviewed_diff_sha256_method": "SHA256(git diff --binary b8e8bebf2274e0099c3abce5718ac8813dd9001d bytes + '\\nUNTRACKED_SHA256_JSON\\n' + UTF-8 compact sort_keys JSON mapping all git ls-files --others --exclude-standard paths to their SHA256). Untracked paths are separately enumerated in /tmp/source-r3-independent/pin.json.",
+  "executed_tests": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 QWEN_TOKENIZER_PATH=/home/kanadaj/sglang-tuning/qwen-effort-alias-patch/tokenizer bash scripts/test_responses_compat.sh",
+      "result": "Initial sandbox attempt passed package verification but could not access the Docker socket. Approved rerun exited 0: 50 Responses tests, 13 alias tests, and 81 package/CPU tests passed. Container used --network none, no GPU exposure, read-only mounts/root, dropped capabilities, and CPU/memory/PID limits.",
+      "log": "/tmp/source-r3-independent/cpu.log",
+      "log_sha256": "4d02d6fb72fe28287d65f5762855a07c819cd0bc1152a001938c47e131fe3ae8"
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 QWEN_TOKENIZER_PATH=/home/kanadaj/sglang-tuning/qwen-effort-alias-patch/tokenizer bash /tmp/source-r3-independent/probe.sh",
+      "result": "Exited 0: 1,248 independently authored synthetic ASGI cases, zero failures. Covered JSON/native structural-boundary cuts, flat/namespaced function/custom tools, required/selected choices, streaming/nonstreaming, length/abort, separate terminal chunks, metadata/usage, retrieval, and absence of completed partial calls. Same bounded network-off/no-GPU containment.",
+      "log": "/tmp/source-r3-independent/probe.log",
+      "log_sha256": "cd43612bb6bcaf8b48f722abb0c6ee61d9cf070b8c550e143bf46b6c5bbdb856"
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 QWEN_TOKENIZER_PATH=/home/kanadaj/sglang-tuning/qwen-effort-alias-patch/tokenizer bash /tmp/source-r3-independent/reconstruct.sh",
+      "result": "Exited 0. Copied original source from the pinned local image without runtime overlays into disposable container tmpfs. --from-image verified the predecessor and applied 0015 then 0016; full-tree verification passed for exactly 4,392 source files, then passed again. No image build or repository modification.",
+      "log": "/tmp/source-r3-independent/reconstruct.log",
+      "log_sha256": "f1c061ea376d7abfea2a23363b99b4b34bd73af295b236b8af1d90211426d2bb"
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_responses_compat.py --tree /home/kanadaj/sglang-tuning/sglang-codex-compat-rollout/fix3-clean-source",
+      "result": "Exited 0: source_files=4392, full_tree_verified=true. This separately checked the existing reconstruction; fresh reconstruction is recorded above."
+    },
+    {
+      "command": "git diff --check b8e8bebf2274e0099c3abce5718ac8813dd9001d",
+      "result": "Exited 0 with no whitespace errors in the tracked diff."
+    }
+  ]
+}
