@@ -587,6 +587,47 @@ class MockHTTPTest(unittest.TestCase):
                     else:
                         self.assertEqual(json.loads(item['arguments']), arguments)
 
+    def test_native_tool_payload_markers_after_reasoning_remain_data(self):
+        self.serving.reasoning_parser = 'qwen3'
+        self.serving.tool_call_parser = 'qwen3_coder'
+        cases = [
+            ([{'type': 'function', 'name': 'inspect', 'parameters': {
+                'type': 'object', 'properties': {'text': {'type': 'string'}}}}],
+             'inspect', 'text', '<think>literal</think>', 'function_call'),
+            ([{'type': 'custom', 'name': 'patch'}],
+             'patch', 'input', '<think>literal</think>', 'custom_tool_call'),
+        ]
+        for tools, name, parameter, value, output_type in cases:
+            self.text = (
+                '<think>Plan</think>Before'
+                f'<tool_call><function={name}><parameter={parameter}>{value}'
+                '</parameter></function></tool_call>After'
+            )
+            for stream in (False, True):
+                with self.subTest(name=name, stream=stream):
+                    response = self.send(
+                        stream=stream, tools=tools, tool_choice='auto',
+                        reasoning={'effort': 'medium'})
+                    if stream:
+                        events = self.events(response)
+                        completed = [event['response'] for event in events
+                                     if event['type'] == 'response.completed']
+                        self.assertTrue(completed, events)
+                        body = completed[0]
+                    else:
+                        body = response.json()
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertEqual(
+                        [item['type'] for item in body['output']],
+                        ['reasoning', 'message', output_type, 'message'],
+                    )
+                    call = body['output'][2]
+                    if output_type == 'custom_tool_call':
+                        self.assertEqual(call['input'], value)
+                    else:
+                        self.assertEqual(json.loads(call['arguments']),
+                                         {parameter: value})
+
     def test_text_streams_before_phase_is_resolved(self):
         async def check():
             self.serving.reasoning_parser = None
