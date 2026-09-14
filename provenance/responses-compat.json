@@ -1,0 +1,35 @@
+{
+  "status": "CPU-only candidate; uncommitted, not published or deployed",
+  "base_alias_commit": "04e0816a68638e85ddd4ff8764b401d3ed27997e",
+  "base_image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+  "predecessor_profile": "qwen-effort-alias",
+  "patch": "0016-responses-namespace-custom-boundary.patch",
+  "patch_sha256": "b0de4bc04c45666a3cc6db0b48d30a19e4cc898cd2f7b8d6fdfc366818e1796a",
+  "files": {
+    "python/sglang/srt/entrypoints/openai/protocol.py": {
+      "before": "b3007a1d88e127548eca1dce13d2712123a1ecc4beb6533af41e96fd99f485a9",
+      "after": "fbc60d3206612f408d93f786b18446ab96c258ff60bf1f1c4cf0e36e3c88eca1"
+    },
+    "python/sglang/srt/entrypoints/openai/serving_responses.py": {
+      "before": "8ba94cc622db881a0f7cfea0bdb39b2f80965daa093d77ea6a0361f6b6f5e2ce",
+      "after": "d46f648b557db07a430869471fcf4d7a898d50f99e495efd5eb01911c428f215"
+    },
+    "python/sglang/srt/entrypoints/openai/responses_compat.py": {
+      "before": null,
+      "after": "72bfe1e5e45073d57f09dc90ba7b2ea6b87df932cfbcb67ed8116f25c5830037"
+    },
+    "python/sglang/srt/function_call/qwen3_coder_detector.py": {
+      "before": "adf38ad60548b75559e3e6b8b7b5bd20c8da29984d9b4643623cb874b263af22",
+      "after": "2906f40a1fd33b3c6137ccf957b423de1775714fd07dcedab430c3c1905eebe9"
+    }
+  },
+  "source_files_before": 4391,
+  "source_files_after": 4392,
+  "inventory_sha256": "a469f48f17073d22aba3e1a1aa51c9dc53015927bb5574c32ca1283401c3fdef",
+  "consulted_upstream": {
+    "39174": "771843d0e476e24761904aba61801dd662448d42",
+    "38359": "02d84e6b2bb4460a4d1a648a3a9dc2d1b4fe1905",
+    "38690": "cb24555d161e313c60f8f48313c14f77cde4d376",
+    "35216": "27f8cb6a3fc79f6e31e39b2def682be6ab352d8d"
+  }
+}

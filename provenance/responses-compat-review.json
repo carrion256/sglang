@@ -1,0 +1,40 @@
+{
+  "status": "SUPERSEDED historical CPU-only review; not approval of current bytes. See responses-compat-fix.json and final owner re-review.",
+  "reviewer_agent_id": "01a09ce6-6a19-77e0-8b0f-e540aa0b4977",
+  "base_commit": "04e0816a68638e85ddd4ff8764b401d3ed27997e",
+  "patch_sha256": "286a5fcfab02984a029834ef2724bb51ce45d2921403d2846d303f6839238075",
+  "reviewed_runtime_sha256": {
+    "python/sglang/srt/entrypoints/openai/protocol.py": "fbc60d3206612f408d93f786b18446ab96c258ff60bf1f1c4cf0e36e3c88eca1",
+    "python/sglang/srt/entrypoints/openai/serving_responses.py": "e5499832efed42b0d6f5cecdd6006b8bd6c5a7efd13c8d8b743e7f90e69834a8",
+    "python/sglang/srt/entrypoints/openai/responses_compat.py": "e266af4b1b63fbecf73d29cdc680801117cd4f1d83affaea287b424a4087fa06",
+    "python/sglang/srt/function_call/qwen3_coder_detector.py": "2906f40a1fd33b3c6137ccf957b423de1775714fd07dcedab430c3c1905eebe9"
+  },
+  "resolved_findings": [
+    "JSON schema alias preservation",
+    "Forced choice output enforcement",
+    "Harmony dictionary replay accumulator",
+    "Typed successful response API",
+    "Explicit null wire preservation",
+    "Atomic response/identity/history storage and stream cleanup",
+    "Background false/null storage rejection"
+  ],
+  "review_result": "No remaining blocking correctness, security, cleanup, Harmony, cancellation, storage-replay, or wire-serialization findings in owned runtime diff.",
+  "tests": {
+    "candidate_imported": 30,
+    "alias_imported": 13,
+    "package_cpu": 80,
+    "full_source_files": 4392
+  },
+  "logs_sha256": {
+    "final-candidate-cpu.log": "a783604329b259a7a2c96dcffdb8e26f4fbb639d7a030a86c3de40879d4fbdbe",
+    "alias-runner-final.log": "1bd41238efc17a0e7e61759975a802ee6d2a7ef566d453c1b1a40d73a6ae4dbe",
+    "full-source-final.log": "2f1212c2a92da9a7572f08b192e27907f0bb1dcef05eb27aae4b2c2b4e452848",
+    "red-stream-lifecycle.log": "afc31e46870854092f6b6183550f6d27c6534ced4051f92c5f5ebd2560414831",
+    "red-background-no-store.log": "4c9886aef07c855f4ac2ab81f04bd3befb24eaebc00c567802ebfe354923518f"
+  },
+  "exclusions": [
+    "Externally authored Dockerfile.responses-compat",
+    "No GPU/model/client conformance certification",
+    "No publication, deployment, build, commit or push"
+  ]
+}

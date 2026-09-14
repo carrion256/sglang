@@ -1,0 +1,966 @@
+diff --git a/python/sglang/srt/entrypoints/openai/protocol.py b/python/sglang/srt/entrypoints/openai/protocol.py
+--- a/python/sglang/srt/entrypoints/openai/protocol.py
++++ b/python/sglang/srt/entrypoints/openai/protocol.py
+@@ -45,6 +45,7 @@
+     ResponseTextConfig,
+ )
+ from openai.types.responses.response import ToolChoice
++from openai.types.responses.response_custom_tool_call import ResponseCustomToolCall
+ from openai.types.responses.response_format_text_json_schema_config import (
+     ResponseFormatTextJSONSchemaConfig,
+ )
+@@ -53,6 +54,7 @@
+     BaseModel,
+     ConfigDict,
+     Field,
++    PrivateAttr,
+     StrictBool,
+     field_serializer,
+     field_validator,
+@@ -1483,6 +1485,7 @@
+     strict: bool = False
+     # Inner schemas for ``namespace`` tools.
+     tools: Optional[List[Dict[str, Any]]] = None
++    format: Optional[Dict[str, Any]] = None
+ 
+     @model_validator(mode="after")
+     def validate_function_tool(self) -> ResponseTool:
+@@ -1500,6 +1503,9 @@
+ 
+ class ResponsesRequest(BaseModel):
+     """Request body for v1/responses endpoint."""
++
++    _custom_tool_names: frozenset[str] = PrivateAttr(default_factory=frozenset)
++    _compat_registry: Any = PrivateAttr(default=None)
+ 
+     # Core OpenAI API fields (ordered by official documentation)
+     background: Optional[bool] = False
+@@ -1517,7 +1523,9 @@
+     ] = None
+     # Accept dict-shaped items as the loose arm; downstream normalization
+     # handles replayed shapes that don't satisfy every openai TypedDict.
+-    input: Union[str, List[ResponseInputOutputItem], List[Dict[str, Any]]]
++    input: Union[str, List[Dict[str, Any]], List[ResponseInputOutputItem]] = Field(
++        union_mode="left_to_right"
++    )
+     instructions: Optional[str] = None
+     max_output_tokens: Optional[int] = None
+     max_tool_calls: Optional[int] = None
+@@ -1773,6 +1781,14 @@
+     cached_tokens: int = 0
+ 
+ 
++class ResponseNamespacedFunctionToolCall(ResponseFunctionToolCall):
++    namespace: str
++
++
++class ResponseNamespacedCustomToolCall(ResponseCustomToolCall):
++    namespace: str
++
++
+ class ResponsesResponse(BaseModel):
+     """Response body for v1/responses endpoint."""
+ 
+@@ -1782,7 +1798,13 @@
+     model: str
+ 
+     output: List[
+-        Union[ResponseOutputItem, ResponseReasoningItem, ResponseFunctionToolCall]
++        Union[
++            ResponseNamespacedFunctionToolCall,
++            ResponseNamespacedCustomToolCall,
++            ResponseOutputItem,
++            ResponseReasoningItem,
++            ResponseFunctionToolCall,
++        ]
+     ] = Field(default_factory=list)
+     status: Literal[
+         "queued", "in_progress", "completed", "incomplete", "failed", "cancelled"
+diff --git a/python/sglang/srt/entrypoints/openai/serving_responses.py b/python/sglang/srt/entrypoints/openai/serving_responses.py
+--- a/python/sglang/srt/entrypoints/openai/serving_responses.py
++++ b/python/sglang/srt/entrypoints/openai/serving_responses.py
+@@ -67,9 +67,15 @@
+     UsageInfo,
+ )
+ from sglang.srt.entrypoints.openai.serving_chat import OpenAIServingChat
++from sglang.srt.entrypoints.openai.responses_compat import (
++    ToolRegistry,
++    qualified_name,
++    validated_json_calls,
++)
+ from sglang.srt.entrypoints.openai.tool_server import MCPToolServer, ToolServer
+ from sglang.srt.entrypoints.openai.utils import to_openai_style_logprobs
+ from sglang.srt.function_call.function_call_parser import FunctionCallParser
++from sglang.srt.function_call.core_types import ToolCallItem
+ from sglang.srt.function_call.json_array_parser import JsonArrayParser
+ from sglang.srt.managers.io_struct import GenerateReqInput
+ from sglang.srt.parser.reasoning_parser import ReasoningParser
+@@ -180,6 +186,7 @@
+         # Note: In production, this should use a proper storage backend (Redis, database)
+         # with TTL/expiration to prevent memory leaks
+         self.response_store: dict[str, ResponsesResponse] = {}
++        self._compat_registries: dict[str, ToolRegistry] = {}
+         self.response_store_lock = asyncio.Lock()
+ 
+         # Message storage for conversation continuity
+@@ -232,6 +239,62 @@
+         return "resp_"
+ 
+     async def create_responses(
++        self,
++        request: ResponsesRequest,
++        raw_request: Optional[Request] = None,
++    ) -> Union[AsyncGenerator[str, None], ResponsesResponse, ORJSONResponse]:
++        try:
++            if request.background and not request.store:
++                raise ValueError("Background responses require store=true")
++            registry = ToolRegistry(request.tools, reasoning=request.reasoning, tool_choice=request.tool_choice)
++            if request.previous_response_id is not None:
++                async with self.response_store_lock:
++                    previous = self.response_store.get(request.previous_response_id)
++                    previous_registry = self._compat_registries.get(request.previous_response_id)
++                    if previous is not None and previous_registry is not None:
++                        registry.inherit_history(previous_registry, previous.output)
++            internal = request.model_dump(by_alias=True)
++            internal["tools"] = registry.functions + registry.builtins
++            internal["tool_choice"] = registry.choice(request.tool_choice)
++            if isinstance(request.input, list):
++                internal["input"] = [registry.replay(item) for item in request.input]
++            internal_request = ResponsesRequest.model_validate(internal)
++            internal_request._compat_registry = registry
++            internal_request._custom_tool_names = frozenset(
++                name for name, identity in registry.identities.items() if identity[2] == "custom"
++            )
++            result = await self._create_responses_internal(internal_request, raw_request)
++            if isinstance(result, ORJSONResponse):
++                return result
++            if isinstance(result, ResponsesResponse):
++                return registry.response_model(result)
++            return registry.stream(result)
++        except ValueError as error:
++            return self.create_error_response(str(error))
++
++    async def _managed_response_stream(self, source, generation, request):
++        completed = False
++        try:
++            async for frame in source:
++                if "event: response.completed\n" in frame:
++                    completed = True
++                yield frame
++        finally:
++            try:
++                await source.aclose()
++            finally:
++                try:
++                    await generation.aclose()
++                finally:
++                    if not completed:
++                        self.tokenizer_manager.abort_request(rid=request.request_id)
++
++    def _store_compat_metadata(self, request, response_id):
++        if request._compat_registry is not None:
++            self._compat_registries[response_id] = request._compat_registry
++            self.msg_store[response_id] = request._compat_registry.messages
++
++    async def _create_responses_internal(
+         self,
+         request: ResponsesRequest,
+         raw_request: Optional[Request] = None,
+@@ -479,7 +542,10 @@
+ 
+             # Store the input messages
+             if request.store:
+-                self.msg_store[request.request_id] = messages
++                if request._compat_registry is not None:
++                    request._compat_registry.messages = messages
++                else:
++                    self.msg_store[request.request_id] = messages
+ 
+             if request.background and not request.stream:
+                 created_time = int(time.time())
+@@ -494,6 +560,7 @@
+                 )
+                 async with self.response_store_lock:
+                     self.response_store[response.id] = response
++                    self._store_compat_metadata(request, response.id)
+ 
+                 # Run the request in the background
+                 task = asyncio.create_task(
+@@ -520,7 +587,7 @@
+ 
+             if request.stream:
+                 if self.use_harmony:
+-                    return self.responses_stream_generator(
++                    source = self.responses_stream_generator(
+                         request,
+                         sampling_params,
+                         result_generator,
+@@ -530,15 +597,17 @@
+                         request_metadata,
+                         require_reasoning=require_reasoning,
+                     )
+-                return self.responses_stream_generator_non_harmony(
+-                    request,
+-                    sampling_params,
+-                    result_generator,
+-                    model_name,
+-                    tokenizer,
+-                    request_metadata,
+-                    require_reasoning=require_reasoning,
+-                )
++                else:
++                    source = self.responses_stream_generator_non_harmony(
++                        request,
++                        sampling_params,
++                        result_generator,
++                        model_name,
++                        tokenizer,
++                        request_metadata,
++                        require_reasoning=require_reasoning,
++                    )
++                return self._managed_response_stream(source, result_generator, request)
+             try:
+                 result: Union[ORJSONResponse, ResponsesResponse] = (
+                     await self.responses_full_generator(
+@@ -664,6 +733,10 @@
+             elif hasattr(final_res, "meta_info"):
+                 meta_info = final_res.meta_info
+ 
++            status = self._status_from_finish_reason(
++                meta_info.get("finish_reason") if meta_info is not None else None
++            )
++
+             output_logprobs = (
+                 _build_output_text_logprobs(meta_info)
+                 if request.is_include_output_logprobs() and isinstance(meta_info, dict)
+@@ -675,6 +748,7 @@
+                 tokenizer,
+                 output_logprobs=output_logprobs,
+                 require_reasoning=require_reasoning,
++                status=status,
+             )
+ 
+             if meta_info is not None:
+@@ -712,6 +786,11 @@
+                 num_cached_tokens = 0
+                 num_reasoning_tokens = 0
+ 
++        if request._compat_registry is not None:
++            request._compat_registry.validate_completion(output, status)
++            for item in output:
++                request._compat_registry.output_item(item)
++
+         usage = UsageInfo(
+             prompt_tokens=num_prompt_tokens,
+             completion_tokens=num_generated_tokens,
+@@ -740,6 +819,7 @@
+                 # If the response is already cancelled, don't update it
+                 if stored_response is None or stored_response.status != "cancelled":
+                     self.response_store[response.id] = response
++                    self._store_compat_metadata(request, response.id)
+ 
+         return response
+ 
+@@ -749,13 +829,14 @@
+ 
+     @staticmethod
+     def _status_from_finish_reason(finish_reason: Any) -> str:
+-        """Only a length-capped generation is ``incomplete``; anything that got
+-        here otherwise finished normally."""
++        """Distinguish length caps and engine aborts from successful stops."""
+         reason = None
+         if isinstance(finish_reason, dict):
+             reason = finish_reason.get("type")
+         elif isinstance(finish_reason, str):
+             reason = finish_reason
++        if reason == "abort":
++            return "cancelled"
+         return "incomplete" if reason == "length" else "completed"
+ 
+     def _is_thinking_enabled_for_request(self, request: ResponsesRequest) -> bool:
+@@ -806,6 +887,7 @@
+         output_logprobs: Optional[list] = None,
+         *,
+         require_reasoning: bool,
++        status: str = "completed",
+     ):
+         chat_tools = self._response_tools_to_chat_tools(request)
+         if self.reasoning_parser:
+@@ -856,7 +938,9 @@
+             )
+             output_items.append(reasoning_item)
+ 
+-        is_required = request.tool_choice == "required"
++        is_required = request.tool_choice == "required" or isinstance(request.tool_choice, dict)
++        if status != "completed" and chat_tools and is_required:
++            return output_items
+         tool_call_items: list[ResponseFunctionToolCall] = []
+         parsed_via_native = False
+         if (
+@@ -870,10 +954,14 @@
+                 self.tool_call_parser,
+                 tokenizer=self.tokenizer_manager.tokenizer,
+             )
++            if hasattr(parser.detector, "preserve_raw_input_tools"):
++                parser.detector.preserve_raw_input_tools = request._custom_tool_names
+             should_try_native = (
+                 not is_required or parser.detector.supports_structural_tag()
+             )
+             if should_try_native and parser.has_tool_call(content):
++                if status != "completed":
++                    return output_items
+                 try:
+                     content, call_info_list = parser.parse_non_stream(content)
+                     for call_info in call_info_list:
+@@ -892,30 +980,20 @@
+                     logger.error("Tool call parsing error: %s", e)
+ 
+         if content and chat_tools and is_required and not parsed_via_native:
+-            try:
+-                tool_call_data = orjson.loads(content)
+-                if isinstance(tool_call_data, dict):
+-                    tool_call_data = [tool_call_data]
+-                if isinstance(tool_call_data, list):
+-                    for tool in tool_call_data:
+-                        if not isinstance(tool, dict) or "name" not in tool:
+-                            continue
+-                        arguments = json.dumps(
+-                            tool.get("parameters", {}), ensure_ascii=False
+-                        )
+-                        tool_call_items.append(
+-                            ResponseFunctionToolCall(
+-                                arguments=arguments,
+-                                call_id=f"call_{random_uuid()[:24]}",
+-                                type="function_call",
+-                                name=tool["name"],
+-                                id=f"fc_{random_uuid()[:8]}",
+-                                status="completed",
+-                            )
+-                        )
+-                    content = ""
+-            except Exception as e:
+-                logger.error("Required tool JSON parse error: %s", e)
++            for name, arguments in validated_json_calls(
++                content, {tool.function.name for tool in chat_tools}
++            ):
++                tool_call_items.append(
++                    ResponseFunctionToolCall(
++                        arguments=arguments,
++                        call_id=f"call_{random_uuid()[:24]}",
++                        type="function_call",
++                        name=name,
++                        id=f"fc_{random_uuid()[:8]}",
++                        status="completed",
++                    )
++                )
++            content = ""
+ 
+         if content:
+             output_text = ResponseOutputText(
+@@ -962,17 +1040,15 @@
+     def _response_tools_to_chat_tools(request: ResponsesRequest) -> list[Tool]:
+         # Only ``function`` tools flow to chat; built-ins go through harmony.
+         chat_tools = []
+-        for tool in request.tools:
+-            if tool.type != "function":
+-                continue
++        for tool in ToolRegistry(request.tools).functions:
+             chat_tools.append(
+                 Tool(
+                     type="function",
+                     function=Function(
+-                        name=tool.name,
+-                        description=tool.description,
+-                        parameters=tool.parameters,
+-                        strict=tool.strict,
++                        name=tool["name"],
++                        description=tool.get("description"),
++                        parameters=tool.get("parameters"),
++                        strict=tool.get("strict") or False,
+                     ),
+                 )
+             )
+@@ -1036,11 +1112,15 @@
+             message = {**message, "role": "system"}
+ 
+         msg_type = message.get("type")
+-        if msg_type == "function_call":
++        if msg_type in ("function_call", "custom_tool_call"):
+             # Coerce ``arguments`` to a valid JSON-object string so the chat
+             # template's unconditional ``orjson.loads`` survives truncated or
+             # dict-shaped echoes.
+             raw = message.get("arguments")
++            if msg_type == "custom_tool_call":
++                if not isinstance(message.get("input"), str):
++                    raise ValueError("Custom tool input must be a string")
++                raw = json.dumps({"input": message["input"]}, ensure_ascii=False)
+             if isinstance(raw, str):
+                 try:
+                     parsed = orjson.loads(raw) if raw else None
+@@ -1059,18 +1139,18 @@
+                         "id": message.get("call_id") or message.get("id"),
+                         "type": "function",
+                         "function": {
+-                            "name": message.get("name"),
++                            "name": qualified_name(message.get("name"), message.get("namespace")),
+                             "arguments": raw,
+                         },
+                     }
+                 ],
+             }
+-        if msg_type == "function_call_output":
++        if msg_type in ("function_call_output", "custom_tool_call_output"):
+             # ``output`` may be a string or an array of content parts (OpenAI
+             # allows both); the chat tool message needs a string, so flatten.
+             out = message.get("output", "")
+             if isinstance(out, list):
+-                out = "".join(p.get("text", "") for p in out if isinstance(p, dict))
++                out = [cls._normalize_response_content_part_for_chat(part) for part in out]
+             return {
+                 "role": "tool",
+                 "tool_call_id": message.get("call_id"),
+@@ -1225,6 +1305,9 @@
+             messages.extend(prev_msg)
+ 
+             for output_item in prev_response.output:
++                if isinstance(output_item, ResponseFunctionToolCall):
++                    messages.append(self._normalize_response_message_for_chat(output_item))
++                    continue
+                 assistant_text = self._output_message_text(output_item)
+                 if assistant_text is None:
+                     continue
+@@ -1339,6 +1422,8 @@
+             else:
+                 prev_outputs = []
+             for response_msg in request.input:
++                if isinstance(response_msg, dict) and response_msg.get("type") == "function_call":
++                    response_msg = ResponseFunctionToolCall.model_validate(response_msg)
+                 messages.append(parse_response_input(response_msg, prev_outputs))
+                 if isinstance(response_msg, ResponseFunctionToolCall):
+                     prev_outputs.append(response_msg)
+@@ -1397,12 +1482,31 @@
+ 
+         async with self.response_store_lock:
+             response = self.response_store.get(response_id)
++            registry = self._compat_registries.get(response_id)
+ 
+         if response is None:
+             return self._make_not_found_error(response_id)
++        if registry is not None:
++            try:
++                return registry.response_model(response)
++            except ValueError as error:
++                return self.create_error_response(str(error))
+         return response
+ 
+     async def cancel_responses(
++        self,
++        response_id: str,
++    ) -> Union[ResponsesResponse, ORJSONResponse]:
++        result = await self._cancel_responses_internal(response_id)
++        registry = self._compat_registries.get(response_id)
++        if isinstance(result, ResponsesResponse) and registry is not None:
++            try:
++                return registry.response_model(result)
++            except ValueError as error:
++                return self.create_error_response(str(error))
++        return result
++
++    async def _cancel_responses_internal(
+         self,
+         response_id: str,
+     ) -> Union[ResponsesResponse, ORJSONResponse]:
+@@ -1948,7 +2052,8 @@
+         )
+ 
+         chat_tools = self._response_tools_to_chat_tools(request)
+-        is_required = request.tool_choice == "required"
++        is_required = request.tool_choice == "required" or isinstance(request.tool_choice, dict)
++        required_buffer = ""
+         tool_parser: Optional[Union[FunctionCallParser, JsonArrayParser]] = None
+         if chat_tools and request.tool_choice != "none":
+             native_supports_structural_tag = False
+@@ -1969,6 +2074,8 @@
+                     self.tool_call_parser,
+                     tokenizer=self.tokenizer_manager.tokenizer,
+                 )
++                if hasattr(tool_parser.detector, "preserve_raw_input_tools"):
++                    tool_parser.detector.preserve_raw_input_tools = request._custom_tool_names
+         reasoning_parser_obj: Optional[ReasoningParser] = None
+         if self.reasoning_parser:
+             reasoning_parser_obj = ReasoningParser(
+@@ -2154,6 +2261,8 @@
+             return events
+ 
+         def _close_tool_call_state(tool_index: int):
++            if self._status_from_finish_reason(finish_reason) != "completed":
++                return []
+             state = tool_call_states.get(tool_index)
+             if state is None or state.get("done"):
+                 return []
+@@ -2166,6 +2275,8 @@
+                 id=state["item_id"],
+                 status="completed",
+             )
++            if request._compat_registry is not None:
++                request._compat_registry.output_item(completed_item)
+             events = [
+                 _send_event(
+                     openai_responses_types.ResponseFunctionCallArgumentsDoneEvent(
+@@ -2220,7 +2331,7 @@
+                 flush = (
+                     not flushed
+                     and finish_reason is not None
+-                    and finish_reason.get("type") != "abort"
++                    and self._status_from_finish_reason(finish_reason) == "completed"
+                 )
+                 flushed = flushed or flush
+ 
+@@ -2303,8 +2414,15 @@
+                     continue
+ 
+                 if isinstance(tool_parser, JsonArrayParser):
+-                    sp = tool_parser.parse_streaming_increment(delta, chat_tools)
+-                    normal_text, tool_calls = sp.normal_text or "", sp.calls
++                    required_buffer += delta
++                    normal_text, tool_calls = "", []
++                    if flush and required_buffer.strip():
++                        tool_calls = [
++                            ToolCallItem(tool_index=index, name=name, parameters=arguments)
++                            for index, (name, arguments) in enumerate(
++                                validated_json_calls(required_buffer, {tool.function.name for tool in chat_tools})
++                            )
++                        ]
+                 elif tool_parser is not None:
+                     normal_text, tool_calls = tool_parser.parse_stream_chunk(delta)
+                     if flush:
+@@ -2348,6 +2466,8 @@
+                             }
+                             tool_call_states[tool_index] = state
+                         if not state["added"]:
++                            if request._compat_registry is not None:
++                                request._compat_registry.output_identity(state["name"])
+                             state["added"] = True
+                             yield _send_event(
+                                 openai_responses_types.ResponseOutputItemAddedEvent(
+@@ -2472,15 +2592,19 @@
+             )
+             return
+ 
++        status = self._status_from_finish_reason(finish_reason)
+         for ev in _close_reasoning_item():
+             yield ev
+         for ev in _close_message_item():
+             yield ev
+-        for tool_index in list(tool_call_states):
+-            for ev in _close_tool_call_state(tool_index):
+-                yield ev
++        if status == "completed":
++            for tool_index in list(tool_call_states):
++                for ev in _close_tool_call_state(tool_index):
++                    yield ev
+ 
+         final_output_items = list(emitted_items)
++        if request._compat_registry is not None:
++            request._compat_registry.validate_completion(final_output_items, status)
+ 
+         usage = UsageInfo(
+             prompt_tokens=prompt_tokens,
+@@ -2500,7 +2624,7 @@
+             model_name=model_name,
+             created_time=created_time,
+             output=final_output_items,
+-            status=self._status_from_finish_reason(finish_reason),
++            status=status,
+             usage=usage,
+         )
+         if request.store:
+@@ -2508,12 +2632,22 @@
+                 stored = self.response_store.get(final_response.id)
+                 if stored is None or stored.status != "cancelled":
+                     self.response_store[final_response.id] = final_response
++                    self._store_compat_metadata(request, final_response.id)
+ 
+         response_dict = _sanitize_response_dict(final_response.model_dump())
+ 
++        terminal_event = (
++            openai_responses_types.ResponseIncompleteEvent if status == "incomplete"
++            else openai_responses_types.ResponseFailedEvent if status == "cancelled"
++            else openai_responses_types.ResponseCompletedEvent
++        )
++        terminal_type = (
++            "response.incomplete" if status == "incomplete"
++            else "response.failed" if status == "cancelled" else "response.completed"
++        )
+         yield _send_event(
+-            openai_responses_types.ResponseCompletedEvent(
+-                type="response.completed",
++            terminal_event(
++                type=terminal_type,
+                 sequence_number=-1,
+                 response=response_dict,
+             )
+@@ -2539,10 +2673,12 @@
+                 adapted_request, raw_request
+             )
+ 
+-            async for res in generator:
+-                context.append_output(res)
+-                # NOTE(woosuk): The stop condition is handled by the engine.
+-                yield context
++            try:
++                async for res in generator:
++                    context.append_output(res)
++                    yield context
++            finally:
++                await generator.aclose()
+ 
+             if not context.need_builtin_tool_call():
+                 # The model did not ask for a tool call, so we're done.
+diff --git a/python/sglang/srt/entrypoints/openai/responses_compat.py b/python/sglang/srt/entrypoints/openai/responses_compat.py
+new file mode 100644
+--- /dev/null
++++ b/python/sglang/srt/entrypoints/openai/responses_compat.py
+@@ -0,0 +1,298 @@
++"""Request-local Responses identities and wire translation for the pinned SDK."""
++
++import copy
++import json
++
++from pydantic import TypeAdapter
++
++from sglang.srt.entrypoints.openai.protocol import ResponsesResponse, ResponseTool
++
++_OUTPUT_ADAPTER = TypeAdapter(ResponsesResponse.model_fields["output"].annotation)
++
++
++def as_dict(value):
++    return value.model_dump(exclude_none=True) if hasattr(value, "model_dump") else value
++
++
++def qualified_name(name, namespace=None):
++    for value in (name,) if namespace is None else (name, namespace):
++        if not isinstance(value, str) or not value or value.strip() != value:
++            raise ValueError("Tool names and namespaces must be nonempty strings")
++    return name if namespace is None else f"{namespace}.{name}"
++
++
++def custom_input(arguments):
++    try:
++        value = json.loads(arguments)
++    except (ValueError, TypeError) as error:
++        raise ValueError("Custom tool arguments must encode an input string") from error
++    if not isinstance(value, dict) or set(value) != {"input"} or not isinstance(value["input"], str):
++        raise ValueError("Custom tool arguments must encode exactly one input string")
++    return value["input"]
++
++
++def validated_json_calls(content, names):
++    calls = json.loads(content)
++    if isinstance(calls, dict):
++        calls = [calls]
++    if not isinstance(calls, list) or not calls:
++        raise ValueError("Required tool output must contain calls")
++    for call in calls:
++        if not isinstance(call, dict) or call.get("name") not in names:
++            raise ValueError("Unknown generated tool identity in required output")
++        arguments = call.get("parameters", call.get("arguments", {}))
++        if not isinstance(arguments, dict):
++            raise ValueError("Tool arguments must be an object")
++        yield call["name"], json.dumps(arguments, ensure_ascii=False)
++
++
++class ToolRegistry:
++    def __init__(self, tools, *, reasoning=None, tool_choice=None):
++        self.reasoning = copy.deepcopy(as_dict(reasoning))
++        self.tool_choice = copy.deepcopy(tool_choice)
++        self.selected = None
++        self.original = [copy.deepcopy(as_dict(tool)) for tool in tools or []]
++        self.identities = {}
++        self.functions = []
++        self.builtins = []
++        for tool in self.original:
++            if tool.get("type") == "namespace":
++                namespace = tool.get("name")
++                qualified_name(namespace)
++                members = tool.get("tools")
++                if not isinstance(members, list) or not members:
++                    raise ValueError("Namespaces must contain function or custom tools")
++                for member in members:
++                    self._add(as_dict(member), namespace, tool.get("description"))
++            elif tool.get("type") in ("function", "custom"):
++                self._add(tool)
++            else:
++                self.builtins.append(tool)
++        self.replayed_identities = dict(self.identities)
++        self.history_identities = {}
++
++    def _add(self, tool, namespace=None, description=None):
++        if not isinstance(tool, dict) or tool.get("type") not in ("function", "custom"):
++            raise ValueError("Unsupported namespace member; expected function or custom")
++        if any(value is not None and not isinstance(value, str)
++               for value in (description, tool.get("description"))):
++            raise ValueError("Tool descriptions must be strings")
++        name = tool.get("name")
++        qualified = qualified_name(name, namespace)
++        if qualified in self.identities:
++            raise ValueError(f"Colliding tool identity: {qualified}")
++        kind = tool["type"]
++        self.identities[qualified] = (name, namespace, kind)
++        function = {"type": "function", "name": qualified,
++                    "description": "\n\n".join(
++                        text for text in (
++                            f"Namespace description:\n{description}" if description else "",
++                            tool.get("description") or "",
++                        ) if text)}
++        if kind == "custom":
++            tool_format = tool.get("format")
++            if tool_format is None:
++                tool_format = {"type": "text"}
++            if not isinstance(tool_format, dict) or tool_format.get("type") not in ("text", "grammar"):
++                raise ValueError("Unsupported custom tool format")
++            if tool_format["type"] == "grammar":
++                if tool_format.get("syntax") not in ("lark", "regex") or not isinstance(tool_format.get("definition"), str):
++                    raise ValueError("Malformed custom grammar")
++                function["description"] += f"\nInput grammar (descriptive, not enforced; syntax: {tool_format['syntax']}):\n" + tool_format["definition"]
++            function["parameters"] = {"type": "object", "properties": {"input": {"type": "string"}},
++                                      "required": ["input"], "additionalProperties": False}
++            function["strict"] = True
++        else:
++            parameters = tool.get("parameters")
++            if parameters is not None and not isinstance(parameters, dict):
++                raise ValueError("Function parameters must be an object")
++            if tool.get("strict") is not None and not isinstance(tool["strict"], bool):
++                raise ValueError("Function strict must be boolean")
++            function.update(parameters=parameters, strict=tool.get("strict") or False)
++        self.functions.append(function)
++
++    def identity(self, qualified):
++        if qualified not in self.identities:
++            raise ValueError(f"Unknown generated tool identity: {qualified}")
++        return self.identities[qualified]
++
++    def output_identity(self, qualified):
++        if self.selected is not None and qualified != self.selected:
++            raise ValueError("Generated tool call does not match forced tool choice")
++        return self.identity(qualified)
++
++    def validate_completion(self, output, status):
++        if status != "completed":
++            return
++        calls = [as_dict(item) for item in output
++                 if as_dict(item).get("type") == "function_call"]
++        if self.selected is not None and len(calls) != 1:
++            raise ValueError("Forced tool choice requires exactly one call")
++        if self.tool_choice == "required" and not calls:
++            raise ValueError("Required tool choice requires at least one call")
++        for call in calls:
++            self.output_item(call)
++
++    def choice(self, choice):
++        if isinstance(choice, str):
++            if choice == "required" and not self.functions:
++                raise ValueError("Required choice needs a declared function or custom tool")
++            return choice
++        if not isinstance(choice, dict) or choice.get("type") not in ("function", "custom"):
++            raise ValueError("Unsupported forced tool choice")
++        selected = choice.get("function", choice)
++        if not isinstance(selected, dict):
++            raise ValueError("Malformed forced tool choice")
++        if "function" in choice:
++            qualified_name(selected.get("name"), selected.get("namespace"))
++            if "name" in choice:
++                qualified_name(choice["name"])
++            if choice.get("namespace") is not None:
++                qualified_name(choice["namespace"])
++            for field in ("name", "namespace", "type"):
++                if field in choice and field in selected and choice[field] != selected[field]:
++                    raise ValueError("Conflicting forced tool choice representations")
++        name, namespace = selected.get("name"), selected.get("namespace", choice.get("namespace"))
++        qualified = qualified_name(name, namespace)
++        if self.identity(qualified) != (name, namespace, choice["type"]):
++            raise ValueError("Forced tool choice does not match a declared identity")
++        self.selected = qualified
++        return {"type": "function", "name": qualified}
++
++    def remember_identity(self, identity):
++        name, namespace, kind = identity
++        qualified = qualified_name(name, namespace)
++        if self.replayed_identities.get(qualified, identity) != identity:
++            raise ValueError("Replayed call does not match a declared identity")
++        self.replayed_identities[qualified] = identity
++        self.history_identities[qualified] = identity
++
++    def inherit_history(self, previous, output):
++        for identity in previous.history_identities.values():
++            self.remember_identity(identity)
++        for item in output:
++            item = as_dict(item)
++            if item.get("type") == "function_call":
++                self.remember_identity(previous.identity(item["name"]))
++
++    def replay(self, item):
++        item = copy.deepcopy(as_dict(item))
++        if "function_call" in item:
++            raise ValueError("Legacy embedded function_call is unsupported; use typed replay")
++        if "tool_calls" in item:
++            if item.get("role") != "assistant" or item.get("type") not in (None, "message"):
++                raise ValueError("Embedded tool_calls require an assistant message")
++            calls = item["tool_calls"]
++            if not isinstance(calls, list):
++                raise ValueError("Embedded tool_calls must be a list")
++            normalized = []
++            for call in calls:
++                if (not isinstance(call, dict) or call.get("type") != "function"
++                        or set(call) - {"id", "type", "function"}
++                        or not isinstance(call.get("id"), str) or not call["id"]):
++                    raise ValueError("Unsupported embedded call; use typed function/custom replay")
++                function = call.get("function")
++                if (not isinstance(function, dict)
++                        or set(function) - {"name", "namespace", "arguments"}
++                        or not isinstance(function.get("arguments"), str)):
++                    raise ValueError("Malformed embedded function call")
++                replayed = self.replay({"type": "function_call", "call_id": call["id"], **function})
++                normalized.append({"id": call["id"], "type": "function", "function": {
++                    "name": replayed["name"], "arguments": replayed["arguments"]}})
++            item["tool_calls"] = normalized
++        if item.get("type") not in ("function_call", "custom_tool_call"):
++            if item.get("type") == "custom_tool_call_output":
++                item["type"] = "function_call_output"
++            return item
++        name, namespace = item.get("name"), item.get("namespace")
++        qualified = qualified_name(name, namespace)
++        kind = "custom" if item["type"] == "custom_tool_call" else "function"
++        identity = (name, namespace, kind)
++        self.remember_identity(identity)
++        item.pop("namespace", None)
++        item["name"] = qualified
++        if kind == "custom":
++            if not isinstance(item.get("input"), str):
++                raise ValueError("Custom tool input must be a string")
++            item["arguments"] = json.dumps({"input": item.pop("input")}, ensure_ascii=False)
++            item["type"] = "function_call"
++        return item
++
++    def output_item(self, item, partial=False):
++        item = copy.deepcopy(item.model_dump() if hasattr(item, "model_dump") else item)
++        if item.get("type") != "function_call":
++            return item
++        name, namespace, kind = self.output_identity(item["name"])
++        item["name"] = name
++        if namespace is not None:
++            item["namespace"] = namespace
++        if kind == "custom":
++            arguments = item.pop("arguments")
++            item["input"] = "" if partial else custom_input(arguments)
++            item["type"] = "custom_tool_call"
++        return item
++
++    def response(self, response):
++        response = copy.deepcopy(response.model_dump() if hasattr(response, "model_dump") else response)
++        if self.reasoning is not None:
++            response["reasoning"] = copy.deepcopy(self.reasoning)
++        if self.tool_choice is not None:
++            response["tool_choice"] = copy.deepcopy(self.tool_choice)
++        response["tools"] = copy.deepcopy(self.original)
++        response["output"] = [self.output_item(item) for item in response.get("output", [])]
++        return response
++
++    def response_model(self, response):
++        wire = self.response(response)
++        return response.model_copy(update={
++            "output": _OUTPUT_ADAPTER.validate_python(wire["output"]),
++            "tools": [ResponseTool.model_validate(tool) for tool in self.original],
++            "reasoning": wire.get("reasoning"),
++            "tool_choice": wire.get("tool_choice"),
++        })
++
++    async def stream(self, source):
++        calls = {}
++        sequence = 0
++        try:
++            async for frame in source:
++                data = next((line[6:] for line in frame.splitlines() if line.startswith("data: ")), None)
++                if data is None or data == "[DONE]":
++                    yield frame
++                    continue
++                event = json.loads(data)
++                kind = event.get("type", "")
++                emitted = [event]
++                if "response" in event:
++                    event["response"] = self.response(event["response"])
++                if kind in ("response.output_item.added", "response.output_item.done"):
++                    item = event["item"]
++                    if item.get("type") == "function_call":
++                        calls[item["id"]] = self.identity(item["name"])
++                        event["item"] = self.output_item(item, partial=kind.endswith("added"))
++                if kind.startswith("response.function_call_arguments."):
++                    identity = calls.get(event["item_id"])
++                    if identity is None:
++                        raise ValueError("Tool argument event has no declared output item")
++                    name, namespace, tool_type = identity
++                    event["name"] = name
++                    if namespace is not None:
++                        event["namespace"] = namespace
++                    if tool_type == "custom":
++                        if kind.endswith("delta"):
++                            continue
++                        payload = custom_input(event.pop("arguments"))
++                        event["type"] = "response.custom_tool_call_input.done"
++                        event["input"] = payload
++                        delta = {key: value for key, value in event.items() if key != "input"}
++                        delta.update(type="response.custom_tool_call_input.delta", delta=payload)
++                        emitted = [delta, event]
++                for wire_event in emitted:
++                    if "sequence_number" in wire_event:
++                        wire_event["sequence_number"] = sequence
++                        sequence += 1
++                    yield f"event: {wire_event.get('type', 'error')}\ndata: {json.dumps(wire_event, ensure_ascii=False)}\n\n"
++        except ValueError as error:
++            yield "event: error\ndata: " + json.dumps({"type": "error", "error": {"message": str(error), "type": "BadRequestError"}}) + "\n\n"
++        finally:
++            await source.aclose()
+diff --git a/python/sglang/srt/function_call/qwen3_coder_detector.py b/python/sglang/srt/function_call/qwen3_coder_detector.py
+--- a/python/sglang/srt/function_call/qwen3_coder_detector.py
++++ b/python/sglang/srt/function_call/qwen3_coder_detector.py
+@@ -21,6 +21,7 @@
+ class Qwen3CoderDetector(BaseFormatDetector):
+     def __init__(self):
+         super().__init__()
++        self.preserve_raw_input_tools: frozenset[str] = frozenset()
+ 
+         # Sentinel tokens
+         self.tool_call_start_token: str = "<tool_call>"
+@@ -100,6 +101,8 @@
+         self, param_value: str, param_name: str, param_config: dict, func_name: str
+     ) -> Any:
+         """Convert parameter value based on its type in the schema."""
++        if func_name in self.preserve_raw_input_tools and param_name == "input":
++            return param_value
+         # Handle null value for any type
+         if param_value.lower() == "null":
+             return None
+@@ -211,9 +214,9 @@
+                         p_name = p_match[:p_idx]
+                         p_val = p_match[p_idx + 1 :]
+                         # Remove prefixing and trailing \n
+-                        if p_val.startswith("\n"):
++                        if func_name not in self.preserve_raw_input_tools and p_val.startswith("\n"):
+                             p_val = p_val[1:]
+-                        if p_val.endswith("\n"):
++                        if func_name not in self.preserve_raw_input_tools and p_val.endswith("\n"):
+                             p_val = p_val[:-1]
+ 
+                         parsed_params[p_name] = self._convert_param_value(
+@@ -339,9 +342,9 @@
+                         raw_value = rest_of_slice[:end_pos]
+ 
+                         # Cleanup value
+-                        if raw_value.startswith("\n"):
++                        if self.current_func_name not in self.preserve_raw_input_tools and raw_value.startswith("\n"):
+                             raw_value = raw_value[1:]
+-                        if raw_value.endswith("\n"):
++                        if self.current_func_name not in self.preserve_raw_input_tools and raw_value.endswith("\n"):
+                             raw_value = raw_value[:-1]
+ 
+                         # JSON Construction

@@ -1,0 +1,60 @@
+{
+  "status": "L1/L2/L3 fixed; CPU GREEN; parent independent re-review pending",
+  "source_final_review_sha256": "7caaf8dfcc1a29d6b988aae49cde21a5044e60e5c84e3f054f3db98656390c39",
+  "files_sha256": {
+    "runtime/python/sglang/srt/entrypoints/openai/protocol.py": "fbc60d3206612f408d93f786b18446ab96c258ff60bf1f1c4cf0e36e3c88eca1",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_chat.py": "6d881d19da2c4a7028b0fb179cf5cdb958480612d4192c1606dfd25f98a9ba56",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_responses.py": "4af0b4f49138b884d9cc2eed032a48859c33186de68411eec3b0a3cca4142d4a",
+    "runtime/python/sglang/srt/entrypoints/openai/responses_compat.py": "195acbb23e9f2ac2dfd3d950a6b2fc5727bea0b6201c6879bc6f3f0afd7c710e",
+    "runtime/python/sglang/srt/function_call/qwen3_coder_detector.py": "2906f40a1fd33b3c6137ccf957b423de1775714fd07dcedab430c3c1905eebe9",
+    "patches/0016-responses-namespace-custom-boundary.patch": "33064822bb213122121c86bbb2e03c35e7f16336bb52ad6fad22561a7c0e654f",
+    "provenance/responses-compat.json": "a5e29f9a8fc29a3c556f229a3fdd2087327e1c9aef3e1cb629f0dcd8dc687675",
+    "provenance/responses-compat-runtime-files.json": "dbafd393e2d1680da761e25817c189dccfb1f95e744ff24d558fcf2a79e106d4",
+    "tests/runtime_responses_compat.py": "c14dca8806e7bc9dd7944e3c3b67a5eab62a0b26c78554cd46ab3e49ab2bcc64",
+    "tests/test_responses_packaging.py": "4e4420a1def5380762b44d2833dffdc63f5a914a48607af7614d24092d80dd56",
+    "scripts/verify_responses_compat.py": "309085eea09fa29c734b6b3280ff86a13a80eb0177ccaeba9ea2b510ecf45688",
+    "docs/responses-compat.md": "0e75c0ff6aa9346a7ac21fb077ce5652b572b7e671d98e4b28748fb8d40e65b7"
+  },
+  "protected_files_sha256": {
+    "Dockerfile.responses-compat": "ef9fcc77f4ae69f67f7e96a0dfbf258f07a4d2abec9d2c31f9ee88a244875bb4",
+    "scripts/test_responses_compat.sh": "76fcbf91070f8a618d55c252013419e879e5cfe3321570d403f8ffa5b534afaa",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_chat.py": "6d881d19da2c4a7028b0fb179cf5cdb958480612d4192c1606dfd25f98a9ba56",
+    "runtime/python/sglang/srt/entrypoints/openai/protocol.py": "fbc60d3206612f408d93f786b18446ab96c258ff60bf1f1c4cf0e36e3c88eca1",
+    "runtime/python/sglang/srt/function_call/qwen3_coder_detector.py": "2906f40a1fd33b3c6137ccf957b423de1775714fd07dcedab430c3c1905eebe9",
+    "patches/0015-qwen-flash-next-effort-alias.patch": "7a05330ee503332050c80bf60d37484c12e9000223dcedba0e040d09bd0a0688",
+    "tests/runtime_qwen_effort_alias.py": "d61cd53f96399dbabaff35d04f9119d9907622b000733cbe2bb7a87a3d440327",
+    "scripts/test_qwen_effort_alias.sh": "fc669d8a7b0a2ead61231fab1f9c605fe3a920b44589f9c3ce336308294c7749"
+  },
+  "logs_sha256": {
+    "fixer-red-boundary-valid-fixtures.log": "2a71fac90106732d79cf36924e40649b2e61d0b262d041e52e68dc8a7ec145ed",
+    "fixer-red-packaging.log": "65a2d7f70206603992b41952875870a80820d28bfb3135aaf018c4ac6c3e48d5",
+    "fixer-red-reviewed-overlay-final-suite.log": "f3eb760447d706ad28b2675d74847513960b6c05bd67fa00d593c5583774d04d",
+    "fixer-final-responses-v2.log": "791c61165f0692042a1a9de83e71c4953a9861884755ba7e7d7cbf3d87938fcc",
+    "fixer-final-alias.log": "3822344b8d015befbf626e2e587f4630c06b01dba07d8cd074a0479936ec935c",
+    "fixer-green-packaging.log": "6bdff07fdc138a5a5f4194affc0c860a207398c8c95f4ca6da6a15c0bae861b2",
+    "fixer-sdk-inspection.log": "ff1cf0071451160aac97de0f6274df9e84f5b195b589de31808341899f30ac5a",
+    "fixer-predecessor.log": "15f0ece4de1d2e705d554f50c84282a336fe25780e5fdea6242a817e5d322fce",
+    "fixer-full-source-final.log": "93c2b65b3f4d81834b054c1a5fa8ff58e40b710e566917c4e3762826f0770997",
+    "fixer-full-source-negative-final.log": "7edb5ef95eead712b2faabdb0f311115ac348ca684c1651278cb83351554fdd6",
+    "fixer-protected-files.log": "793c97711f91da478ce6e082d438576fe2f8bd2979f7504de9dbe83a3c97de30"
+  },
+  "counts": {
+    "responses_imported": 37,
+    "alias_imported": 13,
+    "package_cpu": 81,
+    "predecessor_source": 4391,
+    "candidate_source": 4392
+  },
+  "clean_source_tree": "/home/kanadaj/sglang-tuning/sglang-codex-compat-rollout/fixer-clean-source",
+  "sdk": {
+    "version": "2.6.1",
+    "namespace_call_fields": "retained as extras, not declared fields",
+    "strict_namespace_declarations": "unsupported; validation errors confined to tools",
+    "roundtrip": "SDK output/event unions and real SDK client against mock-generation ASGI endpoints"
+  },
+  "limitations": [
+    "CPU source overlays, not a built image validation",
+    "No model/GPU inference, publication, commit, push, or deployment",
+    "Historical review record remains bound to old bytes; not approval of these fixes"
+  ]
+}
