@@ -1,0 +1,67 @@
+--- a/python/sglang/srt/mem_cache/hicache_storage.py
++++ b/python/sglang/srt/mem_cache/hicache_storage.py
+@@ -478,10 +478,13 @@
+             if self.metadata_cache is not None:
+                 self.metadata_cache.add(suffixed)
+             return target_location
+-        except FileNotFoundError:
++        except OSError as error:
+             if self.metadata_cache is not None:
+                 self.metadata_cache.remove(suffixed)
+-            logger.warning(f"Failed to fetch {key} from HiCacheFile storage.")
++            # A broken cache page must not terminate the prefetch worker.
++            logger.warning(
++                "Failed to fetch %s from HiCacheFile storage: %s", key, error
++            )
+             return None
+ 
+     def batch_get(
+--- a/python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py
++++ b/python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py
+@@ -24,6 +24,7 @@
+     StorageOperation as BaseStorageOperation,
+ )
+ from sglang.srt.mem_cache.hicache_storage import (
++    HiCacheFile,
+     HiCacheStorageExtraInfo,
+     PoolHitPolicy,
+     PoolName,
+@@ -164,7 +165,7 @@
+         host_pools: Optional[list[PoolEntry]] = None,
+     ):
+         for entry in [*getattr(self.mem_pool_host, "entries", ()), *(host_pools or ())]:
+-            self._check_storage_pool(entry.host_pool)
++            self._check_storage_pool(entry.host_pool, storage_backend)
+         super().attach_storage_backend(
+             storage_backend=storage_backend,
+             prefetch_threshold=prefetch_threshold,
+@@ -176,20 +177,23 @@
+             self.storage_backend.register_mem_host_pool_v2(entry.host_pool, entry.name)
+ 
+     @staticmethod
+-    def _check_storage_pool(host_pool):
+-        if isinstance(host_pool, MambaPoolHost) and getattr(
+-            host_pool, "sibling_buffers", ()
++    def _check_storage_pool(host_pool, storage_backend=None):
++        if (
++            isinstance(host_pool, MambaPoolHost)
++            and getattr(host_pool, "sibling_buffers", ())
++            and storage_backend != "file"
++            and not isinstance(storage_backend, HiCacheFile)
+         ):
+             raise NotImplementedError(
+-                "HiCache with PLE companion state supports RAM only; "
+-                "storage backends do not preserve its component format."
++                "HiCache with PLE companion state supports RAM and file storage only; "
++                "other storage backends are not qualified for this checkpoint format."
+             )
+ 
+     def register_host_pool_entry(self, entry: PoolEntry) -> None:
+         if not isinstance(self.mem_pool_host, HostPoolGroup):
+             raise TypeError("Dynamic HiCache sidecars require HostPoolGroup.")
+         if self.enable_storage:
+-            self._check_storage_pool(entry.host_pool)
++            self._check_storage_pool(entry.host_pool, self.storage_backend)
+         self.mem_pool_host.add_entry(entry)
+         if not entry.is_primary_index_anchor:
+             self.extra_host_mem_release_queues.setdefault(entry.name, Queue())

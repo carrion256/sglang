@@ -1,5 +1,10 @@
 # Qwen TP2 packed-PLE vision on SM120
 
+**Experimental draft:** [Qwen HiCache state-transfer work](docs/hicache-wip.md)
+preserves RAM/file fixes and focused tests. End-to-end generation still has an
+unresolved corruption failure, so this separate profile must not be deployed or
+added to the default patch series.
+
 **Unpublished CPU candidate:** [Responses namespace/custom compatibility](docs/responses-compat.md)
 adds a separately attested boundary backport after the effort-alias profile.
 Historical production profiles below are unchanged; no deployment is implied.

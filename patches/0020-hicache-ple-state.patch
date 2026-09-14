@@ -1,0 +1,308 @@
+--- a/python/sglang/srt/mem_cache/ple_state_pool.py
++++ b/python/sglang/srt/mem_cache/ple_state_pool.py
+@@ -37,6 +37,10 @@
+     def get_cpu_slots(self, indices: torch.Tensor) -> Any: ...
+ 
+     def load_cpu_slots(self, data: Any, indices: torch.Tensor) -> None: ...
++
++    def get_slot_tensors(self) -> Tuple[torch.Tensor, ...]:
++        """Contiguous [layer, slot, ...] views for bounded host-cache transfers."""
++        ...
+ 
+ 
+ class ShortConvPool:
+@@ -110,6 +114,9 @@
+ 
+     # SlotIndexedState: slot is dim 1, behind the layer dim.
+ 
++    def get_slot_tensors(self) -> Tuple[torch.Tensor, ...]:
++        return () if self.conv_state is None else (self.conv_state,)
++
+     def reset_slots(self, indices: torch.Tensor) -> None:
+         if self.conv_state is not None and indices.numel() > 0:
+             self.conv_state[:, indices] = 0
+@@ -201,6 +208,9 @@
+ 
+     # SlotIndexedState: slot is dim 0, no layer dim.
+ 
++    def get_slot_tensors(self) -> Tuple[torch.Tensor, ...]:
++        return () if self.context is None else (self.context.unsqueeze(0),)
++
+     def reset_slots(self, indices: torch.Tensor) -> None:
+         if self.context is not None and indices.numel() > 0:
+             self.context[indices.to(dtype=torch.long)] = self.eos_token_id
+--- a/python/sglang/srt/mem_cache/memory_pool_host.py
++++ b/python/sglang/srt/mem_cache/memory_pool_host.py
+@@ -58,6 +58,7 @@
+ )
+ from sglang.srt.mem_cache.pool_host.common import (
+     ALLOC_MEMORY_FUNCS,
++    _cuda_host_unregister,
+     get_allocator_from_storage,
+ )
+ from sglang.srt.mem_cache.pool_host.hisparse import HiSparseHostPoolMixin
+@@ -99,6 +100,20 @@
+         self.conv_dtype = device_pool.mamba_cache.conv[0].dtype
+         self.temporal_dtype = device_pool.mamba_cache.temporal.dtype
+         self.dtype = self.conv_dtype
++        self.sibling_device_tensors = tuple(
++            tensor
++            for sibling in getattr(device_pool, "_slot_siblings", ())
++            for tensor in sibling.get_slot_tensors()
++        )
++        for tensor in self.sibling_device_tensors:
++            if tensor.ndim < 3 or not tensor.is_contiguous():
++                raise ValueError(
++                    "HiCache slot state must be contiguous [layer, slot, ...]."
++                )
++        self.sibling_bytes_per_slot = sum(
++            tensor.shape[0] * int(np.prod(tensor.shape[2:])) * tensor.element_size()
++            for tensor in self.sibling_device_tensors
++        )
+         self.size_per_token = self.get_size_per_token()
+ 
+         if host_size > 0:
+@@ -152,8 +167,23 @@
+             )
+             for conv_state in device_pool.mamba_cache.conv
+         ]
+-
+-        self.init_kv_buffer()
++        self.sibling_device_ptrs = [
++            torch.tensor(
++                [layer.data_ptr() for layer in tensor],
++                dtype=torch.uint64,
++                device=self.device_pool.device,
++            )
++            for tensor in self.sibling_device_tensors
++        ]
++
++        self.temporal_buffer = None
++        self.conv_buffer = []
++        self.sibling_buffers = []
++        try:
++            self.init_kv_buffer()
++        except Exception:
++            self.destroy()
++            raise
+         self._init_write_back_staging_buffers()
+         self.lock = threading.RLock()
+         self.clear()
+@@ -226,6 +256,39 @@
+                     )
+                 )
+ 
++        for tensor in self.sibling_device_tensors:
++            self.sibling_buffers.append(
++                alloc_func(
++                    (self.size, tensor.shape[0], 1, *tensor.shape[2:]),
++                    dtype=tensor.dtype,
++                    device=self.device,
++                    pin_memory=self.pin_memory,
++                    allocator=self.allocator,
++                )
++            )
++
++    def destroy(self):
++        if getattr(self, "_destroyed", False):
++            return
++        buffers = [
++            getattr(self, "temporal_buffer", None),
++            *getattr(self, "conv_buffer", ()),
++            *getattr(self, "sibling_buffers", ()),
++        ]
++        for buffer in buffers:
++            if (
++                buffer is not None
++                and buffer.numel()
++                and self.pin_memory
++                and (_is_cuda or _is_hip)
++            ):
++                _cuda_host_unregister(buffer)
++        self.temporal_buffer = None
++        self.conv_buffer = []
++        self.sibling_buffers = []
++        self.sibling_device_ptrs = []
++        super().destroy()
++
+     def _init_write_back_staging_buffers(self):
+         self.temporal_staging_buffer = None
+         self.conv_staging_buffers = [None] * len(self.conv_buffer)
+@@ -239,7 +302,7 @@
+ 
+     def get_hybrid_pool_buffer(self):
+         # Expose all mamba host tensors that need Mooncake buffer registration.
+-        return [self.temporal_buffer, *self.conv_buffer]
++        return [self.temporal_buffer, *self.conv_buffer, *self.sibling_buffers]
+ 
+     def _iter_page_tensors(self, index: int):
+         if self.layout in ["page_first", "page_first_direct"]:
+@@ -250,6 +313,8 @@
+             yield self.temporal_buffer[:, index : index + self.page_size]
+             for conv_buf in self.conv_buffer:
+                 yield conv_buf[:, index : index + self.page_size]
++        for buffer in self.sibling_buffers:
++            yield buffer[index]
+ 
+     @staticmethod
+     def _flatten_tensor_bytes(tensor: torch.Tensor) -> torch.Tensor:
+@@ -298,7 +363,9 @@
+             for conv_elem_size in self.conv_state_elem_sizes
+         )
+         temporal_size = self.temporal_state_elem_size * self.temporal_dtype.itemsize
+-        return (conv_total_size + temporal_size) * self.num_mamba_layers
++        return (
++            conv_total_size + temporal_size
++        ) * self.num_mamba_layers + self.sibling_bytes_per_slot
+ 
+     def get_ksize_per_token(self):
+         return self.get_size_per_token()
+@@ -434,6 +501,22 @@
+         *,
+         is_draft: bool = False,
+     ):
++        # Qwen reads N-gram history before layer execution. Its getter waits on
++        # this first Mamba layer's completion event, including both companions.
++        if layer_id == 0:
++            for host_buffer, tensor in zip(
++                self.sibling_buffers, self.sibling_device_tensors
++            ):
++                for sibling_layer, target in enumerate(tensor):
++                    self._copy_tensor_pf_lf(
++                        src=host_buffer,
++                        dst=target,
++                        src_indices=host_indices,
++                        dst_indices=device_indices,
++                        layer_id=sibling_layer,
++                        num_layers=tensor.shape[0],
++                        io_backend=io_backend,
++                    )
+         if self.layout in ["page_first", "page_first_direct"]:
+             # no ssm state on conv-only models: nothing to transfer
+             if self.temporal_state_elem_size > 0:
+@@ -476,6 +559,20 @@
+     def backup_from_device_all_layer(
+         self, device_pool, host_indices, device_indices, io_backend="kernel"
+     ):
++        for tensor, host_buffer, device_ptrs in zip(
++            self.sibling_device_tensors,
++            self.sibling_buffers,
++            self.sibling_device_ptrs,
++        ):
++            self._copy_tensor_all_layers_lf_pf(
++                src_layers=tensor,
++                dst=host_buffer,
++                src_indices=device_indices,
++                dst_indices=host_indices,
++                num_layers=tensor.shape[0],
++                io_backend=io_backend,
++                src_ptrs=device_ptrs,
++            )
+         if self.layout in ["page_first", "page_first_direct"]:
+             # no ssm state on conv-only models: a 0-size batched memcpy errors
+             if self.temporal_state_elem_size > 0:
+@@ -585,6 +682,10 @@
+             )
+             for i in range(len(self.conv_state_shapes))
+         ]
++        sibling_meta = [
++            (buffer.data_ptr(), self._item_size_per_index(buffer))
++            for buffer in self.sibling_buffers
++        ]
+ 
+         for i in range(0, len(indices), self.page_size):
+             # Emit component pointers in stable order: temporal first (dropped
+@@ -611,6 +712,9 @@
+                 )
+                 ptr_list.append(conv_ptr)
+                 element_size_list.append(conv_element_sizes[j])
++            for base_ptr, size_bytes in sibling_meta:
++                ptr_list.append(base_ptr + indices[i] * size_bytes)
++                element_size_list.append(size_bytes)
+         return ptr_list, element_size_list
+ 
+     def is_stride_page_aligned(self, page_size_bytes: int = 4096) -> bool:
+@@ -630,6 +734,12 @@
+             if buf.data_ptr() % page_size_bytes != 0:
+                 return False
+             if conv_stride % page_size_bytes != 0:
++                return False
++        for buffer in self.sibling_buffers:
++            if (
++                buffer.data_ptr() % page_size_bytes != 0
++                or self._item_size_per_index(buffer) % page_size_bytes != 0
++            ):
+                 return False
+         return True
+ 
+--- a/python/sglang/srt/mem_cache/memory_pool.py
++++ b/python/sglang/srt/mem_cache/memory_pool.py
+@@ -1478,7 +1478,9 @@
+ 
+     def short_conv_layer_cache(self, layer_id: int) -> torch.Tensor:
+         if self.layer_transfer_counter is not None:
+-            self.layer_transfer_counter.wait_until(layer_id - self.start_layer)
++            # Companion state is restored with the first local Mamba layer.
++            ready_layer = max(layer_id, min(self.mamba_map))
++            self.layer_transfer_counter.wait_until(ready_layer - self.start_layer)
+         return self.short_conv_pool.layer_cache(layer_id)
+ 
+     def short_conv_layer_intermediate_cache(
+@@ -1490,6 +1492,11 @@
+         return self.get_mamba_indices(req_indices)
+ 
+     def get_ngram_context(self, ngram_indices: torch.Tensor) -> torch.Tensor:
++        if self.layer_transfer_counter is not None:
++            # PLE prepares token history before the model's first layer runs.
++            self.layer_transfer_counter.wait_until(
++                min(self.mamba_map) - self.start_layer
++            )
+         return self.ngram_pool.get_context(ngram_indices)
+ 
+     def set_ngram_context(
+--- a/python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py
++++ b/python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py
+@@ -31,7 +31,11 @@
+     PoolTransferResult,
+ )
+ from sglang.srt.mem_cache.l2_transfer import L2Transfer
+-from sglang.srt.mem_cache.memory_pool_host import HostPoolGroup, PoolEntry
++from sglang.srt.mem_cache.memory_pool_host import (
++    HostPoolGroup,
++    MambaPoolHost,
++    PoolEntry,
++)
+ from sglang.srt.mem_cache.pool_host.mha import MHATokenToKVPoolHost
+ 
+ if TYPE_CHECKING:
+@@ -159,6 +163,8 @@
+         storage_backend_extra_config: Optional[dict] = None,
+         host_pools: Optional[list[PoolEntry]] = None,
+     ):
++        for entry in [*getattr(self.mem_pool_host, "entries", ()), *(host_pools or ())]:
++            self._check_storage_pool(entry.host_pool)
+         super().attach_storage_backend(
+             storage_backend=storage_backend,
+             prefetch_threshold=prefetch_threshold,
+@@ -169,9 +175,21 @@
+         for entry in host_pools or []:
+             self.storage_backend.register_mem_host_pool_v2(entry.host_pool, entry.name)
+ 
++    @staticmethod
++    def _check_storage_pool(host_pool):
++        if isinstance(host_pool, MambaPoolHost) and getattr(
++            host_pool, "sibling_buffers", ()
++        ):
++            raise NotImplementedError(
++                "HiCache with PLE companion state supports RAM only; "
++                "storage backends do not preserve its component format."
++            )
++
+     def register_host_pool_entry(self, entry: PoolEntry) -> None:
+         if not isinstance(self.mem_pool_host, HostPoolGroup):
+             raise TypeError("Dynamic HiCache sidecars require HostPoolGroup.")
++        if self.enable_storage:
++            self._check_storage_pool(entry.host_pool)
+         self.mem_pool_host.add_entry(entry)
+         if not entry.is_primary_index_anchor:
+             self.extra_host_mem_release_queues.setdefault(entry.name, Queue())

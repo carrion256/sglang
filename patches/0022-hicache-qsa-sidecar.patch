@@ -1,0 +1,228 @@
+--- a/python/sglang/srt/mem_cache/hicache_storage.py
++++ b/python/sglang/srt/mem_cache/hicache_storage.py
+@@ -62,6 +62,7 @@
+     MAMBA = "mamba"
+     SWA = "swa"
+     INDEXER = "indexer"
++    QSA_INDEXER = "qsa_indexer"
+     # TODO(hzh0425): Current DeepSeek V4 pool naming is verbose; will be normalized to
+     # 'COMPRESSED_KV / COMPRESSED_INDEXER / COMPRESSED_STATE' in the next PR.
+     DEEPSEEK_V4_C4 = "deepseek_v4_c4"
+--- a/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py
++++ b/python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py
+@@ -687,6 +687,7 @@
+     model_name: Optional[str] = None,
+     storage_backend_extra_config: Optional[dict] = None,
+     enable_storage_metrics: bool = False,
++    qsa_device_pools: tuple[Any, ...] = (),
+ ) -> tuple[HostPoolGroup, HybridCacheController]:
+     transfer_layer_num = len(full_layer_mapping | mamba_layer_mapping)
+     mamba_allocator = params.req_to_token_pool.mamba_allocator
+@@ -698,6 +699,16 @@
+         kv_host_size, mamba_host_size = _split_hicache_size(
+             server_args.hicache_size, (kv_pool, mamba_pool)
+         )
++        if qsa_device_pools:
++            from sglang.srt.mem_cache.qsa_pool_host import qsa_index_bytes_per_token
++
++            # The index shares KV slots and must fit inside the fixed KV budget.
++            kv_bytes = sum(
++                sum(pool.get_kv_size_bytes()) / (pool.size + pool.page_size)
++                for pool in (kv_pool, *mtp_draft_device_pools)
++            )
++            index_bytes = qsa_index_bytes_per_token(qsa_device_pools, params.page_size)
++            kv_host_size *= kv_bytes / (kv_bytes + index_bytes)
+     kv_host_pool = build_kv_host_pool(
+         kv_pool=kv_pool,
+         page_size=params.page_size,
+@@ -741,6 +752,25 @@
+             device_free_fn=mamba_allocator.free,
+         ),
+     ]
++    if qsa_device_pools:
++        from sglang.srt.mem_cache.qsa_pool_host import QSAPagedHostPool
++
++        index_host_pool = QSAPagedHostPool(
++            qsa_device_pools,
++            num_host_tokens=kv_host_pool.size,
++            page_size=params.page_size,
++            layout=server_args.hicache_mem_layout,
++            allocator_type=_get_allocator_type(server_args),
++        )
++        entries.append(
++            build_pool_entry(
++                name=PoolName.QSA_INDEXER,
++                host_pool=index_host_pool,
++                device_pool=qsa_device_pools[0],
++                layer_mapping=full_layer_mapping,
++                transfer_layer_num=transfer_layer_num + len(mtp_draft_device_pools),
++            )
++        )
+     host_pool_group = HostPoolGroup(entries)
+     cache_controller = HybridCacheController(
+         params.token_to_kv_pool_allocator,
+@@ -1279,9 +1309,22 @@
+         enable_storage_metrics=False,
+     ):
+         from sglang.srt.mem_cache.base_prefix_cache import EvictParams
++        from sglang.srt.mem_cache.qsa_kv_pool import QSATokenToKVPool
+ 
+         full_layer_mapping = dict(kvcache.full_attention_layer_id_mapping)
+         mamba_layer_mapping = dict(params.req_to_token_pool.mamba_map)
++
++        qsa_pools = ()
++        if isinstance(kvcache, QSATokenToKVPool):
++            qsa_pools = (kvcache, *params.mtp_draft_device_pools)
++            if any(not isinstance(pool, QSATokenToKVPool) for pool in qsa_pools):
++                raise ValueError("QSA HiCache requires compressed QSA draft pools")
++            if any(
++                len(pool.qsa_compressed_k_buffer_pool) != pool.full_kv_pool.layer_num
++                or pool.page_size != params.page_size
++                for pool in qsa_pools
++            ) or any(pool.full_kv_pool.layer_num != 1 for pool in qsa_pools[1:]):
++                raise ValueError("QSA HiCache target/draft index layers must match KV")
+         host_pool_group, cache_controller = build_hybrid_mamba_stack(
+             params=params,
+             server_args=server_args,
+@@ -1298,6 +1341,7 @@
+             model_name=model_name,
+             storage_backend_extra_config=storage_backend_extra_config,
+             enable_storage_metrics=enable_storage_metrics,
++            qsa_device_pools=qsa_pools,
+         )
+         return StackBuildResult(
+             host_pool_group=host_pool_group,
+@@ -1306,9 +1350,14 @@
+                 ComponentType.FULL: host_pool_group.get_pool(PoolName.KV),
+                 ComponentType.MAMBA: host_pool_group.get_pool(PoolName.MAMBA),
+             },
++            sidecars=(
++                [SidecarPoolSpec(PoolName.QSA_INDEXER, indices_from_pool=PoolName.KV)]
++                if qsa_pools
++                else []
++            ),
+             register_req_to_token_counter=True,
+             transfer_layer_num=len(full_layer_mapping | mamba_layer_mapping),
+-            pools_desc="KV + MAMBA",
++            pools_desc="KV + MAMBA + QSA_INDEXER" if qsa_pools else "KV + MAMBA",
+         )
+ 
+ 
+--- a/python/sglang/srt/mem_cache/qsa_kv_pool.py
++++ b/python/sglang/srt/mem_cache/qsa_kv_pool.py
+@@ -209,6 +209,7 @@
+         return self.qsa_rope_position_buffer[loc.long()]
+ 
+     def get_qsa_compressed_k_buffer(self, layer_id: int) -> torch.Tensor:
++        self._wait_for_layer(layer_id)
+         return self.qsa_compressed_k_buffer_pool[
+             self._transfer_full_attention_id(layer_id)
+         ]
+--- a/python/sglang/srt/mem_cache/qsa_pool_host.py
++++ b/python/sglang/srt/mem_cache/qsa_pool_host.py
+@@ -0,0 +1,105 @@
++"""Page-aligned HiCache storage for compressed QSA index keys."""
++
++from __future__ import annotations
++
++import torch
++
++from sglang.srt.mem_cache.memory_pool_host import DeepSeekV4PagedHostPool
++
++
++def qsa_index_bytes_per_token(device_pools, page_size: int) -> int:
++    total = 0
++    for pool in device_pools:
++        ratio = pool.qsa_compress_ratio
++        if ratio <= 0 or page_size <= 1 or page_size % ratio:
++            raise ValueError(
++                "QSA HiCache requires complete compression groups per page"
++            )
++        buffers = pool.qsa_compressed_k_buffer_pool
++        if not buffers:
++            raise ValueError("QSA HiCache requires compressed index buffers")
++        for buffer in buffers:
++            if buffer.dtype != torch.bfloat16 or buffer.ndim != 3:
++                raise ValueError("QSA HiCache requires BF16 [slot, head, dim] indices")
++            slot_bytes = buffer[0].numel() * buffer.element_size()
++            if slot_bytes % ratio:
++                raise ValueError("QSA compressed index byte size must divide the ratio")
++            total += slot_bytes // ratio
++    return total
++
++
++class QSAPagedHostPool(DeepSeekV4PagedHostPool):
++    """Mirror target and MTP indices using the full KV page address space."""
++
++    def __init__(
++        self,
++        device_pools,
++        num_host_tokens: int,
++        page_size: int,
++        layout: str,
++        *,
++        allocator_type: str = "default",
++        pin_memory: bool = True,
++    ):
++        device_pools = tuple(device_pools)
++        if (
++            not device_pools
++            or page_size <= 1
++            or num_host_tokens <= 0
++            or num_host_tokens % page_size
++        ):
++            raise ValueError("QSA HiCache requires pools and a page-aligned host size")
++        if layout not in ("layer_first", "page_first", "page_first_direct"):
++            raise ValueError(f"Unsupported QSA HiCache layout: {layout}")
++        bytes_per_token = qsa_index_bytes_per_token(device_pools, page_size)
++        buffers = []
++        item_bytes = None
++        index_shape = None
++        for pool in device_pools:
++            ratio = pool.qsa_compress_ratio
++            for buffer in pool.qsa_compressed_k_buffer_pool:
++                shape = (ratio, *buffer.shape[1:])
++                if index_shape is not None and shape != index_shape:
++                    raise ValueError("Target and draft QSA index shapes must match")
++                index_shape = shape
++                page_bytes = (
++                    page_size // ratio * buffer[0].numel() * buffer.element_size()
++                )
++                if item_bytes is not None and page_bytes != item_bytes:
++                    raise ValueError(
++                        "Target and draft QSA index page shapes must match"
++                    )
++                if (
++                    not buffer.is_contiguous()
++                    or buffer.numel() * buffer.element_size() % page_bytes
++                ):
++                    raise ValueError(
++                        "QSA index buffers must contain contiguous complete pages"
++                    )
++                item_bytes = page_bytes
++                # The reused transport copies byte rows, independent of index dtype.
++                buffers.append(buffer.view(torch.uint8).reshape(-1, page_bytes))
++        super().__init__(
++            pool_name="qsa_indexer",
++            device_buffers=buffers,
++            item_bytes=item_bytes,
++            num_host_pages=num_host_tokens // page_size,
++            slot_page_size=page_size,
++            layout=layout,
++            allocator_type=allocator_type,
++            pin_memory=pin_memory,
++        )
++        self.size_per_token = bytes_per_token
++
++    def get_size_per_token(self):
++        return self.layer_num * self.item_bytes // self.slot_page_size
++
++    def get_ksize_per_token(self):
++        return self.get_size_per_token()
++
++    def _has_transfer_indices(self, host_indices, device_indices):
++        present = super()._has_transfer_indices(host_indices, device_indices)
++        if present and host_indices.numel() % self.slot_page_size:
++            # Partial groups would need ring state; restored prefixes end on pages.
++            raise ValueError("QSA HiCache transfers must contain complete KV pages")
++        return present
