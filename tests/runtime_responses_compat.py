@@ -1,6 +1,7 @@
 """Imported exact-runtime CPU tests. No model/GPU conformance claim."""
 import asyncio
 import copy
+import inspect
 import json
 import unittest
 from types import SimpleNamespace
@@ -292,6 +293,125 @@ class MockHTTPTest(unittest.TestCase):
             ('message', 'commentary', 'Checking.'),
             ('function_call', 'inspect', {}),
             ('message', 'final_answer', 'Final answer.'),
+        ])
+
+    def test_qwen_ordered_nonstream_preserves_usage_details(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.serving.enable_prompt_tokens_details = True
+        raw = ('Checking.<tool_call><function=inspect></function></tool_call>'
+               'Final answer.')
+
+        async def generate(request, *args, **kwargs):
+            yield {
+                'text': raw,
+                'output_ids': [1] * 108,
+                'meta_info': {
+                    'prompt_tokens': 10,
+                    'completion_tokens': 108,
+                    'cached_tokens': 4,
+                    'reasoning_tokens': 7,
+                    'finish_reason': {'type': 'stop'},
+                },
+            }
+
+        self.serving.tokenizer_manager.generate_request = generate
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        body = self.send(tools=tools, tool_choice='auto').json()
+        self.assertEqual(body['usage'], {
+            'input_tokens': 10,
+            'input_tokens_details': {
+                'cached_tokens': 4,
+                'cache_write_tokens': 0,
+            },
+            'output_tokens': 108,
+            'output_tokens_details': {'reasoning_tokens': 7},
+            'total_tokens': 118,
+        })
+
+    def test_qwen_ordered_nonstream_preserves_requested_logprobs(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        raw = ('Checking.<tool_call><function=inspect></function></tool_call>'
+               'Final answer.')
+
+        async def generate(request, *args, **kwargs):
+            yield {
+                'text': raw,
+                'output_ids': [1, 2],
+                'meta_info': {
+                    'prompt_tokens': 10,
+                    'completion_tokens': 2,
+                    'output_token_logprobs': [
+                        (-0.25, 1, 'Checking.'),
+                        (-0.5, 2, 'Final answer.'),
+                    ],
+                    'output_top_logprobs': [
+                        [(-0.25, 1, 'Checking.'), (-1.0, 3, 'Inspecting.')],
+                        [(-0.5, 2, 'Final answer.')],
+                    ],
+                    'finish_reason': {'type': 'stop'},
+                },
+            }
+
+        self.serving.tokenizer_manager.generate_request = generate
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        body = self.send(
+            tools=tools,
+            tool_choice='auto',
+            include=['message.output_text.logprobs'],
+            top_logprobs=2,
+        ).json()
+        messages = [item for item in body['output'] if item['type'] == 'message']
+        self.assertTrue(all(item['content'][0]['logprobs'] is not None
+                            for item in messages), messages)
+        self.assertEqual(
+            [[entry['token'] for entry in item['content'][0]['logprobs']]
+             for item in messages],
+            [['Checking.', 'Final answer.'], ['Checking.', 'Final answer.']],
+        )
+        self.assertEqual(
+            messages[0]['content'][0]['logprobs'][0]['top_logprobs'][1]['token'],
+            'Inspecting.',
+        )
+
+    def test_qwen_literal_angle_brackets_survive_text_tool_text(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.text = ('Compare <left> and 1 < 2.'
+                     '<tool_call><function=inspect></function></tool_call>'
+                     'Final <right> and 3 > 2.')
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        body = self.send(tools=tools, tool_choice='auto').json()
+        self.assertEqual(self.phase_semantics(body['output']), [
+            ('message', 'commentary', 'Compare <left> and 1 < 2.'),
+            ('function_call', 'inspect', {}),
+            ('message', 'final_answer', 'Final <right> and 3 > 2.'),
+        ])
+
+    def test_qwen_stream_has_no_generic_angle_boundary_split(self):
+        source = inspect.getsource(
+            OpenAIServingResponses.responses_stream_generator_non_harmony)
+        self.assertFalse(
+            're.split(r"(?=<)|(?<=>)"' in source,
+            'generic angle-boundary splitting is forbidden',
+        )
+
+    def test_qwen4_exp_is_negative_control_for_ordered_nonstream(self):
+        self.serving.reasoning_parser = None
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.serving.tokenizer_manager.model_config.hf_config.model_type = 'qwen4_exp'
+        self.text = ('Checking.<tool_call><function=inspect></function></tool_call>'
+                     'Final answer.')
+        tools = [{'type': 'function', 'name': 'inspect',
+                  'parameters': {'type': 'object', 'properties': {}}}]
+        output = self.send(tools=tools, tool_choice='auto').json()['output']
+        self.assertEqual(self.phase_semantics(output), [
+            ('message', 'commentary', 'Checking.Final answer.'),
+            ('function_call', 'inspect', {}),
         ])
 
     def test_nonstream_message_phase_matches_remaining_tool_calls(self):
@@ -1197,6 +1317,35 @@ class MockHTTPTest(unittest.TestCase):
                 response = self.send(tool_choice='auto', stream=stream)
                 body = next(event['response'] for event in self.events(response) if event.get('type') == 'response.completed') if stream else response.json()
                 self.assertEqual(body['output'][0]['input'], raw)
+
+    def test_mock_http_custom_literal_angles_preserve_order_and_payload(self):
+        self.serving.tool_call_parser = 'qwen3_coder'
+        self.tools = [{'type': 'custom', 'name': 'patch'}]
+        raw = '<tag>keep</tag> 1 < 2 and 3 > 2'
+        tool = {'type': 'function', 'function': {'name': 'patch', 'parameters': {
+            'type': 'object', 'properties': {'input': {'type': 'string'}},
+            'required': ['input']}}}
+        rendered = self.serving.tokenizer_manager.tokenizer.apply_chat_template([
+            {'role': 'user', 'content': 'Call patch'},
+            {'role': 'assistant', 'content': '', 'tool_calls': [
+                {'type': 'function', 'function': {
+                    'name': 'patch', 'arguments': {'input': raw}}}]}],
+            tools=[tool], tokenize=False, add_generation_prompt=False)
+        start = rendered.rindex('<tool_call>')
+        tool_block = rendered[start:rendered.index(
+            '</tool_call>', start) + len('</tool_call>')]
+        self.text = 'Before <literal>.' + tool_block + 'After </literal>.'
+        body = self.send(tool_choice='auto').json()
+        self.assertEqual(
+            [(item['type'], item.get('phase')) for item in body['output']],
+            [('message', 'commentary'), ('custom_tool_call', None),
+             ('message', 'final_answer')],
+        )
+        self.assertEqual(body['output'][0]['content'][0]['text'],
+                         'Before <literal>.')
+        self.assertEqual(body['output'][1]['input'], raw)
+        self.assertEqual(body['output'][2]['content'][0]['text'],
+                         'After </literal>.')
 
     def test_mock_http_replay_cannot_forge_flat_dotted_identity(self):
         self.tools = [{'type': 'function', 'name': 'workspace.read'}]
