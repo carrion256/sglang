@@ -1,10 +1,12 @@
-# Invalid generated-token failures — cumulative local candidate
+# Invalid generated-token failures — published cumulative runtime
 
-This profile is rebased onto main
-`e5d93387e03c110de6f6f483a0ff5ed44d3a1a1e`. It transplants original PR #8
-head `4059ace2b2faa2d7972f7704c8fdca0985a35b1a` and the reviewed functional
-corrections from `63f43b7ad68b40831f3b1a47e880a56a2db66a42`. Nothing was pushed,
-merged, published, deployed, or applied to a running service.
+This profile is merged into `main` at
+`facd7be72dc5abcfc8d99c9e6fa750e73ad8e350`. It preserves original PR #8
+head `4059ace2b2faa2d7972f7704c8fdca0985a35b1a`, the reviewed functional
+corrections, and the final Harmony terminal-event fix. The cumulative image is
+published at the immutable digest documented in
+[`production-cumulative-compat-20260914.md`](production-cumulative-compat-20260914.md).
+It has not been deployed to the running production service.
 
 ## Behavior
 
@@ -101,4 +103,6 @@ docker build --pull=false \
 
 No GPU generation was forced to produce an invalid token. The change makes the
 existing fatal condition visible and replay-safe; it does not attempt generation
-recovery. The image is local only and has not been published or deployed.
+recovery. The published image passed exact source, CPU, package, and anonymous
+registry-transfer checks, but has not been booted with the production model or
+deployed.
