@@ -109,7 +109,8 @@ if __name__ == "__main__":
         full_tree = False
     else:
         source_files = verify(args.tree.resolve(), args.apply)
-        changed = len(package_records()[0]["files"])
+        manifest, _ = package_records()
+        changed = len(manifest["files"])
         full_tree = True
     print(
         json.dumps(
