@@ -1,13 +1,13 @@
 {
   "status": "CPU-tested candidate only; not deployed or published",
-  "base_git_commit": "b8e8bebf2274e0099c3abce5718ac8813dd9001d",
+  "base_git_commit": "93463c3466b0de9d21776fbeff95657285df8269",
   "base_image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
   "patch": "0015-qwen-flash-next-effort-alias.patch",
-  "patch_sha256": "7a05330ee503332050c80bf60d37484c12e9000223dcedba0e040d09bd0a0688",
+  "patch_sha256": "93984526c5b2c03c5bf79a1cd9cc6404b5d38bab86b8f0fadb283c6b16ff10d3",
   "files": {
     "python/sglang/srt/entrypoints/openai/serving_chat.py": {
       "before": "c6228b8d8771e7136ba87404f53da2d51ee2c5c68e7cc32b7d48da9310f55427",
-      "after": "6d881d19da2c4a7028b0fb179cf5cdb958480612d4192c1606dfd25f98a9ba56"
+      "after": "07ccd04de5f716277d2df873f66bdc4c03d13f7e89aad105c6dcba979ff47931"
     }
   },
   "tokenizer": {
