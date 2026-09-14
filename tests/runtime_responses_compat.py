@@ -339,17 +339,25 @@ class MockHTTPTest(unittest.TestCase):
         async def generate(request, *args, **kwargs):
             yield {
                 'text': raw,
-                'output_ids': [1, 2],
+                'output_ids': [1, 2, 3, 4, 5, 6],
                 'meta_info': {
                     'prompt_tokens': 10,
-                    'completion_tokens': 2,
+                    'completion_tokens': 6,
                     'output_token_logprobs': [
                         (-0.25, 1, 'Checking.'),
-                        (-0.5, 2, 'Final answer.'),
+                        (-0.1, 2, '<tool_call>'),
+                        (-0.1, 3, '<function=inspect>'),
+                        (-0.1, 4, '</function>'),
+                        (-0.1, 5, '</tool_call>'),
+                        (-0.5, 6, 'Final answer.'),
                     ],
                     'output_top_logprobs': [
-                        [(-0.25, 1, 'Checking.'), (-1.0, 3, 'Inspecting.')],
-                        [(-0.5, 2, 'Final answer.')],
+                        [(-0.25, 1, 'Checking.'), (-1.0, 7, 'Inspecting.')],
+                        [(-0.1, 2, '<tool_call>')],
+                        [(-0.1, 3, '<function=inspect>')],
+                        [(-0.1, 4, '</function>')],
+                        [(-0.1, 5, '</tool_call>')],
+                        [(-0.5, 6, 'Final answer.')],
                     ],
                     'finish_reason': {'type': 'stop'},
                 },

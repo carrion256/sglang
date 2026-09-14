@@ -2,7 +2,10 @@
 
 **Unpublished CPU candidate:** [Responses compatibility and Qwen phase/order](docs/responses-compat.md)
 adds separately attested boundary and streaming/nonstream ordering patches after the
-effort-alias profile, including its `minimal` → `low` alias. Historical production
+effort-alias profile, including its `minimal` → `low` alias. The ordered nonstream
+path constructs typed output directly and retains usage details and requested
+logprobs; structural splitting is limited to recognized Qwen markers and the loaded
+`qwen3_8_flash_next` / `_text` model types. Historical production
 profiles below are unchanged; no deployment is implied.
 
 Publishable source and deployment package for the locally accepted Qwen3.8

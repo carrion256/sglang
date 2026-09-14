@@ -3,7 +3,7 @@
   "base_main_commit": "de9abbe3d10c0510ac7eba898fcf721b6a73a41d",
   "predecessor_profile": "responses-compat",
   "patch": "0017-responses-phase-order.patch",
-  "patch_sha256": "194a4d818cbf1484565a7c52f31480476046d21d4fd6488c4afdb27c8fc5e7e2",
+  "patch_sha256": "2a4df18aaf0f1d15207ea2eed70f60bdb75a4bfcaa3c053a89ad33b859e27057",
   "files": {
     "python/sglang/srt/entrypoints/openai/protocol.py": {
       "before": "fbc60d3206612f408d93f786b18446ab96c258ff60bf1f1c4cf0e36e3c88eca1",
@@ -11,17 +11,96 @@
     },
     "python/sglang/srt/entrypoints/openai/serving_responses.py": {
       "before": "d46f648b557db07a430869471fcf4d7a898d50f99e495efd5eb01911c428f215",
-      "after": "a0862c742ff1d8586808c4cbf077e8897d26b2497e0088af44f0f59868908748"
+      "after": "e65084c831bb3755bcef6a3288587582c065538857b58d09c8d2c2bc3ecf696c"
     }
   },
   "source_files_before": 4392,
   "source_files_after": 4392,
   "inventory": "responses-phase-order-runtime-files.json",
-  "inventory_sha256": "c0fa153a33b23a25e7b97ec432c518afb7b49dc8391f971138afda14f30c9759",
+  "inventory_sha256": "1fc662bc6553af87a0b79f2857c910de02b8aaebb0f96fd6ac11674657dbb903",
   "scope": [
     "Responses message phase serialization",
-    "Qwen reasoning, text, and tool replay ordering",
-    "Qwen streaming markup boundary ordering",
-    "Qwen nonstream ordered-item parity with streaming"
-  ]
+    "Qwen3.8 Flash-Next reasoning, text, and tool replay ordering",
+    "Recognized Qwen structural-marker boundary ordering",
+    "Typed Qwen nonstream ordered-item construction with usage and logprobs preservation",
+    "qwen4_exp negative control"
+  ],
+  "tdd_evidence": {
+    "reviewed_head": "ed43202a522bc2a09eb08ebdc89705afc355030e",
+    "red_commit": "df22281b6d35fc04f802a9384b22297c0857c8cd",
+    "red": {
+      "manifest": "pr5-merge-gate-red.json",
+      "manifest_sha256": "ec0a6619b786aec7b2564f800b99d9eea1e710b9a376ba36aa736cf90051293a",
+      "log": "pr5-merge-gate-red.log",
+      "log_sha256": "334ded3fd795f667a6399d96ba80adbee07f968564e9dc898dd9e691dddcf1ab",
+      "tests_run": 65,
+      "expected_failures": 4
+    },
+    "green": {
+      "manifest": "pr5-merge-gate-green.json",
+      "manifest_sha256": "5b57022d1f555a855ee77d6afaa4c24f5e7a7e338571bd3ba0cb603006cf098a",
+      "suite_counts": [
+        75,
+        14,
+        81
+      ],
+      "failures": 0,
+      "targeted_tests": 2,
+      "suite_executions_total": 170
+    },
+    "followup_red": {
+      "commit": "6968c13f44b251feb86bd7d179d3b483ed434a49",
+      "manifest": "pr5-followup-red.json",
+      "manifest_sha256": "a0bc67f750e0cf9bff31a90fcaa0d3151f17933e08745603daa1ea0f99f5069f",
+      "log": "pr5-followup-red.log",
+      "log_sha256": "cdc9d5bf5ad163b9f2c869936258e1b97f418a838a36cde30f56c1cde7b75e17",
+      "test_methods_run": 69,
+      "failing_subtests": 18
+    },
+    "followup2_red": {
+      "commit": "76f04a2d6a5b82a9ffd7cb1e101a022cff790545",
+      "manifest": "pr5-followup2-red.json",
+      "manifest_sha256": "c1186ce38b47a48faa7dfd0e1c0abd52e0bfd29e9687a8277f5bf65bd64e208e",
+      "log": "pr5-followup2-red.log",
+      "log_sha256": "a10bc67cb2203c425b5e260d20b7f6b96d018300360408babf3235fb745a6a74",
+      "test_methods_run": 2,
+      "failing_subtests": 3
+    },
+    "followup3_red": {
+      "commit": "1cdf3838b38089fbcf3884662a6b30d2de6c9627",
+      "manifest": "pr5-followup3-red.json",
+      "manifest_sha256": "0ff207cda0182a1f020c9975d504322b2e099c027332fda72469555da7bf081d",
+      "log": "pr5-followup3-red.log",
+      "log_sha256": "f17a5afcb1b675f2691bf9dbe2e18c465af78416d3ca4e53d0c583c6cb1a8dfa",
+      "test_methods_run": 1,
+      "failing_subtests": 4
+    },
+    "followup4_red": {
+      "commit": "7fe50de3595dad2a6425f54c23f59cb46e8db409",
+      "manifest": "pr5-followup4-red.json",
+      "manifest_sha256": "744bbe990580c7c5faf736b01c2e6704c345ca7508d17d80c176ca84cb299356",
+      "log": "pr5-followup4-red.log",
+      "log_sha256": "bdde78b1e45273d083fb14148bf180536816815c583d5a39ae31f17e96b073be",
+      "test_methods_run": 2,
+      "failing_subtests": 5
+    },
+    "followup5_red": {
+      "commit": "8b33799e4b21ef54c8a39250b692cd3a60b3c44b",
+      "manifest": "pr5-followup5-red.json",
+      "manifest_sha256": "e4e6541d1fe35cc74e1bf86ac4331b3d64db92b7997ed54412fa59e08377cbce",
+      "log": "pr5-followup5-red.log",
+      "log_sha256": "9e9774959574a801f33723dacb6a3328c42fce90afec54483a329c795c3f6504",
+      "test_methods_run": 1,
+      "failing_subtests": 4
+    },
+    "followup6_red": {
+      "commit": "a42cf78b1e16642b0baaba276d5bde2a0bae8238",
+      "manifest": "pr5-followup6-red.json",
+      "manifest_sha256": "a6462211dba15a969afec8cefe33844b35de816300c0ea621c9ee043b67bd43b",
+      "log": "pr5-followup6-red.log",
+      "log_sha256": "9cd9dd70b7642de394f52d763d6397eb053d521423128937c5e4546af555b703",
+      "test_methods_run": 2,
+      "failing_subtests": 3
+    }
+  }
 }

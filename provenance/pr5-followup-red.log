@@ -191,12 +191,12 @@ test_qwen_nonstream_preserves_renewed_reasoning_order (__main__.MockHTTPTest.tes
 test_qwen_nonstream_preserves_text_tool_text_order (__main__.MockHTTPTest.test_qwen_nonstream_preserves_text_tool_text_order) ... ok
 test_qwen_ordered_nonstream_preserves_requested_logprobs (__main__.MockHTTPTest.test_qwen_ordered_nonstream_preserves_requested_logprobs) ... ok
 test_qwen_ordered_nonstream_preserves_usage_details (__main__.MockHTTPTest.test_qwen_ordered_nonstream_preserves_usage_details) ... ok
-test_qwen_second_reasoning_block_preserves_order (__main__.MockHTTPTest.test_qwen_second_reasoning_block_preserves_order) ... 
+test_qwen_second_reasoning_block_preserves_order (__main__.MockHTTPTest.test_qwen_second_reasoning_block_preserves_order) ...
   test_qwen_second_reasoning_block_preserves_order (__main__.MockHTTPTest.test_qwen_second_reasoning_block_preserves_order) (stream=False) ... FAIL
   test_qwen_second_reasoning_block_preserves_order (__main__.MockHTTPTest.test_qwen_second_reasoning_block_preserves_order) (stream=True) ... FAIL
 test_qwen_stream_has_no_generic_angle_boundary_split (__main__.MockHTTPTest.test_qwen_stream_has_no_generic_angle_boundary_split) ... ok
 test_qwen_stream_preserves_renewed_reasoning_order (__main__.MockHTTPTest.test_qwen_stream_preserves_renewed_reasoning_order) ... ok
-test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) ... 
+test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) ...
   test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=10) ... FAIL
   test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=11) ... FAIL
   test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=12) ... FAIL
@@ -210,10 +210,10 @@ test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPT
   test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=14) ... FAIL
   test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=15) ... FAIL
 test_qwen_stream_preserves_text_tool_text_order_for_any_chunking (__main__.MockHTTPTest.test_qwen_stream_preserves_text_tool_text_order_for_any_chunking) ... ok
-test_qwen_tool_then_renewed_reasoning_preserves_order (__main__.MockHTTPTest.test_qwen_tool_then_renewed_reasoning_preserves_order) ... 
+test_qwen_tool_then_renewed_reasoning_preserves_order (__main__.MockHTTPTest.test_qwen_tool_then_renewed_reasoning_preserves_order) ...
   test_qwen_tool_then_renewed_reasoning_preserves_order (__main__.MockHTTPTest.test_qwen_tool_then_renewed_reasoning_preserves_order) (stream=False) ... FAIL
   test_qwen_tool_then_renewed_reasoning_preserves_order (__main__.MockHTTPTest.test_qwen_tool_then_renewed_reasoning_preserves_order) (stream=True) ... FAIL
-test_required_json_marker_like_values_remain_data (__main__.MockHTTPTest.test_required_json_marker_like_values_remain_data) ... 
+test_required_json_marker_like_values_remain_data (__main__.MockHTTPTest.test_required_json_marker_like_values_remain_data) ...
   test_required_json_marker_like_values_remain_data (__main__.MockHTTPTest.test_required_json_marker_like_values_remain_data) (generated_name='inspect') ... FAIL
   test_required_json_marker_like_values_remain_data (__main__.MockHTTPTest.test_required_json_marker_like_values_remain_data) (generated_name='patch') ... FAIL
 test_text_streams_before_phase_is_resolved (__main__.MockHTTPTest.test_text_streams_before_phase_is_resolved) ... ok

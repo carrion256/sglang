@@ -1,0 +1,278 @@
+{"profile": "responses-phase-order-candidate", "source_files": 4392, "full_tree_verified": false}
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/awq/awq.py:52: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+W0914 13:15:37.481000 7 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+test_direct_renderer_policy_unchanged (runtime_chat_effort.ChatEffortTest.test_direct_renderer_policy_unchanged) ... ok
+test_effort_matrix_and_no_cross_request_leak (runtime_chat_effort.ChatEffortTest.test_effort_matrix_and_no_cross_request_leak) ... ok
+test_invalid_effort_rejected_in_both_forms (runtime_chat_effort.ChatEffortTest.test_invalid_effort_rejected_in_both_forms) ... ok
+test_top_level_xhigh_reaches_real_tokenizer (runtime_chat_effort.ChatEffortTest.test_top_level_xhigh_reaches_real_tokenizer) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py:1039: DeprecationWarning: max_tokens is deprecated in favor of the max_completion_tokens field
+  "max_new_tokens": self.max_completion_tokens or self.max_tokens,
+ok
+test_background_requires_storage (__main__.MockHTTPTest.test_background_requires_storage) ... /usr/local/lib/python3.12/dist-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:337: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(str(error))
+ok
+test_direct_flat_result_retains_typed_api (__main__.MockHTTPTest.test_direct_flat_result_retains_typed_api) ... ok
+test_empty_reasoning_implicit_tool_close_allows_renewal (__main__.MockHTTPTest.test_empty_reasoning_implicit_tool_close_allows_renewal) ... ok
+test_failed_and_disconnected_stream_preserves_stored_identity (__main__.MockHTTPTest.test_failed_and_disconnected_stream_preserves_stored_identity) ... ok
+test_fix2_custom_delimiter_limit_and_json_alternative (__main__.MockHTTPTest.test_fix2_custom_delimiter_limit_and_json_alternative) ... Parsed parameter 'other' is not defined in the tool parameters for tool 'patch', directly returning the string value.
+/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:690: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(str(e))
+Parsed parameter 'other' is not defined in the tool parameters for tool 'patch', directly returning the string value.
+ok
+test_fix2_custom_history_rejects_embedded_function_after_gap (__main__.MockHTTPTest.test_fix2_custom_history_rejects_embedded_function_after_gap) ... ok
+test_fix2_embedded_flat_and_history (__main__.MockHTTPTest.test_fix2_embedded_flat_and_history) ... ok
+test_fix2_embedded_identity_rejection (__main__.MockHTTPTest.test_fix2_embedded_identity_rejection) ... ok
+test_fix2_embedded_supported_and_custom_distinctions (__main__.MockHTTPTest.test_fix2_embedded_supported_and_custom_distinctions) ... ok
+test_fix2_selected_single_required_multiple (__main__.MockHTTPTest.test_fix2_selected_single_required_multiple) ... ok
+test_fix2_terminal_cardinality (__main__.MockHTTPTest.test_fix2_terminal_cardinality) ... ok
+test_fix2_unsupported_embedded_forms (__main__.MockHTTPTest.test_fix2_unsupported_embedded_forms) ... ok
+test_fix3_malformed_success_remains_rejected (__main__.MockHTTPTest.test_fix3_malformed_success_remains_rejected) ... ok
+test_fix3_native_auto_terminal_text (__main__.MockHTTPTest.test_fix3_native_auto_terminal_text) ... ok
+test_fix3_partial_no_store (__main__.MockHTTPTest.test_fix3_partial_no_store) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:1945: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(
+ok
+test_fix3_partial_terminal_matrix (__main__.MockHTTPTest.test_fix3_partial_terminal_matrix) ... ok
+test_fix3_terminal_text_and_no_store (__main__.MockHTTPTest.test_fix3_terminal_text_and_no_store) ... ok
+test_fixer_conflicting_forced_representations_before_generation (__main__.MockHTTPTest.test_fixer_conflicting_forced_representations_before_generation) ... ok
+test_fixer_descriptions_reach_rendered_prompt (__main__.MockHTTPTest.test_fixer_descriptions_reach_rendered_prompt) ... ok
+test_fixer_generated_history_survives_output_only_and_multiple_turns (__main__.MockHTTPTest.test_fixer_generated_history_survives_output_only_and_multiple_turns) ... ok
+test_fixer_image_history_survives_no_declaration_gaps (__main__.MockHTTPTest.test_fixer_image_history_survives_no_declaration_gaps) ... ok
+test_fixer_pinned_sdk_client_terminal_roundtrip (__main__.MockHTTPTest.test_fixer_pinned_sdk_client_terminal_roundtrip) ... /usr/local/lib/python3.12/dist-packages/pydantic/main.py:542: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `literal['function']` - serialized value may not be as expected [field_name='type', input_value='namespace', input_type=str])
+  PydanticSerializationUnexpectedValue(Expected `FileSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ComputerTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `Mcp` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CodeInterpreter` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ImageGeneration` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `LocalShell` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CustomTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchPreviewTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  return self.__pydantic_serializer__.to_json(
+/usr/local/lib/python3.12/dist-packages/pydantic/main.py:542: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `literal['function']` - serialized value may not be as expected [field_name='type', input_value='namespace', input_type=str])
+  PydanticSerializationUnexpectedValue(Expected `FileSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ComputerTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `Mcp` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CodeInterpreter` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ImageGeneration` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `LocalShell` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CustomTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchPreviewTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  return self.__pydantic_serializer__.to_json(
+/usr/local/lib/python3.12/dist-packages/pydantic/main.py:542: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `literal['function']` - serialized value may not be as expected [field_name='type', input_value='namespace', input_type=str])
+  PydanticSerializationUnexpectedValue(Expected `FileSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ComputerTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `Mcp` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CodeInterpreter` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ImageGeneration` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `LocalShell` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CustomTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchPreviewTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  return self.__pydantic_serializer__.to_json(
+ok
+test_fixer_pinned_sdk_output_and_event_roundtrip_replay (__main__.MockHTTPTest.test_fixer_pinned_sdk_output_and_event_roundtrip_replay) ... ok
+test_fixer_whole_history_collision_parity (__main__.MockHTTPTest.test_fixer_whole_history_collision_parity) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:337: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(str(error))
+ok
+test_implicit_tool_close_allows_renewed_reasoning (__main__.MockHTTPTest.test_implicit_tool_close_allows_renewed_reasoning) ... ok
+test_mock_http_custom_literal_angles_preserve_order_and_payload (__main__.MockHTTPTest.test_mock_http_custom_literal_angles_preserve_order_and_payload) ... ok
+test_mock_http_custom_native_empty_and_escaped (__main__.MockHTTPTest.test_mock_http_custom_native_empty_and_escaped) ... ok
+test_mock_http_custom_raw_and_stateless_replay (__main__.MockHTTPTest.test_mock_http_custom_raw_and_stateless_replay) ... ok
+test_mock_http_flat_history_without_active_tools (__main__.MockHTTPTest.test_mock_http_flat_history_without_active_tools) ... ok
+test_mock_http_flat_regression (__main__.MockHTTPTest.test_mock_http_flat_regression) ... ok
+test_mock_http_forced_choice_cannot_emit_other_declared_tool (__main__.MockHTTPTest.test_mock_http_forced_choice_cannot_emit_other_declared_tool) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:690: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(str(e))
+Error while streaming /v1/responses
+Traceback (most recent call last):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 3063, in responses_stream_generator_non_harmony
+    for ev in _emit_tool_calls(opening):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2954, in _emit_tool_calls
+    request._compat_registry.output_identity(state["name"])
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 121, in output_identity
+    raise ValueError("Generated tool call does not match forced tool choice")
+ValueError: Generated tool call does not match forced tool choice
+ok
+test_mock_http_json_schema_and_explicit_nulls (__main__.MockHTTPTest.test_mock_http_json_schema_and_explicit_nulls) ... ok
+test_mock_http_multimodal_tool_result_and_alias_provenance (__main__.MockHTTPTest.test_mock_http_multimodal_tool_result_and_alias_provenance) ... ok
+test_mock_http_namespace_nonstream_and_stateful_replay (__main__.MockHTTPTest.test_mock_http_namespace_nonstream_and_stateful_replay) ... ok
+test_mock_http_namespace_sse_lifecycle (__main__.MockHTTPTest.test_mock_http_namespace_sse_lifecycle) ... ok
+test_mock_http_native_auto_and_required (__main__.MockHTTPTest.test_mock_http_native_auto_and_required) ... ok
+test_mock_http_native_unknown_fails_closed (__main__.MockHTTPTest.test_mock_http_native_unknown_fails_closed) ... Tool 'workspace.NOT_DECLARED' is not defined in the tools list.
+Error while streaming /v1/responses
+Traceback (most recent call last):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 3063, in responses_stream_generator_non_harmony
+    for ev in _emit_tool_calls(opening):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2954, in _emit_tool_calls
+    request._compat_registry.output_identity(state["name"])
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 122, in output_identity
+    return self.identity(qualified)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 116, in identity
+    raise ValueError(f"Unknown generated tool identity: {qualified}")
+ValueError: Unknown generated tool identity: workspace.NOT_DECLARED
+ok
+test_mock_http_parallel_dotted_and_duplicate_local_names (__main__.MockHTTPTest.test_mock_http_parallel_dotted_and_duplicate_local_names) ... ok
+test_mock_http_rejected_call_cannot_be_replayed_from_store (__main__.MockHTTPTest.test_mock_http_rejected_call_cannot_be_replayed_from_store) ... Tool 'workspace.NOT_DECLARED' is not defined in the tools list.
+/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:1945: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(
+ok
+test_mock_http_rejects_unknown_and_forced_invalid (__main__.MockHTTPTest.test_mock_http_rejects_unknown_and_forced_invalid) ... ok
+test_mock_http_replay_cannot_forge_flat_dotted_identity (__main__.MockHTTPTest.test_mock_http_replay_cannot_forge_flat_dotted_identity) ... ok
+test_mock_http_request_provenance_and_unrelated_model (__main__.MockHTTPTest.test_mock_http_request_provenance_and_unrelated_model) ... ok
+test_native_tool_implicitly_closes_open_reasoning (__main__.MockHTTPTest.test_native_tool_implicitly_closes_open_reasoning) ... ok
+test_native_tool_payload_markers_after_reasoning_remain_data (__main__.MockHTTPTest.test_native_tool_payload_markers_after_reasoning_remain_data) ... ok
+test_nonstream_message_phase_matches_remaining_tool_calls (__main__.MockHTTPTest.test_nonstream_message_phase_matches_remaining_tool_calls) ... ok
+test_qwen4_exp_is_negative_control_for_ordered_nonstream (__main__.MockHTTPTest.test_qwen4_exp_is_negative_control_for_ordered_nonstream) ... ok
+test_qwen4_stream_reasoning_is_chunking_negative_control (__main__.MockHTTPTest.test_qwen4_stream_reasoning_is_chunking_negative_control) ... ok
+test_qwen_adjacent_reasoning_blocks_remain_distinct (__main__.MockHTTPTest.test_qwen_adjacent_reasoning_blocks_remain_distinct) ... ok
+test_qwen_literal_angle_brackets_survive_text_tool_text (__main__.MockHTTPTest.test_qwen_literal_angle_brackets_survive_text_tool_text) ... ok
+test_qwen_nonstream_preserves_renewed_reasoning_order (__main__.MockHTTPTest.test_qwen_nonstream_preserves_renewed_reasoning_order) ... ok
+test_qwen_nonstream_preserves_text_tool_text_order (__main__.MockHTTPTest.test_qwen_nonstream_preserves_text_tool_text_order) ... ok
+test_qwen_ordered_nonstream_preserves_requested_logprobs (__main__.MockHTTPTest.test_qwen_ordered_nonstream_preserves_requested_logprobs) ... ok
+test_qwen_ordered_nonstream_preserves_usage_details (__main__.MockHTTPTest.test_qwen_ordered_nonstream_preserves_usage_details) ... ok
+test_qwen_second_reasoning_block_preserves_order (__main__.MockHTTPTest.test_qwen_second_reasoning_block_preserves_order) ... ok
+test_qwen_stream_has_no_generic_angle_boundary_split (__main__.MockHTTPTest.test_qwen_stream_has_no_generic_angle_boundary_split) ... ok
+test_qwen_stream_preserves_renewed_reasoning_order (__main__.MockHTTPTest.test_qwen_stream_preserves_renewed_reasoning_order) ... ok
+test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) ... ok
+test_qwen_stream_preserves_text_tool_text_order_for_any_chunking (__main__.MockHTTPTest.test_qwen_stream_preserves_text_tool_text_order_for_any_chunking) ... ok
+test_qwen_tool_then_renewed_reasoning_preserves_order (__main__.MockHTTPTest.test_qwen_tool_then_renewed_reasoning_preserves_order) ... ok
+test_required_json_marker_like_values_remain_data (__main__.MockHTTPTest.test_required_json_marker_like_values_remain_data) ... ok
+test_text_streams_before_phase_is_resolved (__main__.MockHTTPTest.test_text_streams_before_phase_is_resolved) ... ok
+test_collisions_and_malformed_members (__main__.ResponsesCompatTest.test_collisions_and_malformed_members) ... ok
+test_custom_declaration_reaches_chat (__main__.ResponsesCompatTest.test_custom_declaration_reaches_chat) ... ok
+test_custom_grammar_visible (__main__.ResponsesCompatTest.test_custom_grammar_visible) ... ok
+test_harmony_same_request_call_replay (__main__.ResponsesCompatTest.test_harmony_same_request_call_replay) ... ok
+test_image_result_preserved (__main__.ResponsesCompatTest.test_image_result_preserved) ... ok
+test_message_phase_survives_response_models (__main__.ResponsesCompatTest.test_message_phase_survives_response_models) ... ok
+test_namespace_declaration_reaches_chat (__main__.ResponsesCompatTest.test_namespace_declaration_reaches_chat) ... ok
+test_qualified_replay (__main__.ResponsesCompatTest.test_qualified_replay) ... ok
+test_qwen_replay_preserves_assistant_stage_order (__main__.ResponsesCompatTest.test_qwen_replay_preserves_assistant_stage_order) ... ok
+test_stored_response_replays_reasoning_phase_and_call_together (__main__.ResponsesCompatTest.test_stored_response_replays_reasoning_phase_and_call_together) ... ok
+
+----------------------------------------------------------------------
+Ran 75 tests in 5.161s
+
+OK
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/awq/awq.py:52: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+W0914 13:15:49.667000 1488 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+test_direct_renderer_policy_unchanged (runtime_chat_effort.ChatEffortTest.test_direct_renderer_policy_unchanged) ... ok
+test_effort_matrix_and_no_cross_request_leak (runtime_chat_effort.ChatEffortTest.test_effort_matrix_and_no_cross_request_leak) ... ok
+test_invalid_effort_rejected_in_both_forms (runtime_chat_effort.ChatEffortTest.test_invalid_effort_rejected_in_both_forms) ... ok
+test_top_level_xhigh_reaches_real_tokenizer (runtime_chat_effort.ChatEffortTest.test_top_level_xhigh_reaches_real_tokenizer) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py:1039: DeprecationWarning: max_tokens is deprecated in favor of the max_completion_tokens field
+  "max_new_tokens": self.max_completion_tokens or self.max_tokens,
+ok
+test_anthropic_messages_effort_uses_shared_aliases (__main__.QwenAliasTest.test_anthropic_messages_effort_uses_shared_aliases) ... ok
+test_chat_alias_tokens_and_literal_provenance (__main__.QwenAliasTest.test_chat_alias_tokens_and_literal_provenance) ... ok
+test_invalid_values_still_fail (__main__.QwenAliasTest.test_invalid_values_still_fail) ... ok
+test_processing_special_token_state_survives_render_copy (__main__.QwenAliasTest.test_processing_special_token_state_survives_render_copy) ... ok
+test_responses_real_conversion_and_literal_effort (__main__.QwenAliasTest.test_responses_real_conversion_and_literal_effort) ... ok
+test_server_default_and_absence_semantics (__main__.QwenAliasTest.test_server_default_and_absence_semantics) ... ok
+test_supported_values_precedence_null_and_no_leak (__main__.QwenAliasTest.test_supported_values_precedence_null_and_no_leak) ... ok
+test_tokenize_and_multimodal_render_paths (__main__.QwenAliasTest.test_tokenize_and_multimodal_render_paths) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py:875: DeprecationWarning: max_tokens is deprecated in favor of the max_completion_tokens field
+  max_output_tokens = request.max_completion_tokens or request.max_tokens
+ok
+test_tokenize_precedence_null_and_provenance (__main__.QwenAliasTest.test_tokenize_precedence_null_and_provenance) ... ok
+test_unrelated_model_native_efforts_are_not_aliased (__main__.QwenAliasTest.test_unrelated_model_native_efforts_are_not_aliased) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 2.570s
+
+OK
+{"clean_patch_apply": true, "verified_changed_paths": 36, "syntax_checked_python_files": 36}
+test_baseline_compares_only_named_numeric_values (test_diagnostics.DiagnosticsTests.test_baseline_compares_only_named_numeric_values) ... ok
+test_baseline_hundreds_digit_integer_is_unavailable (test_diagnostics.DiagnosticsTests.test_baseline_hundreds_digit_integer_is_unavailable) ... ok
+test_baseline_tiny_positive_value_percentage_is_unavailable (test_diagnostics.DiagnosticsTests.test_baseline_tiny_positive_value_percentage_is_unavailable) ... ok
+test_bounded_local_reads_and_command_failures_are_sanitized (test_diagnostics.DiagnosticsTests.test_bounded_local_reads_and_command_failures_are_sanitized) ... ok
+test_cgroup_v2_and_v1_limits_and_counters_without_paths (test_diagnostics.DiagnosticsTests.test_cgroup_v2_and_v1_limits_and_counters_without_paths) ... ok
+test_cli_bounds_and_errors_never_echo_sensitive_arguments (test_diagnostics.DiagnosticsTests.test_cli_bounds_and_errors_never_echo_sensitive_arguments) ... ok
+test_container_allowlists_values_digest_effective_args_and_fixed_probe (test_diagnostics.DiagnosticsTests.test_container_allowlists_values_digest_effective_args_and_fixed_probe) ... ok
+test_container_cgroup_counters_are_sampled_without_repeated_exec (test_diagnostics.DiagnosticsTests.test_container_cgroup_counters_are_sampled_without_repeated_exec) ... ok
+test_current_driver_ansi_topology_and_singular_event_tags (test_diagnostics.DiagnosticsTests.test_current_driver_ansi_topology_and_singular_event_tags) ... ok
+test_default_cli_writes_private_reports_without_network_or_docker (test_diagnostics.DiagnosticsTests.test_default_cli_writes_private_reports_without_network_or_docker) ... ok
+test_docker_cgroup_does_not_guess_host_pid_inside_collector_container (test_diagnostics.DiagnosticsTests.test_docker_cgroup_does_not_guess_host_pid_inside_collector_container) ... ok
+test_docker_pid_namespace_requires_visible_peer_and_matching_namespaces (test_diagnostics.DiagnosticsTests.test_docker_pid_namespace_requires_visible_peer_and_matching_namespaces) ... ok
+test_docker_remote_environment_and_default_context_cannot_override_local_socket (test_diagnostics.DiagnosticsTests.test_docker_remote_environment_and_default_context_cannot_override_local_socket) ... ok
+test_endpoint_typed_metrics_drop_nested_secrets_and_duplicate_series (test_diagnostics.DiagnosticsTests.test_endpoint_typed_metrics_drop_nested_secrets_and_duplicate_series) ... ok
+test_gpu_xml_versions_units_and_identifier_redaction (test_diagnostics.DiagnosticsTests.test_gpu_xml_versions_units_and_identifier_redaction) ... ok
+test_host_collection_reads_numeric_topology_pressure_and_counters (test_diagnostics.DiagnosticsTests.test_host_collection_reads_numeric_topology_pressure_and_counters) ... ok
+test_http_opt_in_rejects_credentials_redirects_and_oversize (test_diagnostics.DiagnosticsTests.test_http_opt_in_rejects_credentials_redirects_and_oversize) ... ok
+test_http_parent_allowlists_worker_errors_and_suppresses_launch_errors (test_diagnostics.DiagnosticsTests.test_http_parent_allowlists_worker_errors_and_suppresses_launch_errors) ... ok
+test_http_protocol_errors_never_escape_or_reach_stderr (test_diagnostics.DiagnosticsTests.test_http_protocol_errors_never_escape_or_reach_stderr) ... ok
+test_http_real_malformed_status_has_no_traceback_or_endpoint_output (test_diagnostics.DiagnosticsTests.test_http_real_malformed_status_has_no_traceback_or_endpoint_output) ... ok
+test_http_total_deadline_includes_headers_and_slow_body (test_diagnostics.DiagnosticsTests.test_http_total_deadline_includes_headers_and_slow_body) ... ok
+test_http_total_deadline_kills_and_reaps_stalled_dns_worker (test_diagnostics.DiagnosticsTests.test_http_total_deadline_kills_and_reaps_stalled_dns_worker) ... ok
+test_http_total_deadline_terminates_trickled_headers (test_diagnostics.DiagnosticsTests.test_http_total_deadline_terminates_trickled_headers) ... ok
+test_http_worker_inherits_auth_without_command_line_secrets_and_preserves_metrics (test_diagnostics.DiagnosticsTests.test_http_worker_inherits_auth_without_command_line_secrets_and_preserves_metrics) ... ok
+test_http_worker_is_reaped_even_when_pipe_communication_fails (test_diagnostics.DiagnosticsTests.test_http_worker_is_reaped_even_when_pipe_communication_fails) ... ok
+test_interval_rates_counter_resets_and_yield_are_not_global_iterations (test_diagnostics.DiagnosticsTests.test_interval_rates_counter_resets_and_yield_are_not_global_iterations) ... ok
+test_sampler_executes_existing_load_reads_and_records_actual_intervals (test_diagnostics.DiagnosticsTests.test_sampler_executes_existing_load_reads_and_records_actual_intervals) ... ok
+test_script_entrypoint_executes_as_a_real_local_process (test_diagnostics.DiagnosticsTests.test_script_entrypoint_executes_as_a_real_local_process) ... ok
+test_selected_gpu_collection_filters_topology_and_capabilities (test_diagnostics.DiagnosticsTests.test_selected_gpu_collection_filters_topology_and_capabilities) ... ok
+test_server_info_top_level_settings_are_allowlisted (test_diagnostics.DiagnosticsTests.test_server_info_top_level_settings_are_allowlisted) ... ok
+test_v2_root_missing_limit_files_do_not_hide_child_limits (test_diagnostics.DiagnosticsTests.test_v2_root_missing_limit_files_do_not_hide_child_limits) ... ok
+test_actual_shard_loader_reversed_pairs_late_global_scale (test_integration.IntegrationTests.test_actual_shard_loader_reversed_pairs_late_global_scale) ... ok
+test_gather_normalizes_strided_ids_before_either_kernel (test_integration.IntegrationTests.test_gather_normalizes_strided_ids_before_either_kernel) ... ok
+test_gather_rejects_noncontiguous_output_before_launch (test_integration.IntegrationTests.test_gather_rejects_noncontiguous_output_before_launch) ... ok
+test_loader_finalization_rejects_wrong_configured_shard_count (test_integration.IntegrationTests.test_loader_finalization_rejects_wrong_configured_shard_count) ... ok
+test_opt_in_constructs_only_meta_table_and_keeps_default_unchanged (test_integration.IntegrationTests.test_opt_in_constructs_only_meta_table_and_keeps_default_unchanged) ... ok
+test_packed_loader_rejects_malformed_shards_before_buffering (test_integration.IntegrationTests.test_packed_loader_rejects_malformed_shards_before_buffering) ... ok
+test_packed_loader_requires_complete_tp1_global_layout (test_integration.IntegrationTests.test_packed_loader_requires_complete_tp1_global_layout) ... ok
+test_packed_loader_requires_exactly_128_complete_shard_pairs (test_integration.IntegrationTests.test_packed_loader_requires_exactly_128_complete_shard_pairs) ... ok
+test_pinned_class_constructs_packed_and_gathers_to_prefetch_output (test_integration.IntegrationTests.test_pinned_class_constructs_packed_and_gathers_to_prefetch_output) ... ok
+test_synthetic_128_shard_shapes_pass_source_validation (test_integration.IntegrationTests.test_synthetic_128_shard_shapes_pass_source_validation) ... ok
+test_changed_runtime_hashes_match_manifest (test_packaging.PackagingTests.test_changed_runtime_hashes_match_manifest) ... ok
+test_patch_path_coverage_is_exact (test_packaging.PackagingTests.test_patch_path_coverage_is_exact) ... ok
+test_preimage_drift_is_rejected_before_patching (test_packaging.PackagingTests.test_preimage_drift_is_rejected_before_patching) ... ok
+test_source_drift_is_rejected (test_packaging.PackagingTests.test_source_drift_is_rejected) ... ok
+test_all_finite_positive_e4m3_scales_and_fp8_rounding_ties (test_packed_ple.PackedPLETests.test_all_finite_positive_e4m3_scales_and_fp8_rounding_ties) ... ok
+test_kernel_all_nibbles_group_scales_global_and_row_selection (test_packed_ple.PackedPLETests.test_kernel_all_nibbles_group_scales_global_and_row_selection) ... ok
+test_storage_rejects_changed_destination_bounds (test_packed_ple.PackedPLETests.test_storage_rejects_changed_destination_bounds) ... ok
+test_storage_rejects_invalid_layout_scale_and_incomplete_load (test_packed_ple.PackedPLETests.test_storage_rejects_invalid_layout_scale_and_incomplete_load) ... ok
+test_storage_retains_bytes_copies_overlap_and_preserves_global_scale (test_packed_ple.PackedPLETests.test_storage_retains_bytes_copies_overlap_and_preserves_global_scale) ... ok
+test_synthetic_row_selection_and_optional_fp8_reference (test_packed_ple.PackedPLETests.test_synthetic_row_selection_and_optional_fp8_reference) ... ok
+test_disabled_retains_exact_target (test_private_head.PrivateHeadTests.test_disabled_retains_exact_target) ... ok
+test_private_shell_does_not_mutate_target_registries (test_private_head.PrivateHeadTests.test_private_shell_does_not_mutate_target_registries) ... ok
+test_actual_mtp_method_preserves_tied_path_and_uses_private_for_untied (test_production.ProductionTests.test_actual_mtp_method_preserves_tied_path_and_uses_private_for_untied) ... ok
+test_external_command_exact_tokens_and_environment (test_production.ProductionTests.test_external_command_exact_tokens_and_environment) ... ok
+test_invalid_gate_rejected_and_default_shared (test_production.ProductionTests.test_invalid_gate_rejected_and_default_shared) ... ok
+test_only_hf_path_correction_differs_between_profiles (test_production.ProductionTests.test_only_hf_path_correction_differs_between_profiles) ... ok
+test_production_clean_reconstruction (test_production.ProductionTests.test_production_clean_reconstruction) ... ok
+test_builds_do_not_package_defaults_launchers (test_quickstart.QuickstartTests.test_builds_do_not_package_defaults_launchers) ... ok
+test_external_profile_matches_deployed_settings (test_quickstart.QuickstartTests.test_external_profile_matches_deployed_settings) ... ok
+test_all_five_mounted_sources_fail_on_drift (test_responses_packaging.ResponsesPackagingTest.test_all_five_mounted_sources_fail_on_drift) ... ok
+test_full_manifest_chain_and_new_file_count (test_responses_packaging.ResponsesPackagingTest.test_full_manifest_chain_and_new_file_count) ... ok
+test_packaged_source_drift_fails_closed (test_responses_packaging.ResponsesPackagingTest.test_packaged_source_drift_fails_closed) ... ok
+test_patch_drift_fails_closed (test_responses_packaging.ResponsesPackagingTest.test_patch_drift_fails_closed) ... ok
+test_both_ranks_64_local_128_global_and_padding (test_tp2.TP2Tests.test_both_ranks_64_local_128_global_and_padding) ... ok
+test_constructor_allocates_only_local_padded_bytes (test_tp2.TP2Tests.test_constructor_allocates_only_local_padded_bytes) ... ok
+test_crossing_shard_simulated_sum_matches_tp1_and_reference (test_tp2.TP2Tests.test_crossing_shard_simulated_sum_matches_tp1_and_reference) ... ok
+test_duplicate_completed_offrank_tensor_rejected_immediately (test_tp2.TP2Tests.test_duplicate_completed_offrank_tensor_rejected_immediately) ... ok
+test_malformed_source_identifiers_are_not_silently_ignored (test_tp2.TP2Tests.test_malformed_source_identifiers_are_not_silently_ignored) ... ok
+test_missing_half_and_duplicate_pending_offrank_rejected (test_tp2.TP2Tests.test_missing_half_and_duplicate_pending_offrank_rejected) ... ok
+test_missing_nonintersecting_pair_fails_global_finalization (test_tp2.TP2Tests.test_missing_nonintersecting_pair_fails_global_finalization) ... ok
+test_offrank_malformed_dtype_rejected_before_buffering (test_tp2.TP2Tests.test_offrank_malformed_dtype_rejected_before_buffering) ... ok
+test_offrank_shapes_scales_and_partition_boundaries_fail_closed (test_tp2.TP2Tests.test_offrank_shapes_scales_and_partition_boundaries_fail_closed) ... ok
+test_pending_offrank_has_no_payload_and_local_budget_fails_closed (test_tp2.TP2Tests.test_pending_offrank_has_no_payload_and_local_budget_fails_closed) ... ok
+test_synthetic_metadata_both_ranks_without_payload_allocation (test_tp2.TP2Tests.test_synthetic_metadata_both_ranks_without_payload_allocation) ... ok
+test_trailing_newline_shards_rejected_before_local_or_offrank_loading (test_tp2.TP2Tests.test_trailing_newline_shards_rejected_before_local_or_offrank_loading) ... ok
+test_normal_and_prefetch_reduce_exactly_once_or_reject_scattered (test_tp2_collectives.CollectiveSeamTests.test_normal_and_prefetch_reduce_exactly_once_or_reject_scattered) ... ok
+test_fc1_padding_preserves_weights_scales_and_slices_before_bias (test_vision_cpu.VisionTests.test_fc1_padding_preserves_weights_scales_and_slices_before_bias) ... ok
+test_fc1_rejects_wrong_group_layout (test_vision_cpu.VisionTests.test_fc1_rejects_wrong_group_layout) ... ok
+test_fc2_rejects_unproven_output_padding (test_vision_cpu.VisionTests.test_fc2_rejects_unproven_output_padding) ... ok
+test_fc2_restores_logical_order_and_handles_no_bias (test_vision_cpu.VisionTests.test_fc2_restores_logical_order_and_handles_no_bias) ... ok
+
+----------------------------------------------------------------------
+Ran 81 tests in 5.578s
+
+OK

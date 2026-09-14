@@ -18,6 +18,6 @@
   ],
   "sha256": {
     "tests/runtime_responses_compat.py": "b019131ac8415e095187dd5dacf8cb93e31eb56fd33e95b7b02948f96fa1edc2",
-    "provenance/pr5-followup-red.log": "13118c0772f76d711eb6fd6f7ee44f124ebc65ea8a7ce892f01412188a861495"
+    "provenance/pr5-followup-red.log": "cdc9d5bf5ad163b9f2c869936258e1b97f418a838a36cde30f56c1cde7b75e17"
   }
 }

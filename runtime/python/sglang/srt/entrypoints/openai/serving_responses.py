@@ -143,6 +143,67 @@ def _should_emit_normal_text_as_message(
     return True
 
 
+_QWEN_STRUCTURAL_MARKER_RE = re.compile(
+    r"(<think>|</think>|<tool_call>|</tool_call>|"
+    r"<function=[^<>\r\n]+>|</function>|"
+    r"<parameter=[^<>\r\n]+>|</parameter>)"
+)
+_QWEN_FIXED_STRUCTURAL_MARKERS = (
+    "<think>",
+    "</think>",
+    "<tool_call>",
+    "</tool_call>",
+    "</function>",
+    "</parameter>",
+)
+_QWEN_DYNAMIC_STRUCTURAL_PREFIXES = ("<function=", "<parameter=")
+
+
+def _is_qwen_structural_marker_prefix(text: str) -> bool:
+    if any(marker.startswith(text) for marker in _QWEN_FIXED_STRUCTURAL_MARKERS):
+        return True
+    return any(
+        prefix.startswith(text)
+        or (text.startswith(prefix) and not re.search(r"[<>\r\n]", text[1:]))
+        for prefix in _QWEN_DYNAMIC_STRUCTURAL_PREFIXES
+    )
+
+
+class _QwenStructuralMarkerBuffer:
+    """Keep only possible split control markers between engine chunks."""
+
+    def __init__(self) -> None:
+        self.pending = ""
+
+    def feed(self, text: str, *, final: bool) -> list[str]:
+        text = self.pending + text
+        self.pending = ""
+        parts: list[str] = []
+        cursor = 0
+        for match in _QWEN_STRUCTURAL_MARKER_RE.finditer(text):
+            if match.start() > cursor:
+                parts.append(text[cursor : match.start()])
+            parts.append(match.group(0))
+            cursor = match.end()
+
+        remainder = text[cursor:]
+        if not final:
+            candidate_start = remainder.rfind("<")
+            if candidate_start >= 0 and _is_qwen_structural_marker_prefix(
+                remainder[candidate_start:]
+            ):
+                self.pending = remainder[candidate_start:]
+                remainder = remainder[:candidate_start]
+        if remainder:
+            parts.append(remainder)
+        return parts or ([""] if final else [])
+
+
+def _split_qwen_structural_markers(text: str) -> list[str]:
+    """Split only Qwen parser control markers, not arbitrary angle brackets."""
+    return _QwenStructuralMarkerBuffer().feed(text, final=True)
+
+
 class OpenAIServingResponses(OpenAIServingChat):
     """Handler for /v1/responses requests"""
 
@@ -742,54 +803,54 @@ class OpenAIServingResponses(OpenAIServingChat):
 
             final_text = final_res["text"]
             model_type = self.tokenizer_manager.model_config.hf_config.model_type
-            leading_text, think_marker, _ = final_text.partition("<think>")
+            leading_text, think_marker, trailing_text = final_text.partition("<think>")
+            requires_tool_output = request.tool_choice == "required" or isinstance(
+                request.tool_choice, dict
+            )
+            ordered_tool_boundary = (
+                self.tool_call_parser == "qwen3_coder"
+                and request.tool_choice != "none"
+                and re.search(
+                    r"</function>\s*</tool_call>\s*\S", final_text, re.DOTALL
+                )
+            )
+            ordered_reasoning_boundary = (
+                self.reasoning_parser in {"qwen3", "qwen3-thinking"}
+                and not (
+                    requires_tool_output and self.tool_call_parser != "qwen3_coder"
+                )
+                and think_marker
+                and (leading_text.strip() or "<think>" in trailing_text)
+            )
             needs_ordered_qwen_parse = (
                 status == "completed"
                 and model_type
-                in {"qwen3_8_flash_next", "qwen3_8_flash_next_text", "qwen4_exp"}
-                and (
-                    re.search(
-                        r"</function>\s*</tool_call>\s*\S", final_text, re.DOTALL
-                    )
-                    or (think_marker and leading_text.strip())
-                )
+                in {"qwen3_8_flash_next", "qwen3_8_flash_next_text"}
+                and (ordered_tool_boundary or ordered_reasoning_boundary)
             )
-            if needs_ordered_qwen_parse:
-                async def final_result():
-                    yield final_res
-
-                terminal_response = None
-                async for frame in self.responses_stream_generator_non_harmony(
-                    request,
-                    sampling_params,
-                    final_result(),
-                    model_name,
-                    tokenizer,
-                    request_metadata,
-                    created_time=created_time,
-                    require_reasoning=require_reasoning,
-                ):
-                    event = json.loads(frame.split("data: ", 1)[1])
-                    if event.get("type") == "response.completed":
-                        terminal_response = event["response"]
-                if terminal_response is None:
-                    raise ValueError("Ordered Qwen output did not complete")
-                terminal_response["tools"] = request.model_dump()["tools"]
-                return ResponsesResponse.model_validate(terminal_response)
-
             output_logprobs = (
                 _build_output_text_logprobs(meta_info)
                 if request.is_include_output_logprobs() and isinstance(meta_info, dict)
                 else None
             )
-            output = self._make_response_output_items(
-                request,
-                final_res["text"],
-                tokenizer,
-                output_logprobs=output_logprobs,
-                require_reasoning=require_reasoning,
-                status=status,
-            )
+            if needs_ordered_qwen_parse:
+                output = self._make_qwen_ordered_output_items(
+                    request,
+                    tokenizer,
+                    final_text,
+                    output_logprobs=output_logprobs,
+                    require_reasoning=require_reasoning,
+                    status=status,
+                )
+            else:
+                output = self._make_response_output_items(
+                    request,
+                    final_text,
+                    tokenizer,
+                    output_logprobs=output_logprobs,
+                    require_reasoning=require_reasoning,
+                    status=status,
+                )
 
             if meta_info is not None:
                 num_prompt_tokens = meta_info.get("prompt_tokens", 0)
@@ -930,7 +991,13 @@ class OpenAIServingResponses(OpenAIServingChat):
         status: str = "completed",
     ):
         chat_tools = self._response_tools_to_chat_tools(request)
-        if self.reasoning_parser:
+        is_required = request.tool_choice == "required" or isinstance(
+            request.tool_choice, dict
+        )
+        uses_required_json = (
+            bool(chat_tools) and is_required and self.tool_call_parser is None
+        )
+        if self.reasoning_parser and not uses_required_json:
             reasoning_parser = ReasoningParser(
                 model_type=self.reasoning_parser,
                 stream_reasoning=False,
@@ -978,7 +1045,6 @@ class OpenAIServingResponses(OpenAIServingChat):
             )
             output_items.append(reasoning_item)
 
-        is_required = request.tool_choice == "required" or isinstance(request.tool_choice, dict)
         if status != "completed" and chat_tools and is_required:
             return output_items
         tool_call_items: list[ResponseFunctionToolCall] = []
@@ -1053,6 +1119,253 @@ class OpenAIServingResponses(OpenAIServingChat):
             )
             output_items.append(message)
         output_items.extend(tool_call_items)
+        return output_items
+
+    def _make_qwen_ordered_output_items(
+        self,
+        request: ResponsesRequest,
+        tokenizer: Any,
+        final_output: str,
+        output_logprobs: Optional[list] = None,
+        *,
+        require_reasoning: bool,
+        status: str,
+    ) -> list:
+        """Parse completed Qwen structural markers into typed items in wire order."""
+        chat_tools = self._response_tools_to_chat_tools(request)
+        tool_parser: Optional[FunctionCallParser] = None
+        if chat_tools and self.tool_call_parser and request.tool_choice != "none":
+            tool_parser = FunctionCallParser(
+                chat_tools,
+                self.tool_call_parser,
+                tokenizer=self.tokenizer_manager.tokenizer,
+            )
+            assert tool_parser is not None
+            if hasattr(tool_parser.detector, "preserve_raw_input_tools"):
+                tool_parser.detector.preserve_raw_input_tools = (
+                    request._custom_tool_names
+                )
+
+        def new_reasoning_parser() -> ReasoningParser:
+            return ReasoningParser(
+                model_type=self.reasoning_parser,
+                stream_reasoning=True,
+                force_reasoning=(
+                    self.template_manager.force_reasoning or require_reasoning
+                ),
+                request=request,
+                tokenizer=tokenizer,
+                tool_call_parser_active=tool_parser is not None,
+            )
+
+        reasoning_parser_obj: Optional[ReasoningParser] = (
+            new_reasoning_parser() if self.reasoning_parser else None
+        )
+        reasoning_block_closed = False
+        reasoning_block_started = False
+        inside_tool_call = False
+
+        output_items: list = []
+        message_text = ""
+        message_logprobs: list[Logprob] = []
+        reasoning_text = ""
+        tool_states: dict[int, dict[str, str]] = {}
+        wants_summary = self._wants_reasoning_summary(request)
+        output_logprob_index = 0
+
+        def take_part_logprobs(part: str) -> list[Logprob]:
+            """Consume logprobs only when their tokens exactly cover this part."""
+            nonlocal output_logprob_index
+            if output_logprobs is None or not part:
+                return []
+            start = output_logprob_index
+            text = ""
+            entries: list[Logprob] = []
+            while output_logprob_index < len(output_logprobs):
+                entry = output_logprobs[output_logprob_index]
+                candidate = text + entry.token
+                if not part.startswith(candidate):
+                    output_logprob_index = start
+                    return []
+                text = candidate
+                entries.append(entry)
+                output_logprob_index += 1
+                if text == part:
+                    return entries
+            output_logprob_index = start
+            return []
+
+        def close_message(phase: Any) -> None:
+            nonlocal message_text, message_logprobs
+            if not message_text:
+                return
+            output_items.append(
+                ResponseOutputMessage(
+                    id=f"msg_{random_uuid()}",
+                    type="message",
+                    role="assistant",
+                    content=[
+                        ResponseOutputText(
+                            type="output_text",
+                            text=message_text,
+                            annotations=[],
+                            logprobs=(
+                                message_logprobs
+                                if output_logprobs is not None
+                                else None
+                            ),
+                        )
+                    ],
+                    status="completed",
+                    phase=phase,
+                )
+            )
+            message_text = ""
+            message_logprobs = []
+
+        def close_reasoning() -> None:
+            nonlocal reasoning_text
+            if not reasoning_text:
+                return
+            output_items.append(
+                ResponseReasoningItem(
+                    id=f"rs_{random_uuid()}",
+                    type="reasoning",
+                    summary=(
+                        [
+                            ResponseReasoningSummary(
+                                type="summary_text", text=reasoning_text
+                            )
+                        ]
+                        if wants_summary
+                        else []
+                    ),
+                    content=[
+                        ResponseReasoningTextContent(
+                            type="reasoning_text", text=reasoning_text
+                        )
+                    ],
+                    status="completed",
+                )
+            )
+            reasoning_text = ""
+
+        def close_tools(except_index: Optional[int] = None) -> None:
+            for tool_index in list(tool_states):
+                if tool_index == except_index:
+                    continue
+                state = tool_states.pop(tool_index)
+                output_items.append(
+                    ResponseFunctionToolCall(
+                        arguments=state["arguments"],
+                        call_id=state["call_id"],
+                        name=state["name"],
+                        type="function_call",
+                        id=state["item_id"],
+                        status="completed",
+                    )
+                )
+
+        def emit_calls(calls: list[ToolCallItem]) -> None:
+            if calls:
+                close_reasoning()
+                close_message("commentary")
+            for call in calls:
+                state = tool_states.get(call.tool_index)
+                if state is None:
+                    close_tools()
+                    state = {
+                        "item_id": f"fc_{random_uuid()[:8]}",
+                        "call_id": f"call_{random_uuid()[:24]}",
+                        "name": call.name or "",
+                        "arguments": "",
+                    }
+                    tool_states[call.tool_index] = state
+                elif call.name:
+                    state["name"] = call.name
+                if call.parameters:
+                    state["arguments"] += call.parameters
+
+        def consume(
+            normal_text: str,
+            calls: list[ToolCallItem],
+            normal_logprobs: Optional[list[Logprob]] = None,
+        ) -> None:
+            nonlocal message_text, message_logprobs
+            continuing = [
+                call for call in calls if call.tool_index in tool_states
+            ]
+            opening = [
+                call for call in calls if call.tool_index not in tool_states
+            ]
+            emit_calls(continuing)
+            if normal_text and _should_emit_normal_text_as_message(
+                normal_text,
+                any_tool_call_in_progress=bool(tool_states),
+            ):
+                close_reasoning()
+                close_tools()
+                message_text += normal_text
+                message_logprobs.extend(normal_logprobs or [])
+            emit_calls(opening)
+
+        for part in _split_qwen_structural_markers(final_output):
+            part_logprobs = take_part_logprobs(part)
+            entering_tool_call = tool_parser is not None and part == "<tool_call>"
+            if (
+                part == "<think>"
+                and not inside_tool_call
+                and reasoning_block_closed
+                and reasoning_parser_obj is not None
+            ):
+                close_reasoning()
+                reasoning_parser_obj = new_reasoning_parser()
+                reasoning_block_closed = False
+                reasoning_block_started = False
+            if part == "<think>" and not inside_tool_call:
+                reasoning_block_started = True
+            if reasoning_parser_obj is not None and not inside_tool_call:
+                reasoning_chunk, normal = reasoning_parser_obj.parse_stream_chunk(part)
+            else:
+                reasoning_chunk, normal = None, part
+            if part == "</think>" and not inside_tool_call:
+                reasoning_block_closed = True
+                reasoning_block_started = False
+            if reasoning_chunk:
+                close_message("commentary")
+                close_tools()
+                reasoning_text += reasoning_chunk
+            if entering_tool_call and (reasoning_block_started or reasoning_text):
+                reasoning_block_closed = True
+                reasoning_block_started = False
+            if entering_tool_call:
+                inside_tool_call = True
+            if tool_parser is not None:
+                normal_text, calls = tool_parser.parse_stream_chunk(normal)
+                consume(normal_text or "", list(calls), part_logprobs)
+            else:
+                consume(normal or "", [], part_logprobs)
+            if tool_parser is not None and part == "</tool_call>":
+                inside_tool_call = False
+
+        if reasoning_parser_obj is not None:
+            end_reasoning, end_normal = reasoning_parser_obj.parse_stream_end()
+            if end_reasoning:
+                close_message("commentary")
+                reasoning_text += end_reasoning
+        else:
+            end_normal = ""
+        if tool_parser is not None:
+            normal_text, calls = tool_parser.parse_stream_chunk(end_normal or "")
+            end_text, end_calls = tool_parser.parse_stream_end()
+            consume((normal_text or "") + end_text, list(calls) + list(end_calls))
+        else:
+            consume(end_normal or "", [])
+
+        close_reasoning()
+        close_message("final_answer")
+        if status == "completed":
+            close_tools()
         return output_items
 
     def _make_response_output_items_with_harmony(
@@ -1403,7 +1716,6 @@ class OpenAIServingResponses(OpenAIServingChat):
         is_qwen = self.tokenizer_manager.model_config.hf_config.model_type in {
             "qwen3_8_flash_next",
             "qwen3_8_flash_next_text",
-            "qwen4_exp",
         }
         messages = self._merge_consecutive_assistant_messages(
             messages,
@@ -2158,9 +2470,8 @@ class OpenAIServingResponses(OpenAIServingChat):
                 )
                 if hasattr(tool_parser.detector, "preserve_raw_input_tools"):
                     tool_parser.detector.preserve_raw_input_tools = request._custom_tool_names
-        reasoning_parser_obj: Optional[ReasoningParser] = None
-        if self.reasoning_parser:
-            reasoning_parser_obj = ReasoningParser(
+        def new_reasoning_parser() -> ReasoningParser:
+            return ReasoningParser(
                 model_type=self.reasoning_parser,
                 stream_reasoning=True,
                 # A template that prefills <think> forces the parser open even
@@ -2173,15 +2484,25 @@ class OpenAIServingResponses(OpenAIServingChat):
                 tool_call_parser_active=isinstance(tool_parser, FunctionCallParser),
             )
 
+        reasoning_parser_obj: Optional[ReasoningParser] = (
+            new_reasoning_parser()
+            if self.reasoning_parser and not isinstance(tool_parser, JsonArrayParser)
+            else None
+        )
+        reasoning_block_closed = False
+        reasoning_block_started = False
+        inside_tool_call = False
+
         # These parsers return separate text and call collections. Feed Qwen
         # markup boundaries separately so their original order remains visible.
         split_qwen_markup = (
             self.tokenizer_manager.model_config.hf_config.model_type
-            in {"qwen3_8_flash_next", "qwen3_8_flash_next_text", "qwen4_exp"}
+            in {"qwen3_8_flash_next", "qwen3_8_flash_next_text"}
             and self.reasoning_parser in {None, "qwen3", "qwen3-thinking"}
             and self.tool_call_parser in {None, "qwen3_coder"}
             and (reasoning_parser_obj is not None or tool_parser is not None)
         )
+        marker_splitter = _QwenStructuralMarkerBuffer() if split_qwen_markup else None
 
         current_output_index = -1
         reasoning_state = {
@@ -2429,16 +2750,42 @@ class OpenAIServingResponses(OpenAIServingChat):
                 flushed = flushed or flush
 
                 parts = (
-                    [part for part in re.split(r"(?=<)|(?<=>)", delta) if part]
-                    or [""]
-                    if split_qwen_markup
+                    marker_splitter.feed(
+                        delta,
+                        final=finish_reason is not None,
+                    )
+                    if marker_splitter is not None
                     else [delta]
                 )
                 flush_chunk = flush
                 for part_index, delta in enumerate(parts):
                     # Flush parser state once, after the terminal piece.
                     flush = flush_chunk and part_index == len(parts) - 1
-                    if reasoning_parser_obj is not None:
+                    structural_part = delta
+                    entering_tool_call = (
+                        marker_splitter is not None
+                        and tool_parser is not None
+                        and structural_part == "<tool_call>"
+                    )
+                    if (
+                        marker_splitter is not None
+                        and delta == "<think>"
+                        and not inside_tool_call
+                        and reasoning_block_closed
+                        and reasoning_parser_obj is not None
+                    ):
+                        for ev in _close_reasoning_item():
+                            yield ev
+                        reasoning_parser_obj = new_reasoning_parser()
+                        reasoning_block_closed = False
+                        reasoning_block_started = False
+                    if (
+                        marker_splitter is not None
+                        and structural_part == "<think>"
+                        and not inside_tool_call
+                    ):
+                        reasoning_block_started = True
+                    if reasoning_parser_obj is not None and not inside_tool_call:
                         reasoning_chunk, delta = reasoning_parser_obj.parse_stream_chunk(
                             delta
                         )
@@ -2452,10 +2799,20 @@ class OpenAIServingResponses(OpenAIServingChat):
                                 delta = (delta or "") + end_normal
                     else:
                         reasoning_chunk = None
+                    if (
+                        marker_splitter is not None
+                        and structural_part == "</think>"
+                        and not inside_tool_call
+                    ):
+                        reasoning_block_closed = True
+                        reasoning_block_started = False
 
                     if reasoning_chunk:
                         if message_state["open"]:
                             for ev in _close_message_item(phase="commentary"):
+                                yield ev
+                        for tool_index in list(tool_call_states):
+                            for ev in _close_tool_call_state(tool_index):
                                 yield ev
                         if not reasoning_state["open"]:
                             item_id = _open_reasoning_item()
@@ -2512,6 +2869,14 @@ class OpenAIServingResponses(OpenAIServingChat):
                                     sequence_number=-1,
                                 )
                             )
+                    if entering_tool_call and (
+                        reasoning_block_started or reasoning_state["open"]
+                    ):
+                        reasoning_block_closed = True
+                        reasoning_block_started = False
+
+                    if entering_tool_call:
+                        inside_tool_call = True
 
                     if not delta and not flush:
                         continue
@@ -2520,10 +2885,26 @@ class OpenAIServingResponses(OpenAIServingChat):
                         required_buffer += delta
                         normal_text, tool_calls = "", []
                         if flush and required_buffer.strip():
+                            try:
+                                validated_calls = list(
+                                    validated_json_calls(
+                                        required_buffer,
+                                        {tool.function.name for tool in chat_tools},
+                                    )
+                                )
+                            except ValueError:
+                                # Public Responses validation below emits the
+                                # established streaming error for malformed or
+                                # unknown required output.
+                                validated_calls = []
                             tool_calls = [
-                                ToolCallItem(tool_index=index, name=name, parameters=arguments)
+                                ToolCallItem(
+                                    tool_index=index,
+                                    name=name,
+                                    parameters=arguments,
+                                )
                                 for index, (name, arguments) in enumerate(
-                                    validated_json_calls(required_buffer, {tool.function.name for tool in chat_tools})
+                                    validated_calls
                                 )
                             ]
                     elif tool_parser is not None:
@@ -2681,6 +3062,12 @@ class OpenAIServingResponses(OpenAIServingChat):
                         yield ev
                     for ev in _emit_tool_calls(opening):
                         yield ev
+                    if (
+                        marker_splitter is not None
+                        and tool_parser is not None
+                        and structural_part == "</tool_call>"
+                    ):
+                        inside_tool_call = False
         except Exception:
             logger.exception("Error while streaming /v1/responses")
             failed = _sanitize_response_dict(
