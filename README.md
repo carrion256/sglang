@@ -5,8 +5,10 @@ adds separately attested boundary and streaming/nonstream ordering patches after
 effort-alias profile, including its `minimal` → `low` alias. The ordered nonstream
 path constructs typed output directly and retains usage details and requested
 logprobs; structural splitting is limited to recognized Qwen markers and the loaded
-`qwen3_8_flash_next` / `_text` model types. Historical production
-profiles below are unchanged; no deployment is implied.
+`qwen3_8_flash_next` / `_text` model types. The cumulative
+[Qwen Flash-Next multimodal alias profile](docs/qwen-multimodal-alias.md) additionally
+restores four existing Qwen VL processor paths under the release model type.
+Historical production profiles below are unchanged; no deployment is implied.
 
 Publishable source and deployment package for the locally accepted Qwen3.8
 Flash-Next LIL NVFP4 stack. **No model weights, container archives, credentials,

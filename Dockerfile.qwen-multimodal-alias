@@ -1,0 +1,17 @@
+# Cumulative CPU-only overlay: patches 0015, 0016, 0017, then 0018.
+# All model paths, serving arguments, and runtime settings remain external.
+FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/kanadaj/sglang" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}"
+COPY runtime/python/sglang/srt/entrypoints/openai/serving_chat.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py
+COPY runtime/python/sglang/srt/entrypoints/openai/protocol.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py
+COPY runtime/python/sglang/srt/entrypoints/openai/serving_responses.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py
+COPY runtime/python/sglang/srt/entrypoints/openai/responses_compat.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py
+COPY runtime/python/sglang/srt/function_call/qwen3_coder_detector.py /sgl-workspace/sglang/python/sglang/srt/function_call/qwen3_coder_detector.py
+COPY runtime/python/sglang/srt/multimodal/processors/qwen_vl.py /sgl-workspace/sglang/python/sglang/srt/multimodal/processors/qwen_vl.py
+COPY provenance/qwen-multimodal-alias-runtime-files.json /tmp/qwen-multimodal-alias-runtime-files.json
+RUN python3 -B -c 'import hashlib,json,pathlib; root=pathlib.Path("/sgl-workspace/sglang"); expected=json.loads(pathlib.Path("/tmp/qwen-multimodal-alias-runtime-files.json").read_text()); actual={str(p.relative_to(root)) for p in (root/"python/sglang").rglob("*") if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"}; assert actual == set(expected), (len(actual), len(expected)); bad=[n for n,h in expected.items() if hashlib.sha256((root/n).read_bytes()).hexdigest()!=h]; assert not bad, bad; files=[root/"python/sglang/srt/entrypoints/openai"/n for n in ("serving_chat.py", "protocol.py", "serving_responses.py", "responses_compat.py")]+[root/"python/sglang/srt/function_call/qwen3_coder_detector.py", root/"python/sglang/srt/multimodal/processors/qwen_vl.py"]; [compile(f.read_bytes(), str(f), "exec") for f in files]' \
+ && rm /tmp/qwen-multimodal-alias-runtime-files.json
+ENTRYPOINT ["python3", "-m", "sglang.launch_server"]
+CMD ["--help"]
