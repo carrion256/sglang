@@ -2559,7 +2559,7 @@
   "python/sglang/srt/function_call/poolside_v1_detector.py": "3bc52645891d5c9bf97c3796f5dcabdf1bfcdcac0f4483aa5786da5bf950d295",
   "python/sglang/srt/function_call/pythonic_detector.py": "47e6f58b88db14870864985f51e18965b39332cfd5df293de3d26be7e778c6ec",
   "python/sglang/srt/function_call/qwen25_detector.py": "e4ebe052024b4236819932ee3d54941fe2db9bb9107711ec33514d1d68c3c9e4",
-  "python/sglang/srt/function_call/qwen3_coder_detector.py": "2906f40a1fd33b3c6137ccf957b423de1775714fd07dcedab430c3c1905eebe9",
+  "python/sglang/srt/function_call/qwen3_coder_detector.py": "4cea43b633e46ca164492ebd3a26892dbc602e29856024eaa05be65551ce4541",
   "python/sglang/srt/function_call/step3_detector.py": "7ece8be2b2f8dcf9285d405baffdf69ba3632cf799ef5a1a942a73b2ae1d1cb6",
   "python/sglang/srt/function_call/trinity_detector.py": "868f345fb3129456073497949c913457cdc2d54ec90885d71e302bc85114fca8",
   "python/sglang/srt/function_call/utils.py": "fc55c1b3d63a3631841aa1b6b5979cb0647e6ba27a4f5a1f1a1573f46eca8c25",

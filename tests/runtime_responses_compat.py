@@ -913,8 +913,17 @@ class MockHTTPTest(unittest.TestCase):
     def test_mock_http_custom_native_empty_and_escaped(self):
         self.serving.tool_call_parser = 'qwen3_coder'
         self.tools = [{'type': 'custom', 'name': 'patch'}]
-        for raw in ('', 'line one\n"quoted" \\ slash Ω 😀', '\nraw\n', 'null'):
-            self.text = '<tool_call>\n<function=patch>\n<parameter=input>' + raw + '</parameter>\n</function>\n</tool_call>'
+        tool = {'type': 'function', 'function': {'name': 'patch', 'parameters': {
+            'type': 'object', 'properties': {'input': {'type': 'string'}}, 'required': ['input']}}}
+        for raw in ('', 'line one\n"quoted" \\ slash Ω 😀', '\nraw\n', 'null',
+                    '\n', '\n\n', ' \nraw\n ', '{"x":1}', '[1,2]', '\r\nraw\r\n'):
+            rendered = self.tokenizer.apply_chat_template([
+                {'role': 'user', 'content': 'Call patch'},
+                {'role': 'assistant', 'content': '', 'tool_calls': [
+                    {'type': 'function', 'function': {'name': 'patch', 'arguments': {'input': raw}}}]}],
+                tools=[tool], tokenize=False, add_generation_prompt=False)
+            start = rendered.rindex('<tool_call>')
+            self.text = rendered[start:rendered.index('</tool_call>', start) + len('</tool_call>')]
             for stream in (False, True):
                 response = self.send(tool_choice='auto', stream=stream)
                 body = next(event['response'] for event in self.events(response) if event.get('type') == 'response.completed') if stream else response.json()
