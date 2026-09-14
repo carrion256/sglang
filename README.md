@@ -8,8 +8,11 @@ logprobs; structural splitting is limited to recognized Qwen markers and the loa
 `qwen3_8_flash_next` / `_text` model types. The cumulative
 [Qwen Flash-Next multimodal alias profile](docs/qwen-multimodal-alias.md) additionally
 restores four existing Qwen VL processor paths under the release model type. The
-[invalid generated-token failure profile](docs/invalid-token-failure.md) surfaces
-scheduler token-ID faults through Chat, Completions, Messages, and Responses clients.
+[invalid generated-token failure profile](docs/invalid-token-failure.md) completes
+the cumulative `0015` → `0016` → `0017` → `0018` → `0019` stack: scheduler
+faults retain `InvalidTokenError` through Chat and Completions SSE, Responses
+failures remain retrievable but cannot be replayed as `previous_response_id`, and
+graceful cancellations are unchanged.
 Historical production profiles below are unchanged; no deployment is implied.
 
 Publishable source and deployment package for the locally accepted Qwen3.8

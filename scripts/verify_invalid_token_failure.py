@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""Verify the invalid generated-token failure profile."""
+"""Verify the cumulative invalid generated-token failure profile."""
+
 import argparse
 import hashlib
 import json
 from pathlib import Path
 import subprocess
 
-from verify_chat_effort import verify as verify_chat_effort
+from verify_qwen_multimodal_alias import package_records as multimodal_package_records
+from verify_qwen_multimodal_alias import verify as verify_multimodal
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def digest(path):
+def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def verify_tree_inventory(tree, inventory):
+def verify_tree_inventory(tree: Path, inventory: dict[str, str]) -> None:
     actual = {
         str(path.relative_to(tree))
         for path in (tree / "python/sglang").rglob("*")
@@ -28,73 +30,93 @@ def verify_tree_inventory(tree, inventory):
             raise ValueError("Source hash mismatch: " + name)
 
 
-def apply_patch(tree, patch):
+def apply_patch(tree: Path, patch: Path) -> None:
     subprocess.run(["git", "apply", "--check", str(patch)], cwd=tree, check=True)
     subprocess.run(["git", "apply", str(patch)], cwd=tree, check=True)
 
 
 def package_records():
-    manifest = json.loads((ROOT / "provenance/invalid-token-failure.json").read_text())
-    base_inventory = ROOT / "provenance/responses-compat-runtime-files.json"
-    if digest(base_inventory) != manifest["base_inventory_sha256"]:
+    manifest_path = ROOT / "provenance/invalid-token-failure.json"
+    manifest = json.loads(manifest_path.read_text())
+    predecessor_manifest, predecessor = multimodal_package_records()
+
+    base_inventory_path = ROOT / "provenance" / manifest["base_inventory"]
+    if digest(base_inventory_path) != manifest["base_inventory_sha256"]:
         raise ValueError("Base inventory digest mismatch")
-    inventory = json.loads(base_inventory.read_text())
-    responses = json.loads((ROOT / "provenance/responses-compat.json").read_text())
-    alias = json.loads((ROOT / "provenance/qwen-effort-alias.json").read_text())
-    if responses["inventory_sha256"] != manifest["base_inventory_sha256"]:
-        raise ValueError("Responses inventory identity mismatch")
-    for predecessor in (alias, responses):
-        predecessor_patch = ROOT / "patches" / predecessor["patch"]
-        if digest(predecessor_patch) != predecessor["patch_sha256"]:
-            raise ValueError("Predecessor patch hash mismatch")
-    predecessor_series = (ROOT / "patches/series.responses-compat").read_text().splitlines()
-    if predecessor_series != [alias["patch"], responses["patch"]]:
-        raise ValueError("Predecessor patch order differs")
-    for name in (
-        "python/sglang/srt/entrypoints/openai/protocol.py",
-        "python/sglang/srt/entrypoints/openai/responses_compat.py",
-        "python/sglang/srt/function_call/qwen3_coder_detector.py",
-    ):
-        if digest(ROOT / "runtime" / name) != inventory[name]:
-            raise ValueError("Packaged predecessor runtime mismatch: " + name)
+    inventory = json.loads(base_inventory_path.read_text())
+    if inventory != predecessor:
+        raise ValueError("Base inventory differs from multimodal verifier")
+    if manifest["base_inventory_sha256"] != predecessor_manifest["inventory_sha256"]:
+        raise ValueError("Predecessor inventory identity mismatch")
+
+    expected_series = [
+        "0015-qwen-flash-next-effort-alias.patch",
+        "0016-responses-namespace-custom-boundary.patch",
+        "0017-responses-phase-order.patch",
+        "0018-qwen-flash-next-multimodal-alias.patch",
+        manifest["patch"],
+    ]
+    if manifest["series"] != expected_series:
+        raise ValueError("Manifest patch order differs")
+    if (ROOT / "patches/series.invalid-token-failure").read_text().splitlines() != expected_series:
+        raise ValueError("Invalid-token patch order differs")
+
     for name, hashes in manifest["files"].items():
         if inventory.get(name) != hashes["before"]:
             raise ValueError("Invalid-token preimage mismatch: " + name)
-        if digest(ROOT / "runtime.invalid-token-failure" / name) != hashes["after"]:
+        runtime_path = ROOT / "runtime.invalid-token-failure" / name
+        if digest(runtime_path) != hashes["after"]:
             raise ValueError("Packaged runtime mismatch: " + name)
         inventory[name] = hashes["after"]
+
     patch = ROOT / "patches" / manifest["patch"]
     if digest(patch) != manifest["patch_sha256"]:
         raise ValueError("Invalid-token patch hash mismatch")
-    series = (ROOT / "patches/series.invalid-token-failure").read_text().splitlines()
-    if series != [
-        "0015-qwen-flash-next-effort-alias.patch",
-        "0016-responses-namespace-custom-boundary.patch",
-        manifest["patch"],
-    ]:
-        raise ValueError("Invalid-token patch order differs")
-    encoded = (json.dumps(dict(sorted(inventory.items())), indent=2) + "\n").encode()
-    if hashlib.sha256(encoded).hexdigest() != manifest["result_inventory_sha256"]:
-        raise ValueError("Result inventory digest mismatch")
+
+    inventory_path = ROOT / "provenance" / manifest["inventory"]
+    recorded_inventory = json.loads(inventory_path.read_text())
+    if recorded_inventory != dict(sorted(inventory.items())):
+        raise ValueError("Full candidate inventory differs from predecessor chain")
+    if digest(inventory_path) != manifest["inventory_sha256"]:
+        raise ValueError("Candidate inventory digest mismatch")
+    if manifest["source_files_before"] != len(predecessor):
+        raise ValueError("Predecessor source count mismatch")
+    if manifest["source_files_after"] != len(inventory):
+        raise ValueError("Result source count mismatch")
+
+    qwen_path = "python/sglang/srt/multimodal/processors/qwen_vl.py"
+    if inventory[qwen_path] != predecessor[qwen_path]:
+        raise ValueError("PR7 qwen_vl changed")
+    if digest(ROOT / "runtime" / qwen_path) != predecessor[qwen_path]:
+        raise ValueError("Packaged PR7 qwen_vl mismatch")
+
+    validation = manifest["validation"]
+    expected_counts = {
+        "invalid_token_runtime_tests": 15,
+        "invalid_token_packaging_tests": 4,
+        "responses_tests": 75,
+        "effort_tests": 14,
+        "multimodal_tests": 4,
+        "full_package_tests": 90,
+        "dedicated_packaging_tests": 17,
+        "exact_image_reconstructions": 2,
+    }
+    if {name: validation.get(name) for name in expected_counts} != expected_counts:
+        raise ValueError("Validation count contract differs")
+    for name, expected in validation["logs"].items():
+        if digest(ROOT / "provenance" / name) != expected:
+            raise ValueError("Evidence hash mismatch: " + name)
+
     return manifest, inventory
 
 
-def verify(tree, apply=False, from_image=False):
+def verify(tree: Path, apply: bool = False, from_image: bool = False) -> int:
     manifest, inventory = package_records()
-    base_inventory = json.loads(
-        (ROOT / "provenance/responses-compat-runtime-files.json").read_text()
-    )
     if from_image:
-        verify_chat_effort(tree)
-        for name in (
-            "0015-qwen-flash-next-effort-alias.patch",
-            "0016-responses-namespace-custom-boundary.patch",
-        ):
-            apply_patch(tree, ROOT / "patches" / name)
-        verify_tree_inventory(tree, base_inventory)
+        verify_multimodal(tree, from_image=True)
+        apply_patch(tree, ROOT / "patches" / manifest["patch"])
     elif apply:
-        verify_tree_inventory(tree, base_inventory)
-    if apply or from_image:
+        verify_multimodal(tree)
         apply_patch(tree, ROOT / "patches" / manifest["patch"])
     verify_tree_inventory(tree, inventory)
     return len(inventory)

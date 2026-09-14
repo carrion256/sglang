@@ -1,0 +1,28 @@
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/awq/awq.py:52: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+W0914 14:08:50.350000 1 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+test_direct_renderer_policy_unchanged (runtime_chat_effort.ChatEffortTest.test_direct_renderer_policy_unchanged) ... ok
+test_effort_matrix_and_no_cross_request_leak (runtime_chat_effort.ChatEffortTest.test_effort_matrix_and_no_cross_request_leak) ... ok
+test_invalid_effort_rejected_in_both_forms (runtime_chat_effort.ChatEffortTest.test_invalid_effort_rejected_in_both_forms) ... ok
+test_top_level_xhigh_reaches_real_tokenizer (runtime_chat_effort.ChatEffortTest.test_top_level_xhigh_reaches_real_tokenizer) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py:1034: DeprecationWarning: max_tokens is deprecated in favor of the max_completion_tokens field
+  "max_new_tokens": self.max_completion_tokens or self.max_tokens,
+ok
+test_anthropic_messages_effort_uses_shared_aliases (__main__.QwenAliasTest.test_anthropic_messages_effort_uses_shared_aliases) ... ok
+test_chat_alias_tokens_and_literal_provenance (__main__.QwenAliasTest.test_chat_alias_tokens_and_literal_provenance) ... ok
+test_invalid_values_still_fail (__main__.QwenAliasTest.test_invalid_values_still_fail) ... ok
+test_processing_special_token_state_survives_render_copy (__main__.QwenAliasTest.test_processing_special_token_state_survives_render_copy) ... ok
+test_responses_real_conversion_and_literal_effort (__main__.QwenAliasTest.test_responses_real_conversion_and_literal_effort) ... ok
+test_server_default_and_absence_semantics (__main__.QwenAliasTest.test_server_default_and_absence_semantics) ... ok
+test_supported_values_precedence_null_and_no_leak (__main__.QwenAliasTest.test_supported_values_precedence_null_and_no_leak) ... ok
+test_tokenize_and_multimodal_render_paths (__main__.QwenAliasTest.test_tokenize_and_multimodal_render_paths) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py:875: DeprecationWarning: max_tokens is deprecated in favor of the max_completion_tokens field
+  max_output_tokens = request.max_completion_tokens or request.max_tokens
+ok
+test_tokenize_precedence_null_and_provenance (__main__.QwenAliasTest.test_tokenize_precedence_null_and_provenance) ... ok
+test_unrelated_model_native_efforts_are_not_aliased (__main__.QwenAliasTest.test_unrelated_model_native_efforts_are_not_aliased) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 2.532s
+
+OK

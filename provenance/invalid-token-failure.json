@@ -1,30 +1,71 @@
 {
-  "status": "CPU-tested candidate only; not built, published, or deployed",
-  "base_git_commit": "93463c3466b0de9d21776fbeff95657285df8269",
-  "base_profile": "responses-compat-candidate",
+  "status": "CPU-tested and locally built candidate; not published or deployed",
+  "base_main_commit": "e5d93387e03c110de6f6f483a0ff5ed44d3a1a1e",
+  "original_pr8_head": "4059ace2b2faa2d7972f7704c8fdca0985a35b1a",
+  "reviewed_functional_head": "63f43b7ad68b40831f3b1a47e880a56a2db66a42",
+  "predecessor_profile": "qwen-multimodal-alias",
   "base_image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
-  "base_inventory_sha256": "e574ce136e79576c3970da7f479b729b21d18ef8e4fe3e49ae3a5fd521866138",
+  "base_inventory": "qwen-multimodal-alias-runtime-files.json",
+  "base_inventory_sha256": "c88e18731d4ef0b4cd5a71c5f4b486def1677802c86303907ee50f2317714395",
   "patch": "0019-invalid-generated-token-failure.patch",
-  "patch_sha256": "e72fea4871a88e9d4fbffe06e2e6788e7b17992bc01cdf25f80ea4699e823742",
+  "patch_sha256": "4d1f7a71b2907d79d6075a9d2b1b9f0fd2dd96ec97c08bc8d246ba15979c6a75",
+  "series": [
+    "0015-qwen-flash-next-effort-alias.patch",
+    "0016-responses-namespace-custom-boundary.patch",
+    "0017-responses-phase-order.patch",
+    "0018-qwen-flash-next-multimodal-alias.patch",
+    "0019-invalid-generated-token-failure.patch"
+  ],
   "files": {
     "python/sglang/srt/entrypoints/openai/serving_chat.py": {
-      "before": "6d881d19da2c4a7028b0fb179cf5cdb958480612d4192c1606dfd25f98a9ba56",
-      "after": "fafda72ae4ed93165917bfc1b0bb90a1b676837f9e5a7611b9f3e0be6b595f83"
+      "before": "07ccd04de5f716277d2df873f66bdc4c03d13f7e89aad105c6dcba979ff47931",
+      "after": "e36c887507fe94aa13cd2fc97930f253fd129339959cd846d3ec7ad4274b2824"
+    },
+    "python/sglang/srt/entrypoints/openai/serving_completions.py": {
+      "before": "67f08075f21481b03e246327c7453f57ac001d0f3e78f5a9247caa553e1942e3",
+      "after": "0d21d557ef38d0639e4030bff764ecca8a266ef6d60284cf959c56d9dec751a1"
     },
     "python/sglang/srt/entrypoints/openai/serving_responses.py": {
-      "before": "d46f648b557db07a430869471fcf4d7a898d50f99e495efd5eb01911c428f215",
-      "after": "3ffe860246810037ad58a6e79cd370fa0199bc130c1752cfe1feef4a11e87096"
+      "before": "e65084c831bb3755bcef6a3288587582c065538857b58d09c8d2c2bc3ecf696c",
+      "after": "a30b96b8b1393e8d1cf53fb180e602eeae07bd160bb88a3146eaafdf0ef0f4e7"
     },
     "python/sglang/srt/managers/schedule_batch.py": {
       "before": "4965156c669a536b40250605794de9d9aa7582fde71d188ab2ecf22e766e755a",
       "after": "56b475c078d2aed7fc626dd7f41559b169498da285bf729d94b76e8abda13c42"
     }
   },
-  "source_files": 4392,
-  "result_inventory_sha256": "83e45a5d191a3998a68a4c9bd41227d737e5a5e4d44513bcdebb2c713db6abd5",
-  "cpu_regression": {
-    "unpatched": "11 methods: 20 failures and 2 errors",
-    "patched": "11 methods passed",
-    "scope": "Scheduler classification and Chat, Anthropic Messages, and Responses propagation"
-  }
+  "source_files_before": 4392,
+  "source_files_after": 4392,
+  "inventory": "invalid-token-failure-runtime-files.json",
+  "inventory_sha256": "414b43dec378538ca1e5785f4855115947d824c2b42fe6fa4bcb2943815c05f3",
+  "validation": {
+    "invalid_token_runtime_tests": 15,
+    "invalid_token_packaging_tests": 4,
+    "responses_tests": 75,
+    "effort_tests": 14,
+    "multimodal_tests": 4,
+    "full_package_tests": 90,
+    "dedicated_packaging_tests": 17,
+    "exact_image_reconstructions": 2,
+    "exact_image_tree_digest_sha256": "f98edc6b100d20bfd993b0f02183e53ac8f5b7bf41c849779877ee2090878482",
+    "local_candidate_image_digest": "sha256:a4627d598748483bad601e53b7500940374d12b1226016d99a79a18569deec60",
+    "logs": {
+      "pr8-final-invalid-token-green.log": "d70f998e10597b3d33c9ee5ebbb5b69f03b71e96b97ef96a585db52289d3aa13",
+      "pr8-final-responses-75.log": "eeb2f440d737a0a5f0f1f686c7dfab7e9399733e45cad32110d9d9e33255719a",
+      "pr8-final-effort-14.log": "c91d898de13ded814c6abd96a7028c5d2cffa36db0c05709516009d76de12506",
+      "pr8-final-multimodal-4.log": "b0f726e94944c0035e02d80319aecd788d16c42e9346afdceb2643f7f8786b3d",
+      "pr8-final-full-package.log": "9584ca1c8725c16d69812491fe802f4345c0312d92366cf4d50856fb09079796",
+      "pr8-final-packaging-17.log": "f0ed380b08e2a24c2d2bfe7072f492a40d0f0600b2db7a605c66a032c5e6b58b",
+      "pr8-final-exact-image-reconstruction-twice.log": "b979d29167bb1e0f39275de0acac87e06e14abd5012e27376f792c895f3872ea",
+      "pr8-final-docker-build-readback.log": "c90c1240d352226a0467412353f2b8601aa203652a8c22528f1fedb72f617da1",
+      "pr8-final-compile-diff-security.log": "32cceb049709ca854a9a52c4b326e79c822f5d8b37a4f9d178b213c2f66eecbf"
+    }
+  },
+  "scope": [
+    "Scheduler invalid generated-token classification without faulty-token emission",
+    "Chat and Completions InvalidTokenError streaming propagation",
+    "Responses failed terminals, storage, retrieval, and pre-generation replay rejection",
+    "Graceful cancellation behavior preservation",
+    "PR5 Responses phase/order behavior and PR7 Qwen VL bytes preservation"
+  ]
 }

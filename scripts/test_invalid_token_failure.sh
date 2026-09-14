@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CPU-only local validation; no build, GPU devices, network, or publication.
+# CPU-only local validation; no GPU devices, network, publication, or deployment.
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -36,7 +36,9 @@ fi
 
 IMAGE='kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404'
 run python3 "$ROOT/scripts/verify_responses_compat.py" --tokenizer "$QWEN_TOKENIZER_PATH"
+run python3 "$ROOT/scripts/verify_qwen_multimodal_alias.py"
 run python3 "$ROOT/scripts/verify_invalid_token_failure.py"
+run python3 -m unittest -v "$ROOT/tests/test_invalid_token_packaging.py"
 run docker image inspect --format '{{.Id}}' "$IMAGE"
 run docker run --rm --pull never --network none --read-only --cap-drop all \
   --security-opt no-new-privileges --cpus 4 --memory 12g --pids-limit 512 \
@@ -52,5 +54,6 @@ run docker run --rm --pull never --network none --read-only --cap-drop all \
   -v "$ROOT/runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_responses.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:ro" \
   -v "$ROOT/runtime/python/sglang/srt/entrypoints/openai/responses_compat.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py:ro" \
   -v "$ROOT/runtime/python/sglang/srt/function_call/qwen3_coder_detector.py:/sgl-workspace/sglang/python/sglang/srt/function_call/qwen3_coder_detector.py:ro" \
+  -v "$ROOT/runtime/python/sglang/srt/multimodal/processors/qwen_vl.py:/sgl-workspace/sglang/python/sglang/srt/multimodal/processors/qwen_vl.py:ro" \
   -v "$ROOT/runtime.invalid-token-failure/python/sglang/srt/managers/schedule_batch.py:/sgl-workspace/sglang/python/sglang/srt/managers/schedule_batch.py:ro" \
   --entrypoint python3 "$IMAGE" /repo/tests/runtime_invalid_token_failure.py -v

@@ -1,58 +1,101 @@
-# Invalid generated-token failures — CPU candidate only
+# Invalid generated-token failures — cumulative local candidate
 
-The scheduler currently replaces an out-of-vocabulary generated token with an
-EOS token and reports an ordinary stop. A speculative step at the output limit
-can further replace that result with a length finish. Clients therefore receive
-a successful response even though the engine produced an invalid token ID.
+This profile is rebased onto main
+`e5d93387e03c110de6f6f483a0ff5ed44d3a1a1e`. It transplants original PR #8
+head `4059ace2b2faa2d7972f7704c8fdca0985a35b1a` and the reviewed functional
+corrections from `63f43b7ad68b40831f3b1a47e880a56a2db66a42`. Nothing was pushed,
+merged, published, deployed, or applied to a running service.
 
-This profile reports that condition as an HTTP 500 `InvalidTokenError`, excludes
-the faulty token from output, and prevents the length cap from hiding the
-failure. Chat and Anthropic-compatible streams emit the serialized error and
-terminate. Responses requests finish with `status=failed`, a `server_error`
-payload, and `response.failed`; graceful aborts without an error status remain
-cancelled.
+## Behavior
 
-## Composition
+An out-of-vocabulary generated token is a fatal engine error, not an ordinary
+stop. The scheduler replaces the token only to keep downstream decoding safe,
+excludes it from emitted output, records `FINISH_ABORT` with HTTP 500 and
+`err_type=InvalidTokenError`, and does not allow a speculative output-length cap
+to overwrite that error.
 
-Patch `0019-invalid-generated-token-failure.patch` applies after the existing
-effort and Responses compatibility patches. The patch changes the scheduler and
-the Chat and Responses adapters because all three layers are required to carry
-the failure to clients. Their post-patch bytes live under
-`runtime.invalid-token-failure/`, leaving the predecessor profile's `runtime/`
-snapshot unchanged. `Dockerfile.invalid-token-failure` combines those files with
-the three unchanged API compatibility files. Model paths, serving arguments, and
-runtime settings remain external.
+- **Chat:** a serialized integer status emits one `InvalidTokenError` SSE error,
+  then `[DONE]`; it does not continue through the ordinary choice/usage path.
+- **Completions:** uses the same integer-status and error-type behavior, emits
+  `[DONE]`, and returns before any ordinary abort choice or usage event.
+- **Responses:** non-stream and stream terminals use `status=failed`, attach a
+  `server_error`, retain partial output, and emit `response.failed`. Stored failed
+  responses remain retrievable. A failed response used as
+  `previous_response_id` is rejected with HTTP 400 and
+  `param=previous_response_id` before registry replay, preprocessing, or
+  generation.
+- **Cancellations:** an abort without an error status remains the existing
+  graceful Chat/Completions abort or Responses `cancelled` terminal.
 
-## CPU validation
+## Composition and source identity
 
-The runner requires the exact base image to be present locally and a pinned
-Qwen tokenizer directory:
+`patches/series.invalid-token-failure` is the exact cumulative order:
+
+1. `0015-qwen-flash-next-effort-alias.patch`
+2. `0016-responses-namespace-custom-boundary.patch`
+3. `0017-responses-phase-order.patch`
+4. `0018-qwen-flash-next-multimodal-alias.patch`
+5. `0019-invalid-generated-token-failure.patch`
+
+Patch 0019 is regenerated against the post-0018 tree. Its
+`serving_responses.py` retains the complete PR #5 phase/order parser behavior and
+adds only PR #8 failure behavior. Its `serving_chat.py` retains the cumulative
+effort behavior. The PR #7 `qwen_vl.py` bytes remain unchanged at SHA-256
+`b47003e1f0840a057519adff46fc72a9318a61e2eb3ef8cedfa9eab19e98b7f7`.
+
+The four post-0019 runtime files, including `serving_completions.py`, are under
+`runtime.invalid-token-failure/`. The full 4,392-file result inventory is
+`provenance/invalid-token-failure-runtime-files.json`; its SHA-256 is
+`414b43dec378538ca1e5785f4855115947d824c2b42fe6fa4bcb2943815c05f3`.
+`provenance/invalid-token-failure.json` binds base/head identities, patch and
+inventory hashes, every changed-file preimage/result, test counts, and evidence
+log hashes. The verifier fails closed on chain, series, runtime, patch,
+inventory, PR #7 byte, count, or evidence drift.
+
+## Verification
+
+Pinned tokenizer/config metadata came from the recorded local release snapshot.
+CPU/GPU-disabled checks completed against the exact base image:
+
+- 15 focused runtime tests for scheduler/API error behavior;
+- 4 invalid-token packaging contract tests;
+- 75 cumulative Responses tests;
+- 14 effort tests;
+- 4 multimodal tests;
+- 90 full-package tests;
+- 17 dedicated packaging tests;
+- two independent exact-image reconstructions, each checking all 4,392 source
+  files and producing tree digest
+  `f98edc6b100d20bfd993b0f02183e53ac8f5b7bf41c849779877ee2090878482`;
+- local Docker build plus image readback: 4,392 expected, 4,392 present, zero
+  missing, extra, or mismatched source files. The recorded candidate build digest
+  is `sha256:a4627d598748483bad601e53b7500940374d12b1226016d99a79a18569deec60`.
+
+Run the focused gate:
 
 ```bash
-QWEN_TOKENIZER_PATH=/absolute/release/config-directory \
+QWEN_TOKENIZER_PATH=/absolute/pinned/release/config-directory \
   bash scripts/test_invalid_token_failure.sh
-python3 scripts/verify_invalid_token_failure.py
 ```
 
-The runtime test covers negative, vocabulary-boundary, and very large token IDs;
-speculative overruns at several output caps; invalid first tokens; unchanged
-ordinary stop and length finishes; tokenizer-state cleanup; serialized HTTP
-status values; Chat, Anthropic Messages, and Responses streaming; and Responses
-non-streaming terminals. It runs in a read-only, network-disabled, GPU-disabled
-container.
-
-For a complete source reconstruction, export `python/sglang` from the exact base
-image into `TREE`, then run:
+Reconstruct from an extracted exact base image source tree:
 
 ```bash
 python3 scripts/verify_invalid_token_failure.py --tree TREE --from-image
 python3 scripts/verify_invalid_token_failure.py --tree TREE
 ```
 
+Build the local cumulative image with a source-revision label:
+
+```bash
+docker build --pull=false \
+  --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+  -f Dockerfile.invalid-token-failure \
+  -t sglang-pr8-final:local .
+```
+
 ## Limits
 
-The candidate has CPU regression and full-source reconstruction coverage. It
-has not been built, published, deployed, or exercised by deliberately forcing
-an invalid token on a live GPU engine. The change does not attempt to recover
-generation after an invalid token; it makes the existing fatal condition
-visible to clients.
+No GPU generation was forced to produce an invalid token. The change makes the
+existing fatal condition visible and replay-safe; it does not attempt generation
+recovery. The image is local only and has not been published or deployed.

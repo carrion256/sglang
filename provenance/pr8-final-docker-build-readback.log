@@ -1,0 +1,77 @@
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.invalid-token-failure
+#1 transferring dockerfile: 2.85kB done
+#1 DONE 0.1s
+
+#2 [internal] load metadata for docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404
+#2 ...
+
+#3 [auth] kanadaj/sglang-qwen38fn-sm120-turbo:pull token for registry-1.docker.io
+#3 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404
+#2 DONE 0.8s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 134B done
+#4 DONE 0.1s
+
+#5 [internal] load build context
+#5 DONE 0.0s
+
+#6 [ 1/11] FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404
+#6 resolve docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404 0.1s done
+#6 DONE 0.1s
+
+#5 [internal] load build context
+#5 transferring context: 1.19MB done
+#5 DONE 0.1s
+
+#6 [ 1/11] FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404
+#6 CACHED
+
+#7 [ 2/11] COPY runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_chat.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py
+#7 DONE 0.1s
+
+#8 [ 3/11] COPY runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_completions.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_completions.py
+#8 DONE 0.1s
+
+#9 [ 4/11] COPY runtime/python/sglang/srt/entrypoints/openai/protocol.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py
+#9 DONE 0.1s
+
+#10 [ 5/11] COPY runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_responses.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py
+#10 DONE 0.1s
+
+#11 [ 6/11] COPY runtime/python/sglang/srt/entrypoints/openai/responses_compat.py /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py
+#11 DONE 0.1s
+
+#12 [ 7/11] COPY runtime/python/sglang/srt/function_call/qwen3_coder_detector.py /sgl-workspace/sglang/python/sglang/srt/function_call/qwen3_coder_detector.py
+#12 DONE 0.1s
+
+#13 [ 8/11] COPY runtime/python/sglang/srt/multimodal/processors/qwen_vl.py /sgl-workspace/sglang/python/sglang/srt/multimodal/processors/qwen_vl.py
+#13 DONE 0.1s
+
+#14 [ 9/11] COPY runtime.invalid-token-failure/python/sglang/srt/managers/schedule_batch.py /sgl-workspace/sglang/python/sglang/srt/managers/schedule_batch.py
+#14 DONE 0.1s
+
+#15 [10/11] COPY provenance/invalid-token-failure-runtime-files.json /tmp/invalid-token-failure-runtime-files.json
+#15 DONE 0.1s
+
+#16 [11/11] RUN python3 -B -c 'import hashlib,json,pathlib; root=pathlib.Path("/sgl-workspace/sglang"); expected=json.loads(pathlib.Path("/tmp/invalid-token-failure-runtime-files.json").read_text()); actual={str(p.relative_to(root)) for p in (root/"python/sglang").rglob("*") if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"}; assert actual == set(expected), (len(actual), len(expected)); bad=[n for n,h in expected.items() if hashlib.sha256((root/n).read_bytes()).hexdigest()!=h]; assert not bad, bad; files=[root/"python/sglang/srt/entrypoints/openai"/n for n in ("serving_chat.py", "serving_completions.py", "protocol.py", "serving_responses.py", "responses_compat.py")]+[root/"python/sglang/srt/function_call/qwen3_coder_detector.py", root/"python/sglang/srt/multimodal/processors/qwen_vl.py", root/"python/sglang/srt/managers/schedule_batch.py"]; [compile(f.read_bytes(), str(f), "exec") for f in files]'  && rm /tmp/invalid-token-failure-runtime-files.json
+#16 DONE 0.6s
+
+#17 exporting to image
+#17 exporting layers
+#17 exporting layers 1.3s done
+#17 exporting manifest sha256:480b15914d6577a96c49131e89555ae3a1153b306d4cdeeccbf0039becd3659f 0.0s done
+#17 exporting config sha256:0043c762ee486c4f6f90bc0bd00dd5593b2d3952a3d23ada80443eb040af59b2 0.0s done
+#17 exporting attestation manifest sha256:ca5c818b7cfb936ec2015313e53b42db1e564cac0993dba4eda5ff4d01b0aea9 0.0s done
+#17 exporting manifest list sha256:a4627d598748483bad601e53b7500940374d12b1226016d99a79a18569deec60
+#17 exporting manifest list sha256:a4627d598748483bad601e53b7500940374d12b1226016d99a79a18569deec60 0.0s done
+#17 naming to docker.io/library/sglang-pr8-final:local-candidate 0.0s done
+#17 unpacking to docker.io/library/sglang-pr8-final:local-candidate
+#17 unpacking to docker.io/library/sglang-pr8-final:local-candidate 0.4s done
+#17 DONE 1.9s
+sha256:a4627d598748483bad601e53b7500940374d12b1226016d99a79a18569deec60 local-pr8-candidate
+{"source_files": 4392, "expected_files": 4392, "missing": 0, "extra": 0, "mismatched": 0}
