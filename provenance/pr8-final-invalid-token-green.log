@@ -1,0 +1,58 @@
+[0;90m/home/kanadaj/sglang-pr-fix-8-final >[0m [1;33mtest -f /home/kanadaj/nas/models/gpu-workstation/huggingface/local-inference-lab/Qwen3.8-Flash-Next-NVFP4/tokenizer.json [0m
+[0;32m[OK][0m
+[0;90m/home/kanadaj/sglang-pr-fix-8-final >[0m [1;33mpython3 /home/kanadaj/sglang-pr-fix-8-final/scripts/verify_responses_compat.py --tokenizer /home/kanadaj/nas/models/gpu-workstation/huggingface/local-inference-lab/Qwen3.8-Flash-Next-NVFP4 [0m
+{"profile": "responses-phase-order-candidate", "source_files": 4392, "full_tree_verified": false}
+[0;32m[OK][0m
+[0;90m/home/kanadaj/sglang-pr-fix-8-final >[0m [1;33mpython3 /home/kanadaj/sglang-pr-fix-8-final/scripts/verify_qwen_multimodal_alias.py [0m
+{"profile": "qwen-multimodal-alias", "source_files": 4392, "full_tree_verified": false}
+[0;32m[OK][0m
+[0;90m/home/kanadaj/sglang-pr-fix-8-final >[0m [1;33mpython3 /home/kanadaj/sglang-pr-fix-8-final/scripts/verify_invalid_token_failure.py [0m
+{"profile": "invalid-token-failure", "source_files": 4392, "full_tree_verified": false}
+[0;32m[OK][0m
+[0;90m/home/kanadaj/sglang-pr-fix-8-final >[0m [1;33mpython3 -m unittest -v /home/kanadaj/sglang-pr-fix-8-final/tests/test_invalid_token_packaging.py [0m
+test_dockerfile_mounts_cumulative_overlay_and_verifies_inventory (tests.test_invalid_token_packaging.InvalidTokenPackagingTest.test_dockerfile_mounts_cumulative_overlay_and_verifies_inventory) ... ok
+test_manifest_chain_and_runtime_compile (tests.test_invalid_token_packaging.InvalidTokenPackagingTest.test_manifest_chain_and_runtime_compile) ... ok
+test_patch_and_inventory_drift_fail_closed (tests.test_invalid_token_packaging.InvalidTokenPackagingTest.test_patch_and_inventory_drift_fail_closed) ... ok
+test_runtime_drift_fails_closed (tests.test_invalid_token_packaging.InvalidTokenPackagingTest.test_runtime_drift_fails_closed) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.089s
+
+OK
+[0;32m[OK][0m
+[0;90m/home/kanadaj/sglang-pr-fix-8-final >[0m [1;33mdocker image inspect --format \{\{.Id\}\} kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404 [0m
+sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404
+[0;32m[OK][0m
+[0;90m/home/kanadaj/sglang-pr-fix-8-final >[0m [1;33mdocker run --rm --pull never --network none --read-only --cap-drop all --security-opt no-new-privileges --cpus 4 --memory 12g --pids-limit 512 --user 1000:1000 --tmpfs /tmp:rw\,exec\,size=2g\,mode=1777\,uid=1000\,gid=1000 -e CUDA_VISIBLE_DEVICES= -e OMP_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e HOME=/tmp -e XDG_CACHE_HOME=/tmp/cache -e PYTHONDONTWRITEBYTECODE=1 -e QWEN_TOKENIZER_PATH=/home/kanadaj/nas/models/gpu-workstation/huggingface/local-inference-lab/Qwen3.8-Flash-Next-NVFP4 -v /home/kanadaj/nas/models/gpu-workstation/huggingface/local-inference-lab/Qwen3.8-Flash-Next-NVFP4:/home/kanadaj/nas/models/gpu-workstation/huggingface/local-inference-lab/Qwen3.8-Flash-Next-NVFP4:ro -v /home/kanadaj/sglang-pr-fix-8-final:/repo:ro -v /home/kanadaj/sglang-pr-fix-8-final/runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_completions.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_completions.py:ro -v /home/kanadaj/sglang-pr-fix-8-final/runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_chat.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_chat.py:ro -v /home/kanadaj/sglang-pr-fix-8-final/runtime/python/sglang/srt/entrypoints/openai/protocol.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py:ro -v /home/kanadaj/sglang-pr-fix-8-final/runtime.invalid-token-failure/python/sglang/srt/entrypoints/openai/serving_responses.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:ro -v /home/kanadaj/sglang-pr-fix-8-final/runtime/python/sglang/srt/entrypoints/openai/responses_compat.py:/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py:ro -v /home/kanadaj/sglang-pr-fix-8-final/runtime/python/sglang/srt/function_call/qwen3_coder_detector.py:/sgl-workspace/sglang/python/sglang/srt/function_call/qwen3_coder_detector.py:ro -v /home/kanadaj/sglang-pr-fix-8-final/runtime/python/sglang/srt/multimodal/processors/qwen_vl.py:/sgl-workspace/sglang/python/sglang/srt/multimodal/processors/qwen_vl.py:ro -v /home/kanadaj/sglang-pr-fix-8-final/runtime.invalid-token-failure/python/sglang/srt/managers/schedule_batch.py:/sgl-workspace/sglang/python/sglang/srt/managers/schedule_batch.py:ro --entrypoint python3 kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404 /repo/tests/runtime_invalid_token_failure.py -v [0m
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/awq/awq.py:52: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+W0914 14:32:17.456000 1 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+test_direct_renderer_policy_unchanged (runtime_chat_effort.ChatEffortTest.test_direct_renderer_policy_unchanged) ... ok
+test_effort_matrix_and_no_cross_request_leak (runtime_chat_effort.ChatEffortTest.test_effort_matrix_and_no_cross_request_leak) ... ok
+test_invalid_effort_rejected_in_both_forms (runtime_chat_effort.ChatEffortTest.test_invalid_effort_rejected_in_both_forms) ... ok
+test_top_level_xhigh_reaches_real_tokenizer (runtime_chat_effort.ChatEffortTest.test_top_level_xhigh_reaches_real_tokenizer) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py:1039: DeprecationWarning: max_tokens is deprecated in favor of the max_completion_tokens field
+  "max_new_tokens": self.max_completion_tokens or self.max_tokens,
+ok
+test_abort_cleanup_handles_serialized_status (__main__.InvalidTokenFailureTest.test_abort_cleanup_handles_serialized_status) ... ok
+test_chat_and_messages_stream_serialized_failure (__main__.InvalidTokenFailureTest.test_chat_and_messages_stream_serialized_failure) ... Forwarding upstream stream error (api_error): Generation produced an invalid token ID.
+ok
+test_completions_stream_graceful_abort_remains_choice (__main__.InvalidTokenFailureTest.test_completions_stream_graceful_abort_remains_choice) ... ok
+test_completions_stream_serialized_failure_is_sse_error (__main__.InvalidTokenFailureTest.test_completions_stream_serialized_failure_is_sse_error) ... ok
+test_failed_response_cannot_be_replayed_as_predecessor (__main__.InvalidTokenFailureTest.test_failed_response_cannot_be_replayed_as_predecessor) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:1982: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(
+ok
+test_failed_response_retrieval_preserves_failure_and_partial_output (__main__.InvalidTokenFailureTest.test_failed_response_retrieval_preserves_failure_and_partial_output) ... ok
+test_graceful_abort_remains_cancelled (__main__.InvalidTokenFailureTest.test_graceful_abort_remains_cancelled) ... ok
+test_harmony_responses_stream_failure_uses_failed_terminal_event (__main__.InvalidTokenFailureTest.test_harmony_responses_stream_failure_uses_failed_terminal_event) ... ok
+test_invalid_first_token_never_reaches_decode (__main__.InvalidTokenFailureTest.test_invalid_first_token_never_reaches_decode) ... ok
+test_invalid_token_is_failure_even_past_length_cap (__main__.InvalidTokenFailureTest.test_invalid_token_is_failure_even_past_length_cap) ... ok
+test_ordinary_scheduler_finishes_are_unchanged (__main__.InvalidTokenFailureTest.test_ordinary_scheduler_finishes_are_unchanged) ... ok
+test_responses_full_and_stream_expose_failure (__main__.InvalidTokenFailureTest.test_responses_full_and_stream_expose_failure) ... ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 0.846s
+
+OK
+[0;32m[OK][0m

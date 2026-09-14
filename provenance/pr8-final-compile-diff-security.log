@@ -1,0 +1,20 @@
+== base and provenance identities ==
+e5d93387e03c110de6f6f483a0ff5ed44d3a1a1e
+4059ace2b2faa2d7972f7704c8fdca0985a35b1a fix(runtime): surface invalid generated token failures
+63f43b7ad68b40831f3b1a47e880a56a2db66a42 fix(runtime): complete invalid token failure propagation
+== staged diff check ==
+PASS
+== Python and shell compile ==
+compiled 10 Python files
+shell syntax PASS
+== generated patch exact apply ==
+{"profile": "invalid-token-failure", "source_files": 4392, "full_tree_verified": true}
+== PR5/PR7 preservation ==
+qwen_vl b47003e1f0840a057519adff46fc72a9318a61e2eb3ef8cedfa9eab19e98b7f7 unchanged True
+_make_qwen_ordered_output_items 2
+preserve_qwen_order=is_qwen 1
+_make_failed_previous_response_error 3
+ResponsePhasedOutputItemAddedEvent 2
+== added-line security scan ==
+{'hardcoded_secret': 0, 'shell_injection': 0, 'dangerous_eval_exec': 0, 'unsafe_pickle': 0, 'sql_formatting': 0}
+PASS

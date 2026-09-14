@@ -1,0 +1,270 @@
+diff --git a/python/sglang/srt/entrypoints/openai/serving_chat.py b/python/sglang/srt/entrypoints/openai/serving_chat.py
+index 148f80abd1531132ec240ae76a5246de6a9ac3e5..9234892547d079df3bd9650314139d8c141eab66 100644
+--- a/python/sglang/srt/entrypoints/openai/serving_chat.py
++++ b/python/sglang/srt/entrypoints/openai/serving_chat.py
+@@ -1619,17 +1619,17 @@ class OpenAIServingChat(OpenAIServingBase):
+                     # /abort_request or session lifecycle cleanup) falls through
+                     # to the normal chunk path, matching the non-stream behavior
+                     # in tokenizer_manager._handle_abort_finish_reason.
+-                    if finish_reason_type == "abort" and isinstance(
+-                        finish_reason.get("status_code"), HTTPStatus
+-                    ):
+-                        code = finish_reason["status_code"]
++                    status_code = finish_reason.get("status_code")
++                    if finish_reason_type == "abort" and isinstance(status_code, int):
+                         error = self.create_streaming_error_response(
+                             finish_reason.get("message", "Generation aborted."),
+-                            code.name,
+-                            code.value,
++                            finish_reason.get("err_type")
++                            or HTTPStatus(status_code).name,
++                            status_code,
+                         )
+                         yield f"data: {error}\n\n"
+-                        break
++                        yield "data: [DONE]\n\n"
++                        return
+                     finish_reasons[index] = finish_reason
+ 
+                 # First chunk with role
+diff --git a/python/sglang/srt/entrypoints/openai/serving_completions.py b/python/sglang/srt/entrypoints/openai/serving_completions.py
+index d5587765bd73ab98afa51643ae0382aa22ec31f8..1f701086f196ddc593e02809a63ba74408d126bd 100644
+--- a/python/sglang/srt/entrypoints/openai/serving_completions.py
++++ b/python/sglang/srt/entrypoints/openai/serving_completions.py
+@@ -347,17 +347,19 @@ class OpenAIServingCompletion(OpenAIServingBase):
+                 # /abort_request or session lifecycle cleanup) falls through
+                 # to the normal chunk path, matching the non-stream behavior
+                 # in tokenizer_manager._handle_abort_finish_reason.
+-                if finish_reason_type == "abort" and isinstance(
+-                    finish_reason.get("status_code"), HTTPStatus
+-                ):
+-                    code = finish_reason["status_code"]
++                status_code = (
++                    finish_reason.get("status_code") if finish_reason else None
++                )
++                if finish_reason_type == "abort" and isinstance(status_code, int):
+                     error = self.create_streaming_error_response(
+                         finish_reason.get("message", "Generation aborted."),
+-                        code.name,
+-                        code.value,
++                        finish_reason.get("err_type")
++                        or HTTPStatus(status_code).name,
++                        status_code,
+                     )
+                     yield f"data: {error}\n\n"
+-                    break
++                    yield "data: [DONE]\n\n"
++                    return
+ 
+                 choice_data = CompletionResponseStreamChoice(
+                     index=index,
+diff --git a/python/sglang/srt/entrypoints/openai/serving_responses.py b/python/sglang/srt/entrypoints/openai/serving_responses.py
+index 844e0114bf269a864666c98a0e39c57127834580..b37663dc191991c53d29248c275d4fa6dbbf1153 100644
+--- a/python/sglang/srt/entrypoints/openai/serving_responses.py
++++ b/python/sglang/srt/entrypoints/openai/serving_responses.py
+@@ -315,6 +315,10 @@ class OpenAIServingResponses(OpenAIServingChat):
+                 async with self.response_store_lock:
+                     previous = self.response_store.get(request.previous_response_id)
+                     previous_registry = self._compat_registries.get(request.previous_response_id)
++                    if previous is not None and previous.status == "failed":
++                        return self._make_failed_previous_response_error(
++                            request.previous_response_id
++                        )
+                     if previous is not None and previous_registry is not None:
+                         registry.inherit_history(previous_registry, previous.output)
+             internal = request.model_dump(by_alias=True)
+@@ -417,6 +421,8 @@ class OpenAIServingResponses(OpenAIServingChat):
+                 prev_response = self.response_store.get(prev_response_id)
+             if prev_response is None:
+                 return self._make_not_found_error(prev_response_id)
++            if prev_response.status == "failed":
++                return self._make_failed_previous_response_error(prev_response_id)
+         else:
+             prev_response = None
+ 
+@@ -774,6 +780,7 @@ class OpenAIServingResponses(OpenAIServingChat):
+             return self.create_error_response(str(e))
+ 
+         status = "completed"
++        finish_reason = None
+         if self.use_harmony:
+             assert isinstance(context, HarmonyContext)
+             output = self._make_response_output_items_with_harmony(context)
+@@ -782,7 +789,8 @@ class OpenAIServingResponses(OpenAIServingChat):
+             num_generated_tokens = context.num_output_tokens
+             num_cached_tokens = context.num_cached_tokens
+             num_reasoning_tokens = context.num_reasoning_tokens
+-            status = self._status_from_finish_reason(context.finish_reason)
++            finish_reason = context.finish_reason
++            status = self._status_from_finish_reason(finish_reason)
+         else:
+             assert isinstance(context, SimpleContext)
+             final_res = context.last_output
+@@ -797,9 +805,10 @@ class OpenAIServingResponses(OpenAIServingChat):
+             elif hasattr(final_res, "meta_info"):
+                 meta_info = final_res.meta_info
+ 
+-            status = self._status_from_finish_reason(
++            finish_reason = (
+                 meta_info.get("finish_reason") if meta_info is not None else None
+             )
++            status = self._status_from_finish_reason(finish_reason)
+ 
+             final_text = final_res["text"]
+             model_type = self.tokenizer_manager.model_config.hf_config.model_type
+@@ -857,7 +866,8 @@ class OpenAIServingResponses(OpenAIServingChat):
+                 num_generated_tokens = meta_info.get("completion_tokens", 0)
+                 num_cached_tokens = meta_info.get("cached_tokens", 0)
+                 num_reasoning_tokens = meta_info.get("reasoning_tokens", 0)
+-                status = self._status_from_finish_reason(meta_info.get("finish_reason"))
++                finish_reason = meta_info.get("finish_reason")
++                status = self._status_from_finish_reason(finish_reason)
+             elif isinstance(final_res, dict) and (
+                 final_res.get("prompt_token_ids") is not None
+                 or final_res.get("output_ids") is not None
+@@ -913,6 +923,7 @@ class OpenAIServingResponses(OpenAIServingChat):
+             status=status,
+             usage=usage,
+         )
++        response.error = self._error_from_finish_reason(finish_reason)
+ 
+         if request.store:
+             async with self.response_store_lock:
+@@ -936,9 +947,27 @@ class OpenAIServingResponses(OpenAIServingChat):
+             reason = finish_reason.get("type")
+         elif isinstance(finish_reason, str):
+             reason = finish_reason
++        if reason == "length":
++            return "incomplete"
++        if reason == "error":
++            return "failed"
+         if reason == "abort":
++            if (
++                isinstance(finish_reason, dict)
++                and finish_reason.get("status_code") is not None
++            ):
++                return "failed"
+             return "cancelled"
+-        return "incomplete" if reason == "length" else "completed"
++        return "completed"
++
++    @classmethod
++    def _error_from_finish_reason(cls, finish_reason: Any) -> Optional[dict]:
++        if cls._status_from_finish_reason(finish_reason) != "failed":
++            return None
++        message = (
++            finish_reason.get("message") if isinstance(finish_reason, dict) else None
++        )
++        return {"code": "server_error", "message": message or "Generation aborted"}
+ 
+     def _is_thinking_enabled_for_request(self, request: ResponsesRequest) -> bool:
+         if not self.reasoning_parser:
+@@ -1949,6 +1978,16 @@ class OpenAIServingResponses(OpenAIServingChat):
+             param="response_id",
+         )
+ 
++    def _make_failed_previous_response_error(self, response_id: str):
++        return self.create_error_response(
++            message=(
++                f"Response with id '{response_id}' cannot be used as a previous "
++                "response because its status is 'failed'."
++            ),
++            err_type="invalid_request_error",
++            param="previous_response_id",
++        )
++
+     async def responses_stream_generator(
+         self,
+         request: ResponsesRequest,
+@@ -2372,9 +2411,26 @@ class OpenAIServingResponses(OpenAIServingChat):
+         # OpenAI SDK's Tool union may not know extended types; drop echo.
+         response_dict["tools"] = []
+ 
++        status = final_response.status
++        terminal_event = (
++            openai_responses_types.ResponseIncompleteEvent if status == "incomplete"
++            else (
++                openai_responses_types.ResponseFailedEvent
++                if status in ("failed", "cancelled")
++                else openai_responses_types.ResponseCompletedEvent
++            )
++        )
++        terminal_type = (
++            "response.incomplete" if status == "incomplete"
++            else (
++                "response.failed"
++                if status in ("failed", "cancelled")
++                else "response.completed"
++            )
++        )
+         yield _send_event(
+-            openai_responses_types.ResponseCompletedEvent(
+-                type="response.completed",
++            terminal_event(
++                type=terminal_type,
+                 sequence_number=-1,
+                 response=response_dict,
+             )
+@@ -3125,6 +3181,7 @@ class OpenAIServingResponses(OpenAIServingChat):
+             status=status,
+             usage=usage,
+         )
++        final_response.error = self._error_from_finish_reason(finish_reason)
+         if request.store:
+             async with self.response_store_lock:
+                 stored = self.response_store.get(final_response.id)
+@@ -3136,12 +3193,19 @@ class OpenAIServingResponses(OpenAIServingChat):
+ 
+         terminal_event = (
+             openai_responses_types.ResponseIncompleteEvent if status == "incomplete"
+-            else openai_responses_types.ResponseFailedEvent if status == "cancelled"
+-            else openai_responses_types.ResponseCompletedEvent
++            else (
++                openai_responses_types.ResponseFailedEvent
++                if status in ("failed", "cancelled")
++                else openai_responses_types.ResponseCompletedEvent
++            )
+         )
+         terminal_type = (
+             "response.incomplete" if status == "incomplete"
+-            else "response.failed" if status == "cancelled" else "response.completed"
++            else (
++                "response.failed"
++                if status in ("failed", "cancelled")
++                else "response.completed"
++            )
+         )
+         yield _send_event(
+             terminal_event(
+diff --git a/python/sglang/srt/managers/schedule_batch.py b/python/sglang/srt/managers/schedule_batch.py
+index ee5445d5ee855acbc3da66bdb9a0b877984782f8..2c993ecce431744d9d9880abef1d567c0b06b3a5 100755
+--- a/python/sglang/srt/managers/schedule_batch.py
++++ b/python/sglang/srt/managers/schedule_batch.py
+@@ -1603,8 +1603,14 @@ class Req(ReqDllmMixin):
+                     )
+                 if self.eos_token_ids:
+                     self.output_ids[offset] = next(iter(self.eos_token_ids))
+-                self.finished_reason = FINISH_MATCHED_STR(matched="NaN happened")
+-                self.finished_len = offset + 1
++                self.finished_reason = FINISH_ABORT(
++                    "Generation produced an invalid token ID.",
++                    status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
++                    err_type="InvalidTokenError",
++                )
++                # Never emit the faulty token or let a speculative overrun hide
++                # the engine failure behind an ordinary length finish.
++                self.finished_len = min(offset, self.sampling_params.max_new_tokens)
+                 return True
+ 
+         return False
+@@ -1632,9 +1638,8 @@ class Req(ReqDllmMixin):
+ 
+         new_accepted_tokens = self.output_ids[-new_accepted_len:]
+ 
+-        # Sanitize out-of-range / NaN token ids before any decode.
++        # Reject out-of-range token IDs before any decode.
+         if self._check_vocab_boundary_finish(new_accepted_tokens):
+-            self._cap_finished_len_at_max_new_tokens()
+             return
+ 
+         # Stop string beats EOS/stop-token matched in the same step (speculative

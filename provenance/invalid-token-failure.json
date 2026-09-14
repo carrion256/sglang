@@ -1,0 +1,73 @@
+{
+  "status": "CPU-tested and locally built candidate; not published or deployed",
+  "base_main_commit": "e5d93387e03c110de6f6f483a0ff5ed44d3a1a1e",
+  "original_pr8_head": "4059ace2b2faa2d7972f7704c8fdca0985a35b1a",
+  "reviewed_functional_head": "63f43b7ad68b40831f3b1a47e880a56a2db66a42",
+  "predecessor_profile": "qwen-multimodal-alias",
+  "base_image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+  "base_inventory": "qwen-multimodal-alias-runtime-files.json",
+  "base_inventory_sha256": "c88e18731d4ef0b4cd5a71c5f4b486def1677802c86303907ee50f2317714395",
+  "patch": "0019-invalid-generated-token-failure.patch",
+  "patch_sha256": "21c16814e9e3cfa3bc521ad1ee60cc6a9fe99a320b0b2c2717ba51e08b637e71",
+  "series": [
+    "0015-qwen-flash-next-effort-alias.patch",
+    "0016-responses-namespace-custom-boundary.patch",
+    "0017-responses-phase-order.patch",
+    "0018-qwen-flash-next-multimodal-alias.patch",
+    "0019-invalid-generated-token-failure.patch"
+  ],
+  "files": {
+    "python/sglang/srt/entrypoints/openai/serving_chat.py": {
+      "before": "07ccd04de5f716277d2df873f66bdc4c03d13f7e89aad105c6dcba979ff47931",
+      "after": "e36c887507fe94aa13cd2fc97930f253fd129339959cd846d3ec7ad4274b2824"
+    },
+    "python/sglang/srt/entrypoints/openai/serving_completions.py": {
+      "before": "67f08075f21481b03e246327c7453f57ac001d0f3e78f5a9247caa553e1942e3",
+      "after": "0d21d557ef38d0639e4030bff764ecca8a266ef6d60284cf959c56d9dec751a1"
+    },
+    "python/sglang/srt/entrypoints/openai/serving_responses.py": {
+      "before": "e65084c831bb3755bcef6a3288587582c065538857b58d09c8d2c2bc3ecf696c",
+      "after": "b971172798d974217a43127f3a831d28974bbad6c36f2dc8754ca940edf6e4d2"
+    },
+    "python/sglang/srt/managers/schedule_batch.py": {
+      "before": "4965156c669a536b40250605794de9d9aa7582fde71d188ab2ecf22e766e755a",
+      "after": "56b475c078d2aed7fc626dd7f41559b169498da285bf729d94b76e8abda13c42"
+    }
+  },
+  "source_files_before": 4392,
+  "source_files_after": 4392,
+  "inventory": "invalid-token-failure-runtime-files.json",
+  "inventory_sha256": "f7293cc004161bcad39bc3772939fd868f8fc9d6f09d2cdb7b7ffd5a23333e1d",
+  "validation": {
+    "invalid_token_runtime_tests": 16,
+    "invalid_token_packaging_tests": 4,
+    "responses_tests": 75,
+    "effort_tests": 14,
+    "multimodal_tests": 4,
+    "full_package_tests": 90,
+    "dedicated_packaging_tests": 17,
+    "exact_image_reconstructions": 2,
+    "exact_image_tree_digest_sha256": "72d547ccf24958a58b97a931b8535b97327f4b8bfc03ef368e478d5abd58a490",
+    "local_candidate_image_digest": "sha256:6122dbac2c26cb7852b9e8e44787e95ade096de82929dc9d2d93d53a86aaa227",
+    "logs": {
+      "pr8-final-invalid-token-green.log": "13bba3308630c9f717e34471232baa9de7b98a76f67dd8580f9adc6ade814169",
+      "pr8-final-responses-75.log": "632433f45858173ad07267127c83600cee6605c759c4e6d4e7e4e5eef49dbfa7",
+      "pr8-final-effort-14.log": "ee686891fc42e268d9e8b0d9b7f013c6dec903c4665b7873d7ed4a44c0c57d8f",
+      "pr8-final-multimodal-4.log": "971be1d1103932de55cb49a92c42a3b5b7f4409a1cfb1c182c80523ce6de9aca",
+      "pr8-final-full-package.log": "9bd74e7c9de43b61156ad6b547c9e8bf6f5838afd4a79d153785b427896d8847",
+      "pr8-final-packaging-17.log": "28f8f82e4e95c8de296c75f35c475104d9a92e86e629d8a21828389144fbbed3",
+      "pr8-final-exact-image-reconstruction-twice.log": "8d70ea13623e3bf30992790819581bbd632ce4eb57a78e09ddc935f14be73dae",
+      "pr8-final-docker-build-readback.log": "cd5a2a86f239f79ac002b1f40bb9ed73683839d2006ee3d1c40ed235dfba5950",
+      "pr8-final-compile-diff-security.log": "80e47f0993b198cf1ab22695be8415e11d52df3e95a13875f9dc74b0631cf892",
+      "pr8-harmony-terminal-red.log": "cb00fd10231239dca54a539de85143dea571a27639025bc7acf22f220b8e47e3"
+    }
+  },
+  "scope": [
+    "Scheduler invalid generated-token classification without faulty-token emission",
+    "Chat and Completions InvalidTokenError streaming propagation",
+    "Responses failed terminals (Harmony and non-Harmony), storage, retrieval, and pre-generation replay rejection",
+    "Graceful cancellation behavior preservation",
+    "PR5 Responses phase/order behavior and PR7 Qwen VL bytes preservation"
+  ],
+  "terminal_event_fix_base_head": "cb8a491af7ad664e207fe2fb7d7bded4fd8a4dbb"
+}
