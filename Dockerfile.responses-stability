@@ -1,0 +1,11 @@
+# Responses-only follow-up on the pinned cumulative API image; no HiCache dependency.
+FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/kanadaj/sglang" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}"
+COPY patches/0028-responses-stream-stability.patch patches/series.responses-stability /opt/qwen-responses-stability/patches/
+COPY provenance/invalid-token-failure-runtime-files.json provenance/responses-stability.json /opt/qwen-responses-stability/provenance/
+COPY scripts/verify_responses_stability.py /opt/qwen-responses-stability/scripts/verify_responses_stability.py
+RUN python3 -B /opt/qwen-responses-stability/scripts/verify_responses_stability.py --tree /sgl-workspace/sglang --apply
+ENTRYPOINT ["python3", "-m", "sglang.launch_server"]
+CMD ["--help"]
