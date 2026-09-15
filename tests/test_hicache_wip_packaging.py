@@ -31,6 +31,7 @@ class HiCacheWipPackagingTest(unittest.TestCase):
                 "0025-hicache-load-order.patch",
                 "0026-qsa-short-extend-bounds.patch",
                 "0027-qsa-paged-prefill.patch",
+                "0029-hicache-common-boundary.patch",
             ],
         )
 
