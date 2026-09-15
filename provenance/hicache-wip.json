@@ -1,5 +1,5 @@
 {
-  "status": "DRAFT / WIP: paged-prefill candidate; GPU validation pending; prior profile qualification does not qualify this change",
+  "status": "DRAFT / WIP: opt-in profile; configuration-specific qualification is recorded in docs/hicache-wip.md",
   "base_git_commit": "b52479451e88b0c54930f285c4406f789a11c1cd",
   "base_image": "docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458",
   "base_inventory": "provenance/invalid-token-failure-runtime-files.json",
@@ -146,12 +146,22 @@
           "after": "3a3cf52e7e7264d3f147bef6e8a8ec98350d80b40f65994b39e931a2d11f2d68"
         }
       }
+    },
+    {
+      "file": "0029-hicache-common-boundary.patch",
+      "sha256": "2b262e429e247dd9baff488a90ed4f4c7a4a9d906647ec12aa65315deb08f3cf",
+      "files": {
+        "python/sglang/srt/mem_cache/hicache_storage.py": {
+          "before": "09f53cb53e4359d369a072470c54bc2fcc1141ce649c05d98ffcef50f92be21d",
+          "after": "2acaf4074f39457f5194940ae348d7aacf4dd49010766d7272a61bbddab359c2"
+        }
+      }
     }
   ],
   "files": {
     "python/sglang/srt/mem_cache/hicache_storage.py": {
       "before": "de92d6c7228f3c93d889e1c054f867235055f74663b2808c5456e53ff040be86",
-      "after": "09f53cb53e4359d369a072470c54bc2fcc1141ce649c05d98ffcef50f92be21d"
+      "after": "2acaf4074f39457f5194940ae348d7aacf4dd49010766d7272a61bbddab359c2"
     },
     "python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py": {
       "before": "bc06826aeae69fa9702469d6a8606fba6efafe66433e402f9a8fd488dfdb1096",
@@ -214,7 +224,7 @@
       "after": "72c5d471a67729446ec9b1c0d810bc87bc85149c381c213adfb4119eddde9a7c"
     }
   },
-  "result_inventory_sha256": "942d1e41b907cb508f4bf39fe9570af44ac06ada82d1c8abfdefe618c91616f2",
+  "result_inventory_sha256": "617c2e0873b7c1f52780a201014f18ca1f82cf07ef0a64554e104512e09468d8",
   "retained_validation": {
     "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
     "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",

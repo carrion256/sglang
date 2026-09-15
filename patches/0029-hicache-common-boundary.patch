@@ -1,0 +1,53 @@
+--- a/python/sglang/srt/mem_cache/hicache_storage.py
++++ b/python/sglang/srt/mem_cache/hicache_storage.py
+@@ -626,31 +626,32 @@
+             len(keys),
+         )
+ 
+-        hit_count: dict[str, int] = {PoolName.KV: kv_pages} if kv_pages else {}
+-        final_pages = kv_pages
+-
++        # A trailing checkpoint must exist at the final shared boundary, not
++        # merely at some longer prefix selected independently for that pool.
++        valid_pages = set(range(1, kv_pages + 1))
+         for transfer in pool_transfers or []:
+-            if final_pages == 0:
+-                break
+             name = transfer.name
+             if transfer.hit_policy == PoolHitPolicy.ALL_PAGES:
+                 boundary = next(
+                     (i for i in range(kv_pages) if not has_component(i, name)), kv_pages
+                 )
+-            else:  # trailing_pages
++                valid_pages.intersection_update(range(1, boundary + 1))
++            else:
+                 trailing = max(1, len(transfer.keys) if transfer.keys else 1)
+-                boundary = 0
+-                for prefix_len in range(kv_pages, 0, -1):
+-                    if all(
+-                        has_component(i, name)
+-                        for i in range(max(0, prefix_len - trailing), prefix_len)
+-                    ):
+-                        boundary = prefix_len
+-                        break
+-            if boundary:
+-                hit_count[name] = boundary
+-            final_pages = min(final_pages, boundary)
+-
++                consecutive = 0
++                boundaries = set()
++                for i in range(kv_pages):
++                    consecutive = consecutive + 1 if has_component(i, name) else 0
++                    if consecutive >= min(trailing, i + 1):
++                        boundaries.add(i + 1)
++                valid_pages.intersection_update(boundaries)
++            if not valid_pages:
++                break
++
++        final_pages = max(valid_pages, default=0)
++        hit_count = {PoolName.KV: final_pages} if final_pages else {}
++        if final_pages:
++            hit_count.update({t.name: final_pages for t in pool_transfers or []})
+         return PoolTransferResult(final_pages, hit_count)
+ 
+     def _log_key(self, pool_name: str, key: str) -> str:
