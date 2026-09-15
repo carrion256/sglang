@@ -132,12 +132,22 @@
           "after": "72c5d471a67729446ec9b1c0d810bc87bc85149c381c213adfb4119eddde9a7c"
         }
       }
+    },
+    {
+      "file": "0029-hicache-common-boundary.patch",
+      "sha256": "2b262e429e247dd9baff488a90ed4f4c7a4a9d906647ec12aa65315deb08f3cf",
+      "files": {
+        "python/sglang/srt/mem_cache/hicache_storage.py": {
+          "before": "09f53cb53e4359d369a072470c54bc2fcc1141ce649c05d98ffcef50f92be21d",
+          "after": "2acaf4074f39457f5194940ae348d7aacf4dd49010766d7272a61bbddab359c2"
+        }
+      }
     }
   ],
   "files": {
     "python/sglang/srt/mem_cache/hicache_storage.py": {
       "before": "de92d6c7228f3c93d889e1c054f867235055f74663b2808c5456e53ff040be86",
-      "after": "09f53cb53e4359d369a072470c54bc2fcc1141ce649c05d98ffcef50f92be21d"
+      "after": "2acaf4074f39457f5194940ae348d7aacf4dd49010766d7272a61bbddab359c2"
     },
     "python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py": {
       "before": "bc06826aeae69fa9702469d6a8606fba6efafe66433e402f9a8fd488dfdb1096",
@@ -200,7 +210,7 @@
       "after": "72c5d471a67729446ec9b1c0d810bc87bc85149c381c213adfb4119eddde9a7c"
     }
   },
-  "result_inventory_sha256": "f0f4eb40679807cb03a7c92c010df00bdeecc1262fb9a83c505b96ed9379a542",
+  "result_inventory_sha256": "3aae4b68d2c5de04ffac4b576ebb8e50ee58ba9dc217dd64db93745c57bae7e8",
   "retained_validation": {
     "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
     "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",
