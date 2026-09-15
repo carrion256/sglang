@@ -37,6 +37,7 @@ if [[ -n "${HICACHE_WIP_IMAGE:-}" ]]; then
     -e QWEN_HICACHE_TEST_DEVICE=cpu \
     -e PYTHONPATH=/hicache-tests:/sgl-workspace/sglang/python \
     -v "$(pwd)/validation/hicache:/hicache-tests:ro" \
+    -v "$(pwd)/validation/prefill:/prefill-tests:ro" \
     --entrypoint python3 "$HICACHE_WIP_IMAGE" -c \
     'from sglang.test.test_utils import maybe_stub_sgl_kernel; maybe_stub_sgl_kernel(); import pytest,sys; sys.exit(pytest.main(sys.argv[1:]))' \
     /hicache-tests/test_hicache_ple_local.py \
@@ -44,5 +45,6 @@ if [[ -n "${HICACHE_WIP_IMAGE:-}" ]]; then
     /hicache-tests/test_hicache_qsa_local.py \
     /hicache-tests/test_hicache_load_order.py \
     /hicache-tests/test_qsa_short_extend.py \
+    /prefill-tests/test_paged_prefill_cpu.py \
     -q -p no:cacheprovider
 fi

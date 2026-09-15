@@ -1,3 +1,5 @@
+> Patch 0027 has separate GPU and runtime validation, completed 2026-09-15. Earlier results below apply to patches through 0026. See [paged-prefill results and limitations](qsa-paged-prefill.md).
+
 # Qwen HiCache state transfer — opt-in profile
 
 ## Status
