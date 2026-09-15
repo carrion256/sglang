@@ -5,3 +5,4 @@
 0024-router-pdl-bias-order.patch
 0025-hicache-load-order.patch
 0026-qsa-short-extend-bounds.patch
+0027-qsa-paged-prefill.patch

@@ -1,5 +1,5 @@
 {
-  "status": "DRAFT / WIP: opt-in profile; configuration-specific qualification is recorded in docs/hicache-wip.md",
+  "status": "DRAFT / WIP: paged-prefill candidate; GPU validation pending; prior profile qualification does not qualify this change",
   "base_git_commit": "b52479451e88b0c54930f285c4406f789a11c1cd",
   "base_image": "docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458",
   "base_inventory": "provenance/invalid-token-failure-runtime-files.json",
@@ -132,6 +132,20 @@
           "after": "72c5d471a67729446ec9b1c0d810bc87bc85149c381c213adfb4119eddde9a7c"
         }
       }
+    },
+    {
+      "file": "0027-qsa-paged-prefill.patch",
+      "sha256": "3c97dd075e46f0595e0cab7865b30991cefc1ef8fcc69bb7647b3476472a483d",
+      "files": {
+        "python/sglang/srt/layers/attention/qsa/sparse_attn.py": {
+          "before": "6773d7fe83d42878efa9d65a49260b84fd13336f6192828cb093cba44ad5c930",
+          "after": "3a4e4a69f0e249111b77ad3e91d8e4284a8f1ded977e1760e0b8a78cd5b2e16a"
+        },
+        "python/sglang/srt/layers/attention/qwen_sparse_attn_backend.py": {
+          "before": "99e719d0c90be7cd43738cf06fc1a610b0d6cdd6bc42c4b235091962366885f5",
+          "after": "3a3cf52e7e7264d3f147bef6e8a8ec98350d80b40f65994b39e931a2d11f2d68"
+        }
+      }
     }
   ],
   "files": {
@@ -169,11 +183,11 @@
     },
     "python/sglang/srt/layers/attention/qsa/sparse_attn.py": {
       "before": "c7052125569f3c0fa9a0a4d62d2f57433faec636ad82a1d99c3b39e267b7904c",
-      "after": "6773d7fe83d42878efa9d65a49260b84fd13336f6192828cb093cba44ad5c930"
+      "after": "3a4e4a69f0e249111b77ad3e91d8e4284a8f1ded977e1760e0b8a78cd5b2e16a"
     },
     "python/sglang/srt/layers/attention/qwen_sparse_attn_backend.py": {
       "before": "12c4d4d34774e5592c3a3ba3956d19a280606007e0161598e4e108bb6caa479b",
-      "after": "99e719d0c90be7cd43738cf06fc1a610b0d6cdd6bc42c4b235091962366885f5"
+      "after": "3a3cf52e7e7264d3f147bef6e8a8ec98350d80b40f65994b39e931a2d11f2d68"
     },
     "python/sglang/kernels/ops/moe/moe_fused_gate.py": {
       "before": "945eae03580d034420a20f2c38adf8d9ae8fed4a13de364d8c235466ffc513b0",
@@ -200,7 +214,7 @@
       "after": "72c5d471a67729446ec9b1c0d810bc87bc85149c381c213adfb4119eddde9a7c"
     }
   },
-  "result_inventory_sha256": "f0f4eb40679807cb03a7c92c010df00bdeecc1262fb9a83c505b96ed9379a542",
+  "result_inventory_sha256": "942d1e41b907cb508f4bf39fe9570af44ac06ada82d1c8abfdefe618c91616f2",
   "retained_validation": {
     "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
     "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",
