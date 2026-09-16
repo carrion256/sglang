@@ -7,3 +7,5 @@
 0026-qsa-short-extend-bounds.patch
 0027-qsa-paged-prefill.patch
 0029-hicache-common-boundary.patch
+0030-hicache-selective-diagnostics.patch
+0031-hicache-prefill-impact.patch
