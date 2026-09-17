@@ -1,0 +1,78 @@
+--- a/python/sglang/srt/entrypoints/openai/serving_chat.py
++++ b/python/sglang/srt/entrypoints/openai/serving_chat.py
+@@ -1062,6 +1062,31 @@
+             self.tokenizer_manager.model_config.hf_config, "model_type", None
+         ) in ("qwen3_8_flash_next", "qwen3_8_flash_next_text")
+ 
++    def _default_qwen_tool_strictness(self, request):
++        if not self._uses_qwen_flash_next_effort_aliases():
++            return request
++
++        def normalize(tools):
++            if tools is None:
++                return None
++            return [
++                tool.model_copy(update={
++                    "function": tool.function.model_copy(update={"strict": True})
++                })
++                if "strict" not in tool.function.model_fields_set else tool
++                for tool in tools
++            ]
++
++        # Copy tool containers only; long conversation bodies remain shared/read-only.
++        messages = [
++            message.model_copy(update={"tools": normalize(message.tools)})
++            if getattr(message, "tools", None) else message
++            for message in request.messages
++        ]
++        return request.model_copy(update={
++            "tools": normalize(request.tools), "messages": messages
++        })
++
+     def _process_messages(
+         self,
+         request: ChatCompletionRequest,
+@@ -1070,6 +1095,7 @@
+         request_first_reasoning_effort: bool = False,
+     ) -> MessageProcessingResult:
+         """Process chat messages and apply chat template"""
++        request = self._default_qwen_tool_strictness(request)
+         if self._uses_qwen_flash_next_effort_aliases():
+             # Rendering-only compatibility: retain literal API effort/provenance.
+             # This path also serves Responses, Anthropic Messages, and tokenization.
+--- a/python/sglang/srt/entrypoints/openai/serving_responses.py
++++ b/python/sglang/srt/entrypoints/openai/serving_responses.py
+@@ -302,6 +302,24 @@
+     def _request_id_prefix(self) -> str:
+         return "resp_"
+ 
++    def _default_qwen_response_tool_strictness(self, request):
++        if not self._uses_qwen_flash_next_effort_aliases() or not request.tools:
++            return request
++        tools = []
++        for tool in request.tools:
++            if tool.type == "function" and "strict" not in tool.model_fields_set:
++                tool = tool.model_copy(update={"strict": True})
++            elif tool.type == "namespace" and tool.tools:
++                members = [
++                    {**member, "strict": True}
++                    if member.get("type") == "function" and "strict" not in member
++                    else member
++                    for member in tool.tools
++                ]
++                tool = tool.model_copy(update={"tools": members})
++            tools.append(tool)
++        return request.model_copy(update={"tools": tools})
++
+     async def create_responses(
+         self,
+         request: ResponsesRequest,
+@@ -310,6 +328,8 @@
+         try:
+             if request.background and not request.store:
+                 raise ValueError("Background responses require store=true")
++            # Preserve omission before registry flattening supplies false defaults.
++            request = self._default_qwen_response_tool_strictness(request)
+             registry = ToolRegistry(request.tools, reasoning=request.reasoning, tool_choice=request.tool_choice)
+             if request.previous_response_id is not None:
+                 async with self.response_store_lock:
