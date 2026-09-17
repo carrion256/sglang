@@ -1,0 +1,196 @@
+--- a/python/sglang/srt/mem_cache/cache_diagnostics.py
++++ b/python/sglang/srt/mem_cache/cache_diagnostics.py
+@@ -1,7 +1,8 @@
+ """Bounded, request-level explanations for cache work that could not be reused."""
+ import logging
+ import time
+-from collections import Counter
++from collections import Counter, OrderedDict
++import json
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -19,6 +20,7 @@
+         self.counts = Counter()
+         self.suppressed = Counter()
+         self.last_log = {}
++        self.pending = OrderedDict()
+         self.metric = None
+         if metrics:
+             from prometheus_client import Counter as PromCounter
+@@ -29,12 +31,19 @@
+             )
+             self.metric_labels = {'tp_rank': str(rank), 'dp_rank': str(dp_rank)}
+ 
+-    def record(self, request_id, reason, requested=0, matched=0, elapsed=0.0, budget=0.0):
++    def record(self, request_id, reason, requested=0, matched=0, elapsed=0.0, budget=0.0, details=None):
+         self.counts[reason] += 1
+         if self.metric is not None:
+             self.metric.labels(**self.metric_labels, reason=reason).inc()
+         if self.rank != 0 or reason in self.QUIET:
+             return
++        event = dict(reason=reason, requested=requested, matched=matched,
++                     elapsed_s=round(elapsed, 3), budget_s=round(budget, 3),
++                     details=details or {})
++        self.pending[request_id] = event
++        self.pending.move_to_end(request_id)
++        if len(self.pending) > 4096:
++            self.pending.popitem(last=False)
+         now = self.clock()
+         if reason in self.PRESSURE:
+             if requested < self.LARGE_REQUEST:
+@@ -46,9 +55,33 @@
+         suppressed = self.suppressed.pop(reason, 0)
+         logger.info(
+             'HiCache restore fallback req=%r reason=%s requested=%d matched=%d '
+-            'elapsed_s=%.3f budget_s=%.3f suppressed=%d',
++            'elapsed_s=%.3f budget_s=%.3f suppressed=%d details=%s',
+             request_id, reason, requested, matched, elapsed, budget, suppressed,
++            json.dumps(details or {}, sort_keys=True),
+         )
++
++    def admission(self, request_id, input_tokens, reused_tokens, host_hit_tokens=0,
++                  storage_loaded_tokens=0):
++        event = self.pending.pop(request_id, None)
++        new_tokens = max(0, input_tokens - reused_tokens)
++        if event is None or new_tokens < self.LARGE_REQUEST:
++            return
++        logger.info(
++            'HiCache prefill impact req=%r input_tokens=%d reused_tokens=%d '
++            'host_hit_tokens=%d storage_loaded_tokens=%d admitted_new_tokens=%d fallback=%s',
++            request_id, input_tokens, reused_tokens, host_hit_tokens,
++            storage_loaded_tokens, new_tokens, json.dumps(event, sort_keys=True),
++        )
++
++
++def operation_details(operation):
++    return {
++        'raw_kv_tokens': getattr(operation, 'diagnostic_kv_tokens', 0),
++        'local_compatible_tokens': getattr(operation, 'diagnostic_local_hit_tokens', 0),
++        'synced_compatible_tokens': getattr(operation, 'diagnostic_synced_hit_tokens', 0),
++        'selected_tokens': getattr(operation, 'storage_hit_count', 0),
++        'allocation': getattr(operation, 'diagnostic_allocation', {}),
++    }
+ 
+ 
+ def record_cache_decision(cache, request_id, reason, **fields):
+--- a/python/sglang/srt/mem_cache/unified_radix_cache.py
++++ b/python/sglang/srt/mem_cache/unified_radix_cache.py
+@@ -10,7 +10,7 @@
+ 
+ from sglang.srt.distributed.communication_tags import P2PTag
+ from sglang.srt.environ import envs
+-from sglang.srt.mem_cache.cache_diagnostics import CacheDiagnostics, record_cache_decision
++from sglang.srt.mem_cache.cache_diagnostics import CacheDiagnostics, record_cache_decision, operation_details
+ from sglang.srt.mem_cache.base_prefix_cache import (
+     BasePrefixCache,
+     DecLockRefParams,
+@@ -1275,7 +1275,8 @@
+             CacheTransferPhase.PREFETCH, kv_xfer, comp_xfers
+         )
+         if alloc_failed:
+-            record_cache_decision(self, req_id, "component_capacity", requested=prefetch_length)
++            record_cache_decision(self, req_id, "component_capacity", requested=prefetch_length,
++                                  details={"component": str(ct)})
+             self.cache_controller.append_host_mem_release(
+                 extra_pools=[x for xfers in comp_xfers.values() for x in xfers],
+             )
+@@ -1450,6 +1451,7 @@
+                 self, req_id,
+                 "checkpoint_missing" if kv_tokens > local_tokens else "peer_miss",
+                 requested=len(prefetch_key), matched=max(kv_tokens, local_tokens),
++                details=operation_details(operation),
+                 elapsed=time.monotonic() - operation.start_time,
+             )
+         logger.info(
+@@ -1501,6 +1503,7 @@
+             operation.pool_storage_result.extra_pool_hit_pages if pool_transfers else {}
+         )
+         pool_hit_pages = [hit_pages.get(t.name, 0) for t in pool_transfers]
++        local_pool_hit_pages = list(pool_hit_pages)
+         packed = torch.tensor([completed_tokens, *pool_hit_pages], dtype=torch.int)
+         self._all_reduce_attn_groups(packed, torch.distributed.ReduceOp.MIN)
+         min_completed_tokens = int(packed[0].item())
+@@ -1542,6 +1545,13 @@
+             record_cache_decision(
+                 self, req_id, "restore_incomplete", requested=expected_tokens,
+                 matched=min_completed_tokens,
++                details={**operation_details(operation),
++                         "local_kv_completed": completed_tokens,
++                         "pools": [dict(pool=str(t.name),
++                                        expected_pages=len(t.keys) if t.keys is not None else None,
++                                        local_completed_pages=local,
++                                        synced_completed_pages=synced)
++                                   for t, local, synced in zip(pool_transfers, local_pool_hit_pages, pool_hit_pages)]},
+                 elapsed=time.monotonic() - operation.start_time,
+                 budget=self.prefetch_timeout_base + len(operation.hash_value) * self.prefetch_timeout_per_page,
+             )
+@@ -1558,6 +1568,9 @@
+         return self.prefetch_loaded_tokens_by_reqid.pop(req_id, 0)
+ 
+     def release_aborted_request(self, rid: str) -> None:
++        diagnostics = getattr(self, "cache_diagnostics", None)
++        if diagnostics is not None:
++            diagnostics.pending.pop(rid, None)
+         self.prefetch_loaded_tokens_by_reqid.pop(rid, None)
+         if rid not in self.ongoing_prefetch:
+             return
+@@ -1648,15 +1661,21 @@
+                     record_cache_decision(
+                         self, req_id, reason, requested=len(info.prefetch_key),
+                         matched=max(kv_tokens, local_tokens),
++                        details=operation_details(operation),
+                         elapsed=time.monotonic() - operation.start_time,
+                     )
+                     self._revoke_pending_prefetch(req_id)
+                     continue
+ 
+                 alloc_len = operation.storage_hit_count
++                operation.diagnostic_allocation = {
++                    "target_tokens": alloc_len,
++                    "free_before": cc.mem_pool_host.available_size(),
++                }
+                 host_indices = cc.mem_pool_host.alloc(alloc_len)
+                 if host_indices is None:
+                     self.evict_host(alloc_len)
++                    operation.diagnostic_allocation["free_after_eviction"] = cc.mem_pool_host.available_size()
+                     host_indices = cc.mem_pool_host.alloc(alloc_len)
+                 if host_indices is None:
+                     # Memory-pressure fallback: a shorter page-aligned prefix.
+@@ -1671,11 +1690,13 @@
+                     record_cache_decision(
+                         self, req_id, "host_capacity", requested=operation.storage_hit_count,
+                         matched=operation.storage_hit_count,
++                        details=operation_details(operation),
+                         elapsed=time.monotonic() - operation.start_time,
+                     )
+                     self._revoke_pending_prefetch(req_id)
+                     continue
+ 
++                operation.diagnostic_allocation["allocated_tokens"] = alloc_len
+                 operation.storage_hit_count = alloc_len
+                 operation.hash_value = operation.hash_value[
+                     : alloc_len // self.page_size
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -3369,11 +3369,20 @@
+                     req.storage_hit_length = loaded_tokens
+ 
+             req.init_next_round_input(self.tree_cache)
++            diagnostic_input_tokens = len(req.full_untruncated_fill_ids)
+             res = adder.add_one_req(
+                 req,
+                 has_chunked_req=(self.chunked_req is not None),
+                 truncation_align_size=self.truncation_align_size,
+             )
++
++            if self.enable_hicache_storage and adder.can_run_list and req is adder.can_run_list[-1]:
++                diagnostics = getattr(self.tree_cache, "cache_diagnostics", None)
++                if diagnostics is not None:
++                    diagnostics.admission(
++                        req.rid, diagnostic_input_tokens, len(req.prefix_indices),
++                        req.host_hit_length, getattr(req, "storage_hit_length", 0),
++                    )
+ 
+             if self.enable_lora:
+                 running_loras.add(req.lora_id)

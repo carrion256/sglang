@@ -5,7 +5,7 @@
   "base_inventory": "provenance/invalid-token-failure-runtime-files.json",
   "base_inventory_sha256": "f7293cc004161bcad39bc3772939fd868f8fc9d6f09d2cdb7b7ffd5a23333e1d",
   "source_files_before": 4392,
-  "source_files_after": 4393,
+  "source_files_after": 4394,
   "patches": [
     {
       "file": "0020-hicache-ple-state.patch",
@@ -156,16 +156,64 @@
           "after": "2acaf4074f39457f5194940ae348d7aacf4dd49010766d7272a61bbddab359c2"
         }
       }
+    },
+    {
+      "file": "0030-hicache-selective-diagnostics.patch",
+      "sha256": "9e2b9ca56af24f8c385a7b409cbd0c5c88ba0433f8c5faa17ef0da7d7c293327",
+      "files": {
+        "python/sglang/srt/mem_cache/hicache_storage.py": {
+          "before": "2acaf4074f39457f5194940ae348d7aacf4dd49010766d7272a61bbddab359c2",
+          "after": "40d5f963b0433dd144edc8f7a12304a113034cf25fa26d12fe06ec54b4e161c3"
+        },
+        "python/sglang/srt/mem_cache/unified_radix_cache.py": {
+          "before": "6e29ffa01adb96c9d400331850fe60b054cd83c980f033d36552e369a5d5c6ce",
+          "after": "f577f402d46b42aeaee40fd1f358b7e7de5caee087925ed278f3130e87740429"
+        },
+        "python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py": {
+          "before": "c6ddda7a329f84b99e31629c415eaca82360c6c95b83469ac2f482cca17bd5cb",
+          "after": "23f800fa1e190372caa6a6daf97cb3acdbe8788e642b93f4b442757fdf464cb5"
+        },
+        "python/sglang/srt/managers/cache_controller.py": {
+          "before": "005ee937a4d75bb379adb3b78c874b37ccc00fe0e201f34dba74b6249301434a",
+          "after": "f5e9d80af3c5e0ee8e12719c51e5e586aa16883ec7a736522f087463e57241b2"
+        },
+        "python/sglang/srt/managers/scheduler.py": {
+          "before": "1f7d64f0268595d8d6e03dd3233f98c523899f4e63876bef8f4683b21ddb4a19",
+          "after": "5555a3321f0506d2a8a048189ca57d06827389cc7fbe34a1572800f7ec410eea"
+        },
+        "python/sglang/srt/mem_cache/cache_diagnostics.py": {
+          "before": null,
+          "after": "7d64292e6438be10c6bc1f608a69baf68ba6173f8d12c0089a14da23e7502b30"
+        }
+      }
+    },
+    {
+      "file": "0031-hicache-prefill-impact.patch",
+      "sha256": "8cb72d46dadffbac428560a5a43ad9cc9edb71bc60e47fd2e730ca9ee808a343",
+      "files": {
+        "python/sglang/srt/mem_cache/cache_diagnostics.py": {
+          "before": "7d64292e6438be10c6bc1f608a69baf68ba6173f8d12c0089a14da23e7502b30",
+          "after": "fc9afe363981a6873e07c1cc1bd36a17e700ccb1604c658a5736774a0d938838"
+        },
+        "python/sglang/srt/mem_cache/unified_radix_cache.py": {
+          "before": "f577f402d46b42aeaee40fd1f358b7e7de5caee087925ed278f3130e87740429",
+          "after": "6b661945165bd99a53cc307a5a0f8289527bca05de35c76d849d832a337b1d41"
+        },
+        "python/sglang/srt/managers/scheduler.py": {
+          "before": "5555a3321f0506d2a8a048189ca57d06827389cc7fbe34a1572800f7ec410eea",
+          "after": "bd393068604952a8ca17e190e0a068e4a28ab23994f5c868ca53b57938ed6755"
+        }
+      }
     }
   ],
   "files": {
     "python/sglang/srt/mem_cache/hicache_storage.py": {
       "before": "de92d6c7228f3c93d889e1c054f867235055f74663b2808c5456e53ff040be86",
-      "after": "2acaf4074f39457f5194940ae348d7aacf4dd49010766d7272a61bbddab359c2"
+      "after": "40d5f963b0433dd144edc8f7a12304a113034cf25fa26d12fe06ec54b4e161c3"
     },
     "python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py": {
       "before": "bc06826aeae69fa9702469d6a8606fba6efafe66433e402f9a8fd488dfdb1096",
-      "after": "c6ddda7a329f84b99e31629c415eaca82360c6c95b83469ac2f482cca17bd5cb"
+      "after": "23f800fa1e190372caa6a6daf97cb3acdbe8788e642b93f4b442757fdf464cb5"
     },
     "python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py": {
       "before": "a348509b43c64ee979d838dfd7c6ee3350b6617edb608ccb0f593f7af86e7140",
@@ -209,11 +257,11 @@
     },
     "python/sglang/srt/managers/cache_controller.py": {
       "before": "3f323c0b08acb8b1de6f3ff8c08f1ed34d508afd186ae61d370f4e1087d89974",
-      "after": "005ee937a4d75bb379adb3b78c874b37ccc00fe0e201f34dba74b6249301434a"
+      "after": "f5e9d80af3c5e0ee8e12719c51e5e586aa16883ec7a736522f087463e57241b2"
     },
     "python/sglang/srt/managers/scheduler.py": {
       "before": "8bc11f8bd2ddef96bf32adc1fe5b52c3929e23538cde1047914eb336f3994595",
-      "after": "1f7d64f0268595d8d6e03dd3233f98c523899f4e63876bef8f4683b21ddb4a19"
+      "after": "bd393068604952a8ca17e190e0a068e4a28ab23994f5c868ca53b57938ed6755"
     },
     "python/sglang/srt/model_executor/model_runner.py": {
       "before": "d93a427b8ba77128ba0752adb990a1d69a489e3249c189ee9bca67583ace2069",
@@ -222,9 +270,17 @@
     "python/sglang/srt/layers/attention/qsa/qsa_indexer.py": {
       "before": "bb57ce1e9abc4fbfcba2c9aaaf125b9e625983966497df57165b6d4c6461afe2",
       "after": "72c5d471a67729446ec9b1c0d810bc87bc85149c381c213adfb4119eddde9a7c"
+    },
+    "python/sglang/srt/mem_cache/unified_radix_cache.py": {
+      "before": "6e29ffa01adb96c9d400331850fe60b054cd83c980f033d36552e369a5d5c6ce",
+      "after": "6b661945165bd99a53cc307a5a0f8289527bca05de35c76d849d832a337b1d41"
+    },
+    "python/sglang/srt/mem_cache/cache_diagnostics.py": {
+      "before": null,
+      "after": "fc9afe363981a6873e07c1cc1bd36a17e700ccb1604c658a5736774a0d938838"
     }
   },
-  "result_inventory_sha256": "617c2e0873b7c1f52780a201014f18ca1f82cf07ef0a64554e104512e09468d8",
+  "result_inventory_sha256": "cf90a253c052e4d325dfb39196f59b480e3531318c7c89282936bbe086bcfc70",
   "retained_validation": {
     "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
     "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",

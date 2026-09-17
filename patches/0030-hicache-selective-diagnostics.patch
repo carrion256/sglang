@@ -1,0 +1,268 @@
+--- a/python/sglang/srt/mem_cache/hicache_storage.py
++++ b/python/sglang/srt/mem_cache/hicache_storage.py
+@@ -125,6 +125,8 @@
+ 
+     kv_hit_pages: int
+     extra_pool_hit_pages: dict[str, int]
++    # Raw KV availability distinguishes cold misses from missing checkpoints.
++    kv_prefix_pages: Optional[int] = None
+ 
+     @classmethod
+     def empty(cls) -> PoolTransferResult:
+@@ -483,7 +485,8 @@
+             if self.metadata_cache is not None:
+                 self.metadata_cache.remove(suffixed)
+             # A broken cache page must not terminate the prefetch worker.
+-            logger.warning(
++            log = logger.debug if isinstance(error, FileNotFoundError) else logger.warning
++            log(
+                 "Failed to fetch %s from HiCacheFile storage: %s", key, error
+             )
+             return None
+@@ -652,7 +655,7 @@
+         hit_count = {PoolName.KV: final_pages} if final_pages else {}
+         if final_pages:
+             hit_count.update({t.name: final_pages for t in pool_transfers or []})
+-        return PoolTransferResult(final_pages, hit_count)
++        return PoolTransferResult(final_pages, hit_count, kv_prefix_pages=kv_pages)
+ 
+     def _log_key(self, pool_name: str, key: str) -> str:
+         return key if pool_name == PoolName.KV else f"{key}.{pool_name}"
+--- a/python/sglang/srt/mem_cache/unified_radix_cache.py
++++ b/python/sglang/srt/mem_cache/unified_radix_cache.py
+@@ -10,6 +10,7 @@
+ 
+ from sglang.srt.distributed.communication_tags import P2PTag
+ from sglang.srt.environ import envs
++from sglang.srt.mem_cache.cache_diagnostics import CacheDiagnostics, record_cache_decision
+ from sglang.srt.mem_cache.base_prefix_cache import (
+     BasePrefixCache,
+     DecLockRefParams,
+@@ -1236,10 +1237,11 @@
+             cache_salt=cache_salt,
+         ).page_aligned(self.page_size)
+         prefetch_length = len(prefetch_key)
+-        if (
+-            prefetch_length < self.prefetch_threshold
+-            or self.cache_controller.prefetch_rate_limited()
+-        ):
++        if prefetch_length < self.prefetch_threshold:
++            record_cache_decision(self, req_id, "below_threshold", requested=prefetch_length)
++            return
++        if self.cache_controller.prefetch_rate_limited():
++            record_cache_decision(self, req_id, "prefetch_capacity", requested=prefetch_length)
+             return
+ 
+         anchor_lock_params = self.inc_host_lock_ref(last_host_node_id).to_dec_params()
+@@ -1273,6 +1275,7 @@
+             CacheTransferPhase.PREFETCH, kv_xfer, comp_xfers
+         )
+         if alloc_failed:
++            record_cache_decision(self, req_id, "component_capacity", requested=prefetch_length)
+             self.cache_controller.append_host_mem_release(
+                 extra_pools=[x for xfers in comp_xfers.values() for x in xfers],
+             )
+@@ -1356,6 +1359,17 @@
+         if not self.can_terminate_prefetch(operation):
+             return False
+         if operation.host_indices is None:
++            if (
++                not operation.is_terminated()
++                and self.prefetch_stop_policy == "timeout"
++                and self._prefetch_timeout_check_linear_func(operation)
++            ):
++                record_cache_decision(
++                    self, req_id, "lookup_timeout", requested=len(prefetch_key),
++                    matched=operation.storage_hit_count,
++                    elapsed=time.monotonic() - operation.start_time,
++                    budget=self.prefetch_timeout_base + len(operation.hash_value) * self.prefetch_timeout_per_page,
++                )
+             self.cache_controller.terminate_prefetch(operation)
+             self._revoke_pending_prefetch(req_id)
+             return True
+@@ -1424,6 +1438,20 @@
+         self.cache_controller.prefetch_tokens_occupied -= len(prefetch_key)
+ 
+         self.prefetch_loaded_tokens_by_reqid[req_id] = loaded_from_storage
++        kv_tokens = getattr(operation, "diagnostic_kv_tokens", 0)
++        local_tokens = getattr(operation, "diagnostic_local_hit_tokens", 0)
++        synced_tokens = getattr(operation, "diagnostic_synced_hit_tokens", local_tokens)
++        # Small tail differences are normal checkpoint alignment, not anomalies.
++        if (
++            kv_tokens - local_tokens >= CacheDiagnostics.LARGE_REQUEST
++            or local_tokens - synced_tokens >= CacheDiagnostics.LARGE_REQUEST
++        ):
++            record_cache_decision(
++                self, req_id,
++                "checkpoint_missing" if kv_tokens > local_tokens else "peer_miss",
++                requested=len(prefetch_key), matched=max(kv_tokens, local_tokens),
++                elapsed=time.monotonic() - operation.start_time,
++            )
+         logger.info(
+             "HiCache prefetch %s req=%s completed_local=%d completed_synced=%d matched=%d loaded=%d released=%d occupied=%d",
+             "dropped" if insert_result.host_insert_dropped else "success",
+@@ -1511,11 +1539,11 @@
+             del self.ongoing_prefetch[req_id]
+             self.cache_controller.prefetch_tokens_occupied -= len(prefetch_key)
+             self.prefetch_loaded_tokens_by_reqid[req_id] = 0
+-            logger.warning(
+-                "HiCache hybrid prefetch discarded req=%s completed=%d requested=%d",
+-                req_id,
+-                completed_tokens,
+-                expected_tokens,
++            record_cache_decision(
++                self, req_id, "restore_incomplete", requested=expected_tokens,
++                matched=min_completed_tokens,
++                elapsed=time.monotonic() - operation.start_time,
++                budget=self.prefetch_timeout_base + len(operation.hash_value) * self.prefetch_timeout_per_page,
+             )
+             return None
+         return min_completed_tokens
+@@ -1610,7 +1638,18 @@
+                     self._revoke_pending_prefetch(req_id)
+                     continue
+                 if operation.storage_hit_count < self.prefetch_threshold:
+-                    # not to prefetch if not enough benefits
++                    kv_tokens = getattr(operation, "diagnostic_kv_tokens", 0)
++                    local_tokens = getattr(operation, "diagnostic_local_hit_tokens", 0)
++                    reason = (
++                        "peer_miss" if local_tokens >= self.prefetch_threshold else
++                        "checkpoint_missing" if kv_tokens >= self.prefetch_threshold else
++                        "cold_miss"
++                    )
++                    record_cache_decision(
++                        self, req_id, reason, requested=len(info.prefetch_key),
++                        matched=max(kv_tokens, local_tokens),
++                        elapsed=time.monotonic() - operation.start_time,
++                    )
+                     self._revoke_pending_prefetch(req_id)
+                     continue
+ 
+@@ -1629,6 +1668,11 @@
+                     if alloc_len >= self.prefetch_threshold:
+                         host_indices = cc.mem_pool_host.alloc(alloc_len)
+                 if host_indices is None:
++                    record_cache_decision(
++                        self, req_id, "host_capacity", requested=operation.storage_hit_count,
++                        matched=operation.storage_hit_count,
++                        elapsed=time.monotonic() - operation.start_time,
++                    )
+                     self._revoke_pending_prefetch(req_id)
+                     continue
+ 
+@@ -1745,6 +1789,12 @@
+         )
+         self.hicache_storage_pass_prefix_keys = hicache_storage_pass_prefix_keys
+         self.enable_storage_metrics = enable_storage_metrics
++        if not hasattr(self, "cache_diagnostics"):
++            self.cache_diagnostics = CacheDiagnostics(
++                rank=self.cache_controller.tp_rank,
++                dp_rank=self.cache_controller.dp_rank,
++                metrics=enable_storage_metrics,
++            )
+ 
+         if self.enable_storage_metrics:
+             attn_cp_rank, attn_cp_size = (
+--- a/python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py
++++ b/python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py
+@@ -624,6 +624,7 @@
+             )
+ 
+         kv_hit_pages = hit_result.kv_hit_pages
++        operation.diagnostic_kv_tokens = (hit_result.kv_prefix_pages or 0) * self.page_size
+         operation.pool_storage_result.update_kv_hit_pages(kv_hit_pages)
+ 
+         return (
+--- a/python/sglang/srt/managers/cache_controller.py
++++ b/python/sglang/srt/managers/cache_controller.py
+@@ -1105,6 +1105,7 @@
+                     hash_value, storage_hit_count = [], 0
+                 else:
+                     hash_value, storage_hit_count = self._storage_hit_query(operation)
++                operation.diagnostic_local_hit_tokens = storage_hit_count
+                 storage_hit_count_tensor = torch.tensor(
+                     storage_hit_count, dtype=torch.int
+                 )
+@@ -1119,6 +1120,7 @@
+                     : (storage_hit_count // self.page_size)
+                 ]
+                 operation.storage_hit_count = storage_hit_count
++                operation.diagnostic_synced_hit_tokens = storage_hit_count
+                 self.prefetch_hit_queue.put(operation)
+ 
+             except Empty:
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -2722,6 +2722,12 @@
+                     tree_cache.get_last_hash_value(req.last_host_node),
+                     prefix_keys,
+                 )
++            else:
++                from sglang.srt.mem_cache.cache_diagnostics import record_cache_decision
++                record_cache_decision(
++                    tree_cache, req.rid, "backup_pending",
++                    requested=max(0, len(req.full_untruncated_fill_ids) - len(req.prefix_indices) - req.host_hit_length),
++                )
+ 
+     def _add_request_to_queue(self, req: Req, is_retracted: bool = False):
+         if not self._set_or_validate_priority(req):
+--- /dev/null
++++ b/python/sglang/srt/mem_cache/cache_diagnostics.py
+@@ -0,0 +1,57 @@
++"""Bounded, request-level explanations for cache work that could not be reused."""
++import logging
++import time
++from collections import Counter
++
++logger = logging.getLogger(__name__)
++
++
++class CacheDiagnostics:
++    PRESSURE = frozenset({'prefetch_capacity', 'component_capacity', 'backup_pending'})
++    QUIET = frozenset({'cold_miss', 'below_threshold'})
++    REASONS = PRESSURE | QUIET | frozenset({'lookup_timeout', 'checkpoint_missing', 'peer_miss', 'restore_incomplete', 'host_capacity'})
++    LARGE_REQUEST = 16384
++    INTERVAL = 60.0
++
++    def __init__(self, rank=0, dp_rank=0, metrics=False, clock=time.monotonic):
++        self.rank = rank
++        self.clock = clock
++        self.counts = Counter()
++        self.suppressed = Counter()
++        self.last_log = {}
++        self.metric = None
++        if metrics:
++            from prometheus_client import Counter as PromCounter
++            self.metric = PromCounter(
++                'sglang:hicache_restore_decisions_total',
++                'HiCache fallback decisions, including quiet cold misses.',
++                ['tp_rank', 'dp_rank', 'reason'],
++            )
++            self.metric_labels = {'tp_rank': str(rank), 'dp_rank': str(dp_rank)}
++
++    def record(self, request_id, reason, requested=0, matched=0, elapsed=0.0, budget=0.0):
++        self.counts[reason] += 1
++        if self.metric is not None:
++            self.metric.labels(**self.metric_labels, reason=reason).inc()
++        if self.rank != 0 or reason in self.QUIET:
++            return
++        now = self.clock()
++        if reason in self.PRESSURE:
++            if requested < self.LARGE_REQUEST:
++                return
++            if now - self.last_log.get(reason, float('-inf')) < self.INTERVAL:
++                self.suppressed[reason] += 1
++                return
++            self.last_log[reason] = now
++        suppressed = self.suppressed.pop(reason, 0)
++        logger.info(
++            'HiCache restore fallback req=%r reason=%s requested=%d matched=%d '
++            'elapsed_s=%.3f budget_s=%.3f suppressed=%d',
++            request_id, reason, requested, matched, elapsed, budget, suppressed,
++        )
++
++
++def record_cache_decision(cache, request_id, reason, **fields):
++    diagnostics = getattr(cache, 'cache_diagnostics', None)
++    if diagnostics is not None:
++        diagnostics.record(request_id, reason, **fields)
