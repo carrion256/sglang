@@ -1,0 +1,35 @@
+{
+  "status": "Experimental opt-in scheduling; see docs/prefill-decode-interleaving.md",
+  "base_image": "docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458",
+  "base_inventory": "provenance/invalid-token-failure-runtime-files.json",
+  "base_inventory_sha256": "f7293cc004161bcad39bc3772939fd868f8fc9d6f09d2cdb7b7ffd5a23333e1d",
+  "source_files_before": 4392,
+  "source_files_after": 4392,
+  "patches": [
+    {
+      "file": "0033-prefill-decode-interleaving.patch",
+      "sha256": "95f0f83086626f7b6e49959ef1233b2f29bc88aaca8ab22b520ca0869be8c405",
+      "files": {
+        "python/sglang/srt/server_args.py": {
+          "before": "557d26f31c473e0cd382efce9ed2bfe8702b5ad0adc750da1250df13bb3231ef",
+          "after": "e93b5c4e4ab083f4d7505c9e1ad6e988e9bdd248c9ae257a7ba79dfe8a9c3637"
+        },
+        "python/sglang/srt/managers/scheduler.py": {
+          "before": "8bc11f8bd2ddef96bf32adc1fe5b52c3929e23538cde1047914eb336f3994595",
+          "after": "2bfcf85e78df6e273d4c99ad4fb434e713c4c274983610a0deaea4b1c926811c"
+        }
+      }
+    }
+  ],
+  "files": {
+    "python/sglang/srt/server_args.py": {
+      "before": "557d26f31c473e0cd382efce9ed2bfe8702b5ad0adc750da1250df13bb3231ef",
+      "after": "e93b5c4e4ab083f4d7505c9e1ad6e988e9bdd248c9ae257a7ba79dfe8a9c3637"
+    },
+    "python/sglang/srt/managers/scheduler.py": {
+      "before": "8bc11f8bd2ddef96bf32adc1fe5b52c3929e23538cde1047914eb336f3994595",
+      "after": "2bfcf85e78df6e273d4c99ad4fb434e713c4c274983610a0deaea4b1c926811c"
+    }
+  },
+  "result_inventory_sha256": "46c4e6ee8db99a88367ccfbcdafd7805534642d48175db5d3f2942d922bd223c"
+}

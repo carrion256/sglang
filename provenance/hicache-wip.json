@@ -218,6 +218,20 @@
           "after": "ef6a96430a143770519b982fc22fb9846760192e3cb8b72c2f1fdce26af3e663"
         }
       }
+    },
+    {
+      "file": "0033-prefill-decode-interleaving.patch",
+      "sha256": "95f0f83086626f7b6e49959ef1233b2f29bc88aaca8ab22b520ca0869be8c405",
+      "files": {
+        "python/sglang/srt/managers/scheduler.py": {
+          "before": "bd393068604952a8ca17e190e0a068e4a28ab23994f5c868ca53b57938ed6755",
+          "after": "18876fb72e02ce56f42d0e51c45d2d11b9b1f3529a54b7362122b4a272f8b856"
+        },
+        "python/sglang/srt/server_args.py": {
+          "before": "557d26f31c473e0cd382efce9ed2bfe8702b5ad0adc750da1250df13bb3231ef",
+          "after": "e93b5c4e4ab083f4d7505c9e1ad6e988e9bdd248c9ae257a7ba79dfe8a9c3637"
+        }
+      }
     }
   ],
   "files": {
@@ -275,7 +289,7 @@
     },
     "python/sglang/srt/managers/scheduler.py": {
       "before": "8bc11f8bd2ddef96bf32adc1fe5b52c3929e23538cde1047914eb336f3994595",
-      "after": "bd393068604952a8ca17e190e0a068e4a28ab23994f5c868ca53b57938ed6755"
+      "after": "18876fb72e02ce56f42d0e51c45d2d11b9b1f3529a54b7362122b4a272f8b856"
     },
     "python/sglang/srt/model_executor/model_runner.py": {
       "before": "d93a427b8ba77128ba0752adb990a1d69a489e3249c189ee9bca67583ace2069",
@@ -300,9 +314,13 @@
     "python/sglang/srt/models/qwen4_exp.py": {
       "before": "311375b089b05091bb1a99d95eeec238a03268381f491854322abf40e3f3328e",
       "after": "ef6a96430a143770519b982fc22fb9846760192e3cb8b72c2f1fdce26af3e663"
+    },
+    "python/sglang/srt/server_args.py": {
+      "before": "557d26f31c473e0cd382efce9ed2bfe8702b5ad0adc750da1250df13bb3231ef",
+      "after": "e93b5c4e4ab083f4d7505c9e1ad6e988e9bdd248c9ae257a7ba79dfe8a9c3637"
     }
   },
-  "result_inventory_sha256": "14bd8c073f068835e9ff5a3a97d29440666985639b3024119c16ec0d31b12149",
+  "result_inventory_sha256": "0297ca0e486998d1566abbe7404c4baa3b44312ebd4716dff2f7effca2337131",
   "retained_validation": {
     "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
     "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",

@@ -1,5 +1,12 @@
 > Patch 0027 has separate GPU and runtime validation, completed 2026-09-15. Earlier results below apply to patches through 0026. See [paged-prefill results and limitations](qsa-paged-prefill.md).
 
+**Scheduling update (2026-09-18):** this profile now includes patch0033 for
+separate prefill/decode interleaving. The flag defaults to zero; the
+[production recipe](hicache-production-recipe.md) explicitly selects N=0.5.
+The earlier GPU receipts below predate this combined build and are historical
+qualification evidence. The updated combined build has CPU/source verification;
+a fresh full GPU qualification of that image is not claimed.
+
 # Qwen HiCache state transfer — opt-in profile
 
 ## Status

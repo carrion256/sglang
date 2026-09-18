@@ -1,0 +1,121 @@
+--- a/python/sglang/srt/server_args.py
++++ b/python/sglang/srt/server_args.py
+@@ -804,6 +804,11 @@
+         "The maximum number of tokens in a chunk for the chunked prefill. Setting this to -1 means disabling chunked prefill.",
+         NS("schedule"),
+     ] = None
++    prefill_batches_before_decode: A[
++        float,
++        "Prefill/decode turn ratio: integer N gives N:1; reciprocal 1/D gives 1:D; 0 keeps strict prefill priority. Experimental TP2 separate batches.",
++        NS("schedule"),
++    ] = 0
+     enable_dynamic_chunking: A[
+         bool,
+         "Enable dynamic chunk size adjustment for pipeline parallelism. When enabled, chunk sizes are dynamically calculated based on fitted function to maintain consistent execution time across chunks.",
+@@ -9202,7 +9207,34 @@
+                 "(DeepSeek-V4 non-EP DP TBO path)."
+             )
+ 
++    def _check_prefill_decode_interleaving(self):
++        import math
++
++        ratio = float(self.prefill_batches_before_decode)
++        if not math.isfinite(ratio) or ratio < 0:
++            raise ValueError("prefill-batches-before-decode must be finite and >= 0")
++        if ratio == 0:
++            return
++        turns = ratio if ratio >= 1 else 1 / ratio
++        if not math.isfinite(turns) or not math.isclose(turns, round(turns), rel_tol=1e-9):
++            raise ValueError("prefill-batches-before-decode must be an integer or reciprocal integer")
++        if (
++            self.tp_size != 2 or self.pp_size != 1 or self.dp_size != 1
++            or self.enable_dp_attention or self.dcp_size != 1
++            or self.disaggregation_mode != "null" or self.enable_mixed_chunk
++            or self.enable_pdmux or self.dllm_algorithm is not None
++            or self.enable_hisparse or self.enable_two_batch_overlap
++            or self.disable_overlap_schedule or self.chunked_prefill_size <= 0
++            or self.is_embedding
++        ):
++            raise ValueError(
++                "prefill-batches-before-decode requires TP2/PP1/DP1/DCP1 generation "
++                "with overlap and chunked prefill; mixed, disaggregated, diffusion, "
++                "HiSparse, pdmux and two-batch overlap modes are not supported"
++            )
++
+     def check_server_args(self):
++        self._check_prefill_decode_interleaving()
+         # Check parallel size constraints
+         if self.ep_join_mode != "scale":
+             assert (
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -413,6 +413,9 @@
+ 
+         # Parse args
+         self.server_args = server_args
++        self.prefill_batches_before_decode = server_args.prefill_batches_before_decode
++        self._consecutive_prefill_batches = 0
++        self._interleave_decode_pending = False
+         self.nccl_port = port_args.nccl_port
+         self.schedule_policy = server_args.schedule_policy
+         self.enable_priority_scheduling = server_args.enable_priority_scheduling
+@@ -3020,6 +3023,7 @@
+     def get_next_batch_to_run(
+         self, running_batch: ScheduleBatch, last_batch: Optional[ScheduleBatch]
+     ) -> NextBatchPlan:
++        self._interleave_decode_pending = False
+         self.process_pending_chunked_abort()
+ 
+         if self.enable_fpm:
+@@ -3137,6 +3141,13 @@
+             else:
+                 ret = None
+ 
++        # Filtering or retraction can remove every decoder after a yield.
++        if self._interleave_decode_pending and ret is None:
++            self._interleave_decode_pending = False
++            prefill_plan = self.get_new_batch_prefill(running_batch)
++            ret = prefill_plan.batch_to_run
++            running_batch = prefill_plan.running_batch
++
+         # Handle DP attention and log stats
+         ret = self.dp_attn_adapter.maybe_prepare_mlp_sync_batch(
+             ret, need_sync=need_mlp_sync
+@@ -3146,6 +3157,20 @@
+         ret = self.ngram_embedding_manager.prepare_for_forward(
+             ret, chunked_req=self.chunked_req
+         )
++
++        if ret and self.prefill_batches_before_decode:
++            ratio = self.prefill_batches_before_decode
++            prefill_turns = max(1, round(ratio))
++            if ret.forward_mode.is_decode():
++                self._consecutive_prefill_batches = max(
++                    0, self._consecutive_prefill_batches - prefill_turns
++                )
++            elif ret.forward_mode.is_extend():
++                # Reciprocal ratios hold integer decode credits after one prefill.
++                self._consecutive_prefill_batches = (
++                    max(1, round(1 / ratio)) if ratio < 1 else
++                    min(prefill_turns, self._consecutive_prefill_batches + 1)
++                )
+ 
+         if ret:
+             set_schedule_time_batch(ret)
+@@ -3215,6 +3240,16 @@
+ 
+         if self.enable_hierarchical_cache or get_memory().enable_flexkv:
+             self.tree_cache.check_hicache_events()
++
++        # Keep grammar/cache housekeeping above the yield; do not allocate a chunk.
++        if (
++            self.prefill_batches_before_decode > 0
++            and self._consecutive_prefill_batches >= max(1, round(self.prefill_batches_before_decode))
++            and not running_batch.is_empty()
++            and not running_batch.is_prefill_only
++        ):
++            self._interleave_decode_pending = True
++            return None, running_batch
+ 
+         if self.enable_priority_preemption or self.is_hybrid_swa:
+             # Reset batch_is_full to try preemption with a prefill adder.

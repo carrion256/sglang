@@ -4,7 +4,17 @@ This is the deployed configuration on two RTX PRO 6000 Blackwell Workstation GPU
 (96 GiB each), connected through PCIe 4.0, with 256 GiB system RAM. It is a measured
 configuration for this model and hardware, not a universal cache-sizing formula.
 Use the repository's Qwen TP2/MTP3 model-loading recipe and the opt-in
-`Dockerfile.hicache-wip` profile, with the following serving/cache overrides:
+`Dockerfile.hicache-wip` profile, now including patch0033 for separate
+prefill/decode scheduling. Build from this revision before using the new flag;
+earlier published images do not include it:
+
+```sh
+docker build -f Dockerfile.hicache-wip -t local/qwen-hicache-interleaving .
+INTERLEAVING_IMAGE=local/qwen-hicache-interleaving INTERLEAVING_PROFILE=hicache \
+bash scripts/test_prefill_decode_interleaving.sh
+```
+
+Select that built image in the launch command and use these serving/cache overrides:
 
 ```sh
 --tp-size=2 \
@@ -12,6 +22,7 @@ Use the repository's Qwen TP2/MTP3 model-loading recipe and the opt-in
 --mem-fraction-static=0.92 \
 --max-total-tokens=4342208 \
 --chunked-prefill-size=6144 \
+--prefill-batches-before-decode=0.5 \
 --max-running-requests=64 \
 --cuda-graph-max-bs-decode=64 \
 --kv-cache-dtype=fp8_e4m3 \
@@ -38,6 +49,7 @@ PLE host offload, and MTP configuration from the Qwen recipe.
 |---|---|
 | Checkpoint | `local-inference-lab/Qwen3.8-Flash-Next-NVFP4`, QAD revision `629bc3218833a38b475b719f34aa571666f4a03e` |
 | Quantization | `modelopt_mixed`; packed NVFP4 PLE in host RAM |
+| Interleaving | `0.5`: one prefill chunk followed by two decode turns when both have work |
 | Prefill chunk | 6,144 tokens; this is not a request-count batch size |
 | Active concurrency ceiling | 64 requests; does not promise 64 full-length contexts |
 | RAM HiCache | 45 decimal GB **per TP rank**, 90 GB aggregate (~83.82 GiB) |
@@ -114,3 +126,21 @@ probe passed 48/48, but had no storage hits. A separate old-fixture replay answe
 4/4 correctly with no observed disk hits and therefore **failed its required-storage
 coverage gate**. These results must not be described as a fresh successful disk
 restore test or proof of all full-cache scheduler interleavings.
+
+## Interleaving update
+
+N=0.5 gives decode opportunities between prefill chunks, including speculative
+NEXTN decoding. It counts batches, not GPU time or generated tokens. The current
+chunked request keeps prefill priority over newcomers; this does not make cache
+admission asynchronous. See [scheduling behavior and restrictions](prefill-decode-interleaving.md).
+
+The recipe retains the existing published HiCache/PLE patch stack. No unpublished
+cache, abort, tokenizer or throughput diagnostic patches are added. The underlying
+scheduling flag still defaults to zero; this recipe explicitly selects0.5.
+No production restart or new public container publication is implied by this
+recipe change. Combined-profile CPU verification is separate from the historical
+GPU/cache evidence above; a fresh full GPU qualification of this image is not claimed.
+
+Recipe update validation: combined build verified4,394source files,28scheduling/
+CLI tests and26subtests passed, and5packaging checks passed. The CLI test parses
+the flag block above and confirms N0.5,TP2,chunk6144 and write-back HiCache.

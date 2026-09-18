@@ -35,6 +35,7 @@ class HiCacheWipPackagingTest(unittest.TestCase):
                 "0030-hicache-selective-diagnostics.patch",
                 "0031-hicache-prefill-impact.patch",
                 "0032-shared-ple-host-table.patch",
+                "0033-prefill-decode-interleaving.patch",
             ],
         )
 
