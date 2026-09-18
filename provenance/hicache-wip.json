@@ -207,11 +207,15 @@
     },
     {
       "file": "0032-shared-ple-host-table.patch",
-      "sha256": "35d53152ea96f74fa96747cffe9621d2e2c16e6783ebae540b1ba0a323d05382",
+      "sha256": "8895c7c9629e263bdbbdf62735b726b3fcfeff2de31ff10b6b7a48bce4417cc5",
       "files": {
         "python/sglang/srt/models/packed_ple.py": {
           "before": "32a733d445fae43d5fadc85106c6a3617248e1d0be4e8b101607aef197bff6c0",
-          "after": "b6894625ea305645989e804c6271a1b69c79897abda1943000b20ef3a16845b6"
+          "after": "4bf751cbd6b95f1dd183382678acac508bce444e2dc06ec2a39d8d30e5d35532"
+        },
+        "python/sglang/srt/models/qwen4_exp.py": {
+          "before": "311375b089b05091bb1a99d95eeec238a03268381f491854322abf40e3f3328e",
+          "after": "ef6a96430a143770519b982fc22fb9846760192e3cb8b72c2f1fdce26af3e663"
         }
       }
     }
@@ -291,10 +295,14 @@
     },
     "python/sglang/srt/models/packed_ple.py": {
       "before": "32a733d445fae43d5fadc85106c6a3617248e1d0be4e8b101607aef197bff6c0",
-      "after": "b6894625ea305645989e804c6271a1b69c79897abda1943000b20ef3a16845b6"
+      "after": "4bf751cbd6b95f1dd183382678acac508bce444e2dc06ec2a39d8d30e5d35532"
+    },
+    "python/sglang/srt/models/qwen4_exp.py": {
+      "before": "311375b089b05091bb1a99d95eeec238a03268381f491854322abf40e3f3328e",
+      "after": "ef6a96430a143770519b982fc22fb9846760192e3cb8b72c2f1fdce26af3e663"
     }
   },
-  "result_inventory_sha256": "bdf2bc456903192dc30af7e624a970b53b0970957b32bee99b1f17d02c336111",
+  "result_inventory_sha256": "14bd8c073f068835e9ff5a3a97d29440666985639b3024119c16ec0d31b12149",
   "retained_validation": {
     "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
     "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",
