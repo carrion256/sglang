@@ -1,0 +1,8 @@
+# Opt-in separate prefill/decode scheduling; no HiCache profile dependency.
+FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458
+COPY patches/0033-prefill-decode-interleaving.patch patches/series.prefill-decode-interleaving /opt/prefill-decode-interleaving/patches/
+COPY provenance/invalid-token-failure-runtime-files.json provenance/prefill-decode-interleaving.json /opt/prefill-decode-interleaving/provenance/
+COPY scripts/verify_prefill_decode_interleaving.py /opt/prefill-decode-interleaving/scripts/verify_prefill_decode_interleaving.py
+RUN python3 -B /opt/prefill-decode-interleaving/scripts/verify_prefill_decode_interleaving.py --tree /sgl-workspace/sglang --apply
+ENTRYPOINT ["python3", "-m", "sglang.launch_server"]
+CMD ["--help"]

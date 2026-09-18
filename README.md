@@ -16,6 +16,11 @@ adds companion-state handling and upstream QSA, router and restore-order fixes
 after the cumulative runtime. See the configuration-specific live results and
 remaining limits before enabling it; default images and patch series are unchanged.
 
+**Opt-in separate prefill/decode scheduling:**
+[Integer and reciprocal turn ratios](docs/prefill-decode-interleaving.md) let
+existing decoders progress between long prefill chunks without mixed batches.
+Default scheduling stays unchanged; the standalone profile has no HiCache dependency.
+
 Historical production profiles below remain available as rollback and audit
 records.
 
