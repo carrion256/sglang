@@ -1,0 +1,80 @@
+--- a/python/sglang/srt/models/packed_ple.py
++++ b/python/sglang/srt/models/packed_ple.py
+@@ -8,16 +8,73 @@
+ import triton.language as tl
+ 
+ 
++# Share one immutable host PLE table between same-node replicas. Without
++# this, every process allocates a private pinned copy of the full table.
++# When SGLANG_PLE_SHARED_DIR is set, the table lives in a MAP_SHARED file
++# (tmpfs, so replicas need the same IPC namespace) that each replica mmaps
++# and pins with cudaHostRegister. gather_packed_kernel dereferences the
++# raw host address on the GPU, so the device alias must equal the host
++# pointer; that is checked, not assumed. Every replica writes its
++# checkpoint rows into the mapping; the bytes are identical across
++# replicas, so no readiness protocol is needed. Falls back to the private
++# pinned table on any failure; boot never fails on this path.
++_shared_maps = []  # keep the mmaps alive for the life of the process
++
++
++def _host_table(shape, dtype, pin_memory):
++    import ctypes
++    import mmap
++    import os
++    import sys
++
++    shared_dir = os.environ.get("SGLANG_PLE_SHARED_DIR")
++    if shared_dir and pin_memory:
++        nbytes = shape[0] * shape[1]  # both dtypes are one byte per element
++        path = os.path.join(
++            shared_dir, "x".join(map(str, shape)) + f"-{str(dtype)[6:]}.bin")
++        try:
++            os.makedirs(shared_dir, exist_ok=True)
++            fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
++            try:
++                if os.fstat(fd).st_size != nbytes:
++                    os.ftruncate(fd, nbytes)
++                mm = mmap.mmap(fd, nbytes, flags=mmap.MAP_SHARED)
++            finally:
++                os.close(fd)
++            host = ctypes.addressof(ctypes.c_char.from_buffer(mm))
++            cudart = torch.cuda.cudart()
++            # 1 | 2 = cudaHostRegisterPortable | cudaHostRegisterMapped
++            error = cudart.cudaHostRegister(host, nbytes, 3)
++            if int(error) != 0:
++                mm.close()
++                raise RuntimeError(f"cudaHostRegister failed: {error}")
++            device = ctypes.c_void_p()
++            lib = ctypes.CDLL("libcudart.so", mode=ctypes.RTLD_GLOBAL)
++            rc = lib.cudaHostGetDevicePointer(
++                ctypes.byref(device), ctypes.c_void_p(host), 0)
++            if rc != 0 or device.value != host:
++                cudart.cudaHostUnregister(host)
++                mm.close()
++                raise RuntimeError(
++                    f"device alias {device.value} != host pointer {host} (rc={rc})")
++            _shared_maps.append(mm)
++            print(f"[packed_ple] shared PLE mapping {path} ({nbytes} bytes)",
++                  file=sys.stderr, flush=True)
++            return torch.frombuffer(mm, dtype=torch.uint8).view(dtype).view(shape)
++        except Exception as exc:
++            print(f"[packed_ple] shared PLE mapping {path} unavailable ({exc}); "
++                  "falling back to private pinned table", file=sys.stderr, flush=True)
++    return torch.empty(shape, dtype=dtype, device='cpu', pin_memory=pin_memory)
++
++
+ class PackedPLEStorage:
+     """Retain row-major checkpoint bytes; never expand a checkpoint shard."""
+ 
+     def __init__(self, rows, dim, *, pin_memory=True):
+         if rows <= 0 or dim <= 0 or dim % 16:
+             raise ValueError('packed PLE needs positive rows and dimension divisible by 16')
+-        self.weight = torch.empty((rows, dim // 2), dtype=torch.uint8,
+-                                  device='cpu', pin_memory=pin_memory)
+-        self.scales = torch.empty((rows, dim // 16), dtype=torch.float8_e4m3fn,
+-                                  device='cpu', pin_memory=pin_memory)
++        self.weight = _host_table((rows, dim // 2), torch.uint8, pin_memory)
++        self.scales = _host_table((rows, dim // 16), torch.float8_e4m3fn, pin_memory)
+         self.global_scale = None
+         self._ranges = []
+         self._tp_bounds = None

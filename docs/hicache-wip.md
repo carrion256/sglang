@@ -33,6 +33,16 @@ therefore reuse a prefix with incomplete model state.
    index inside the KV share of the existing host limit, requires complete pages,
    and waits for the corresponding layer transfer before QSA reads the index.
 
+4. `0032-shared-ple-host-table.patch` shares one immutable packed-PLE host
+   table between same-node replicas. Without it each TP1 process allocates a
+   private pinned copy of the full table. With `SGLANG_PLE_SHARED_DIR` set,
+   the table is a `MAP_SHARED` tmpfs file that every replica mmaps and pins
+   with `cudaHostRegister`; the device/host pointer equality that
+   `gather_packed_kernel` relies on is verified at startup, and any failure
+   falls back to the private pinned table. Replicas write identical
+   checkpoint bytes, so no readiness protocol is required. Disabled unless
+   the environment variable is set.
+
 The patch preimages match the 4,392-file cumulative compatibility inventory and
 the immutable base image published from current `main`:
 
