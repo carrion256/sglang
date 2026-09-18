@@ -34,6 +34,7 @@ class HiCacheWipPackagingTest(unittest.TestCase):
                 "0029-hicache-common-boundary.patch",
                 "0030-hicache-selective-diagnostics.patch",
                 "0031-hicache-prefill-impact.patch",
+                "0032-shared-ple-host-table.patch",
             ],
         )
 

@@ -33,6 +33,24 @@ therefore reuse a prefix with incomplete model state.
    index inside the KV share of the existing host limit, requires complete pages,
    and waits for the corresponding layer transfer before QSA reads the index.
 
+4. `0032-shared-ple-host-table.patch` shares host PLE tables between
+   processes holding the identical padded vocab range. Without it each
+   process allocates a private pinned copy of its rows: TP1 replicas each
+   duplicate the full table (26.8 GiB per replica at the Qwen3.8-Flash
+   checkpoint), and TP2 ranks each duplicate their half. With
+   `SGLANG_PLE_SHARED_DIR` set, each table is a `MAP_SHARED` tmpfs file
+   keyed by shape, dtype, checkpoint path and the padded (tp_size, start,
+   end) range, so TP1 replicas share one full table while TP2 ranks share
+   only with the matching rank of other replicas and never across ranks.
+   Every process pins the mapping with `cudaHostRegister`; the device/host
+   pointer equality that `gather_packed_kernel` relies on is verified at
+   startup. Sharing is skipped (private pinned table) when the range is
+   undeclared or the checkpoint path cannot be resolved, so distinct
+   checkpoints never share a file. Sharers write identical checkpoint bytes
+   into the same range, so no readiness protocol is required. Disabled
+   unless the environment variable is set.
+
+
 The patch preimages match the 4,392-file cumulative compatibility inventory and
 the immutable base image published from current `main`:
 
