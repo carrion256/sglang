@@ -44,8 +44,9 @@ INTERLEAVING_IMAGE=sglang-interleaving bash scripts/test_prefill_decode_interlea
 The Dockerfile pins the published cumulative runtime by digest. A separate
 one-patch series changes only `server_args.py` and `managers/scheduler.py`.
 The verifier checks the complete 4,392-file base/result source inventories,
-patch order, patch digest and changed-file transitions. Default profiles and
-series are unchanged. This profile requires no HiCache patch profile and adds
+patch order, patch digest and changed-file transitions. Default profiles remain unchanged. The opt-in HiCache profile also includes
+the same patch for the updated production recipe. This standalone profile
+requires no HiCache patch profile and adds
 no cache, abort, tokenizer or throughput logging changes.
 
 The runner uses a CPU-only, network-disabled container with no production mounts.
@@ -58,7 +59,7 @@ allocator or tensor-parallel correctness.
 ## Validation limits
 
 Clean standalone build passed full 4,392-file pre/post verification on
-2026-09-18. CPU suite: **27 passed, 26 subtests passed**, one pytest
+2026-09-18. CPU suite: **28 passed, 26 subtests passed**, one pytest
 import-rewrite warning. No GPU devices or network were available to the runner.
 The same scheduling logic was also exercised in a combined local runtime on
 two 96GB SM120 GPUs with NEXTN speculative decoding and 6,144-token chunks:
@@ -72,3 +73,19 @@ That GPU evidence includes unrelated local patches and is not a GPU qualificatio
 of this standalone image. Sampled logs do not establish every P/D/D turn; exact
 turn accounting is covered by CPU tests. No throughput benchmark, universal
 optimal ratio, asynchronous admission or broader-topology support is claimed.
+
+## Production HiCache recipe
+
+The [existing production recipe](hicache-production-recipe.md) now enables
+`--prefill-batches-before-decode=0.5`. Its `Dockerfile.hicache-wip` build appends
+the same scheduling patch to the existing published cache/PLE stack and verifies
+the combined full-source inventory. Build that profile before adding the flag
+to a launch command; older published images do not recognize it.
+
+Run the scheduling suite against that image with `INTERLEAVING_PROFILE=hicache`.
+The standalone profile above remains available to test scheduling without HiCache.
+
+The combined HiCache build verified all4,394source files; its scheduling/CLI suite
+also passed28tests/26subtests, including parsing the actual production recipe.
+Five HiCache packaging checks passed. Both profiles were tested without GPU
+devices or network; one pytest import-rewrite warning occurred in each run.

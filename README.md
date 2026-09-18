@@ -20,6 +20,8 @@ remaining limits before enabling it; default images and patch series are unchang
 [Integer and reciprocal turn ratios](docs/prefill-decode-interleaving.md) let
 existing decoders progress between long prefill chunks without mixed batches.
 Default scheduling stays unchanged; the standalone profile has no HiCache dependency.
+The [production HiCache recipe](docs/hicache-production-recipe.md) includes the
+same patch in its build and explicitly selects N=0.5.
 
 Historical production profiles below remain available as rollback and audit
 records.

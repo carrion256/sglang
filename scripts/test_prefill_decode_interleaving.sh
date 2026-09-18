@@ -13,8 +13,14 @@ run() {
   fi
 }
 cd "$(dirname "$0")/.."
-: "${INTERLEAVING_IMAGE:?Set the image built with Dockerfile.prefill-decode-interleaving}"
-run python3 -B scripts/verify_prefill_decode_interleaving.py
+: "${INTERLEAVING_IMAGE:?Set an image built with the selected interleaving profile}"
+profile=${INTERLEAVING_PROFILE:-standalone}
+case "$profile" in
+  standalone) verifier=verify_prefill_decode_interleaving ;;
+  hicache) verifier=verify_hicache_wip ;;
+  *) echo 'INTERLEAVING_PROFILE must be standalone or hicache' >&2; exit 2 ;;
+esac
+run python3 -B "scripts/$verifier.py"
 run docker run --rm --pull never --runtime=runc --network none --read-only \
   --user "$(stat -c '%u:%g' .)" --memory 8g --cpus 2 --pids-limit 512 \
   --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,exec,size=2g,mode=1777 \
@@ -22,13 +28,14 @@ run docker run --rm --pull never --runtime=runc --network none --read-only \
   -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp -e XDG_CACHE_HOME=/tmp/cache \
   -e INTERLEAVE_BASELINE=/repo/runtime/python/sglang/srt \
   -e INTERLEAVE_CANDIDATE=/sgl-workspace/sglang/python/sglang/srt \
+  -e INTERLEAVING_VERIFIER="$verifier" \
   -e PYTHONPATH=/repo/tests:/sgl-workspace/sglang/python \
   -v "$PWD:/repo:ro" --entrypoint python3 "$INTERLEAVING_IMAGE" -B -c '
-import pathlib,runpy,sys
+import importlib,os,pathlib,sys
 assert not list(pathlib.Path("/dev").glob("nvidia*"))
 assert not pathlib.Path("/dev/dri").exists()
 sys.path.insert(0,"/repo/scripts")
-from verify_prefill_decode_interleaving import verify
+verify = importlib.import_module(os.environ["INTERLEAVING_VERIFIER"]).verify
 print("Verified source files:", verify(pathlib.Path("/sgl-workspace/sglang"),False))
 from sglang.test.test_utils import maybe_stub_sgl_kernel
 maybe_stub_sgl_kernel()
