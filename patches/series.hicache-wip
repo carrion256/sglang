@@ -11,3 +11,5 @@
 0031-hicache-prefill-impact.patch
 0032-shared-ple-host-table.patch
 0033-prefill-decode-interleaving.patch
+0034-hicache-checkpoint-preservation.patch
+0035-hicache-prefetch-namespace.patch

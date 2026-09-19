@@ -68,8 +68,9 @@ kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3ee
 This parent already contains patches 0015–0019 for Responses, effort aliases,
 multimodal aliases, and invalid-token failures. `provenance/hicache-wip.json`
 records every hash transition, the ordered patch hashes, and the resulting
-4,393-file inventory digest. The one new source file is
-`python/sglang/srt/mem_cache/qsa_pool_host.py`.
+4,395-file inventory digest. The new sources are `qsa_pool_host.py`,
+`cache_diagnostics.py`, and `checkpoint_coordination.py` under
+`python/sglang/srt/mem_cache/`.
 
 ## Retained evidence
 
@@ -272,3 +273,53 @@ that instance below52GiB; this operational policy is external to the image.
 The tested image ID is`313128307b89435233cfd49a5470f710d66502c65daaa550441f5a3aa755483d`.
 Qualification was performed before publication metadata was updated; all runtime
 source hashes and patches remain unchanged.
+
+## Checkpoint preservation and namespace fixes (2026-09-19)
+
+Patches0034 and0035 address two ways an existing conversation could lose usable
+HiCache state despite matching KV pages:
+
+- Preserve Mamba checkpoint endpoints before device eviction cascades through
+  component state. Wait for backup ownership to become safe before reclamation.
+  Mark endpoint requirements explicitly; a prefix created by a tree split does
+  not inherit the child's recurrent checkpoint requirement.
+- Reject disk publication of an endpoint missing its required recurrent state.
+  Intermediate KV nodes without a checkpoint remain legitimate. Track transfer
+  generations and exact host pins so delayed acknowledgements, failed enqueue,
+  mutation, and deletion cannot publish incomplete state or leak ownership.
+- Coordinate checkpoint frontiers, reservations and rollback across attention
+  ranks. Optional allocation failures get one coordinated eviction/retry; failed
+  optional cache work is logged and serving continues with recomputation. An
+  unrecoverable rank-identity mismatch or failure after device submission is not
+  silently swallowed.
+- Preserve request `extra_key` and `cache_salt` when disk prefetch starts from the
+  shared empty root, in both Python HiCache backends and their callers. Reject
+  conflicting non-root anchors before reservation/publication. Disk hashes and
+  file formats are unchanged; this is not disk-level tenant isolation.
+- Routine reservation eviction/retry messages are DEBUG. Exhausted reservations
+  and skipped/failed checkpoint work remain ERROR.
+
+### Validation and limits
+
+The exact reconstructed profile passes 189 CPU tests, including asymmetric
+failures with real two-process Gloo collectives, allocator ownership, eviction,
+pending transfers, endpoint publication, namespace matching, and existing
+PLE/file/QSA/load-order/prefill regressions. Five packaging tests verify patch
+order, path/hash transitions, drift rejection and default-profile isolation.
+A clean replay of all 15 patches verifies all 4,395 resulting source files.
+
+Equivalent checkpoint changes were exercised in a TP2 production trial: four
+RAM and four disk replays each reused61,440 tokens of65,536-token synthetic
+inputs, with output token IDs matching cold references. A disk-restored appended
+turn reused65,536 tokens and answered correctly. These are bounded observations,
+not universal numerical equivalence. The operational image also retains local
+diagnostics that are not part of this PR. Following the logging-only restart,
+Chat, Responses and streaming smoke checks passed without unexpected restarts.
+
+Salted disk-restored continuation still needs full-model qualification; its
+namespace repair has CPU tree/caller/rank coverage. CPU host fixtures synthesize
+residency and transfer events, not CUDA copies. Do not force cold-reference tests
+with full-input logprobs on long prompts: a separate test exhausted CUDA memory
+in prompt-logit conversion. Normal output-only smoke tests do not exercise that
+allocation path. No cache format migration, new serving flags, or automatic
+service action is introduced.
