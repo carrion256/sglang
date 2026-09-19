@@ -148,8 +148,10 @@ the flag block above and confirms N0.5,TP2,chunk6144 and write-back HiCache.
 
 ### Checkpoint recovery update (2026-09-19)
 
-The opt-in HiCache build includes patches0034/0035 for checkpoint preservation,
-coordinated allocation recovery and prefetch namespace propagation. Existing
+The opt-in HiCache build includes patches0034–0036 for checkpoint preservation,
+coordinated allocation recovery, prefetch namespace propagation and write-back
+lookup beneath device-only anchors. Other write policies and all restore
+compatibility/capacity checks remain unchanged. Existing
 recipe flags, N=0.5 interleaving and disk format are unchanged. Routine
 `action=shared_evict` retries log at DEBUG; exhausted retries and skipped backups
 remain ERROR. See [validation and limitations](hicache-wip.md#checkpoint-preservation-and-namespace-fixes-2026-09-19)

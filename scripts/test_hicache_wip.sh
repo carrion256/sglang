@@ -41,6 +41,7 @@ if [[ -n "${HICACHE_WIP_IMAGE:-}" ]]; then
     -v "$(pwd)/validation/prefill:/prefill-tests:ro" \
     --entrypoint python3 "$HICACHE_WIP_IMAGE" -c \
     'import pathlib; assert not list(pathlib.Path("/dev").glob("nvidia*")); assert not pathlib.Path("/dev/dri").exists(); import torch; assert not torch.cuda.is_available(); from sglang.test.test_utils import maybe_stub_sgl_kernel; maybe_stub_sgl_kernel(); import pytest,sys; sys.exit(pytest.main(sys.argv[1:]))' \
+    /hicache-tests/test_writeback_admission.py \
     /hicache-tests/test_checkpoint_backup.py \
     /hicache-tests/test_checkpoint_coordination.py \
     /hicache-tests/test_prefetch_namespace.py \

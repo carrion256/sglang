@@ -38,6 +38,7 @@ class HiCacheWipPackagingTest(unittest.TestCase):
                 "0033-prefill-decode-interleaving.patch",
                 "0034-hicache-checkpoint-preservation.patch",
                 "0035-hicache-prefetch-namespace.patch",
+                "0036-hicache-writeback-admission.patch",
             ],
         )
 

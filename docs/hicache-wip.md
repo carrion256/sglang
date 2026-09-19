@@ -122,8 +122,9 @@ docker build --pull=false -f Dockerfile.hicache-wip \
 HICACHE_WIP_IMAGE=qwen-hicache:wip bash scripts/test_hicache_wip.sh
 ```
 
-The runner uses no network or GPUs. It executes the 67 CPU cases from
-`validation/hicache/` inside the candidate image. The three GPU files are retained
+The runner uses no network or GPUs. It executes the CPU suites from
+`validation/hicache/` and `validation/prefill/` inside the candidate image;
+the current checkpoint/admission profile passes 223 cases. The three GPU files are retained
 for review and require an explicitly isolated GPU environment; the runner does
 not claim or acquire an available GPU.
 
@@ -323,3 +324,22 @@ with full-input logprobs on long prompts: a separate test exhausted CUDA memory
 in prompt-logit conversion. Normal output-only smoke tests do not exercise that
 allocation path. No cache format migration, new serving flags, or automatic
 service action is introduced.
+
+### Write-back admission completion (2026-09-19)
+
+Patch0036 permits storage lookup below non-root, device-only anchors when the
+cache uses write-back. Previously the scheduler required a RAM-backed or root
+anchor, so useful disk suffixes could be skipped with `backup_pending` before
+restore compatibility was even checked. Root/backed anchors and other write
+policies keep their prior behavior. Namespace, companion-state compatibility,
+threshold, capacity and transfer ownership checks are unchanged: eligibility
+for lookup is not permission to reuse incomplete state.
+
+Validation: the added lookup regression fails against the preceding scheduler
+and passes with0036. The expanded CPU suite passes223 cases, covering legacy and
+write-through negatives, exact suffix/logprob-boundary and namespace forwarding,
+real prefetch rejection/reservation, device-only host pins, checkpoint recovery
+and existing cache regressions. Five packaging checks pass; clean replay of all
+16 patches verifies4395 runtime files. CPU containers expose no GPU devices,
+network or production caches. No new GPU qualification or service restart was
+performed for this amendment; earlier runtime evidence keeps its stated limits.

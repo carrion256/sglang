@@ -292,6 +292,16 @@
           "after": "50695ac96bc98556007f7a4fe84c0e3f85f9aa200a329fcd5834561f774f23f9"
         }
       }
+    },
+    {
+      "file": "0036-hicache-writeback-admission.patch",
+      "sha256": "0db50031117a165c0a0c8e468e4d53dae0af7ad027e78eb0dceb850f3174a091",
+      "files": {
+        "python/sglang/srt/managers/scheduler.py": {
+          "before": "147004a988e1b8fd338b786f9afb23288a678847473d349c53b3b6f12a1fd1d0",
+          "after": "a635de5f5f094451668a0a9d6895ba42ba9fe816bff3bb8ae23a863c00a25674"
+        }
+      }
     }
   ],
   "files": {
@@ -349,7 +359,7 @@
     },
     "python/sglang/srt/managers/scheduler.py": {
       "before": "8bc11f8bd2ddef96bf32adc1fe5b52c3929e23538cde1047914eb336f3994595",
-      "after": "147004a988e1b8fd338b786f9afb23288a678847473d349c53b3b6f12a1fd1d0"
+      "after": "a635de5f5f094451668a0a9d6895ba42ba9fe816bff3bb8ae23a863c00a25674"
     },
     "python/sglang/srt/model_executor/model_runner.py": {
       "before": "d93a427b8ba77128ba0752adb990a1d69a489e3249c189ee9bca67583ace2069",
@@ -412,7 +422,7 @@
       "after": "50695ac96bc98556007f7a4fe84c0e3f85f9aa200a329fcd5834561f774f23f9"
     }
   },
-  "result_inventory_sha256": "00f8471fe01544c71ba093f3c078d83b3c85b716d0bf86346ffe2a45515b31bb",
+  "result_inventory_sha256": "f5dbb24dcbbfae821794b91e19af202efd7a1693ed14c3ab4b6c0d0b89aac671",
   "retained_validation": {
     "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
     "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",
