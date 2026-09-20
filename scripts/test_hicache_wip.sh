@@ -30,6 +30,8 @@ if [[ -n "${HICACHE_WIP_IMAGE:-}" ]]; then
     --user "$(id -u):$(id -g)" \
     --memory 8g --cpus 2 --pids-limit 512 --cap-drop ALL \
     --tmpfs /tmp:rw,noexec,nosuid,size=1g,mode=1777 \
+    --tmpfs /torch-extensions:rw,exec,nosuid,size=256m,mode=1777 \
+    -e TORCH_EXTENSIONS_DIR=/torch-extensions \
     -e HOME=/tmp/hicache-home \
     -e SGLANG_CACHE_DIR=/tmp/hicache-cache \
     -e PYTHONDONTWRITEBYTECODE=1 \
@@ -41,6 +43,9 @@ if [[ -n "${HICACHE_WIP_IMAGE:-}" ]]; then
     -v "$(pwd)/validation/prefill:/prefill-tests:ro" \
     --entrypoint python3 "$HICACHE_WIP_IMAGE" -c \
     'import pathlib; assert not list(pathlib.Path("/dev").glob("nvidia*")); assert not pathlib.Path("/dev/dri").exists(); import torch; assert not torch.cuda.is_available(); from sglang.test.test_utils import maybe_stub_sgl_kernel; maybe_stub_sgl_kernel(); import pytest,sys; sys.exit(pytest.main(sys.argv[1:]))' \
+    /hicache-tests/test_publication_history.py \
+    /hicache-tests/test_publication_lifecycle.py \
+    /hicache-tests/test_prefetch_retry.py \
     /hicache-tests/test_writeback_admission.py \
     /hicache-tests/test_checkpoint_backup.py \
     /hicache-tests/test_checkpoint_coordination.py \

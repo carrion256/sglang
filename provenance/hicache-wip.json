@@ -5,7 +5,7 @@
   "base_inventory": "provenance/invalid-token-failure-runtime-files.json",
   "base_inventory_sha256": "f7293cc004161bcad39bc3772939fd868f8fc9d6f09d2cdb7b7ffd5a23333e1d",
   "source_files_before": 4392,
-  "source_files_after": 4395,
+  "source_files_after": 4396,
   "patches": [
     {
       "file": "0020-hicache-ple-state.patch",
@@ -302,6 +302,34 @@
           "after": "a635de5f5f094451668a0a9d6895ba42ba9fe816bff3bb8ae23a863c00a25674"
         }
       }
+    },
+    {
+      "file": "0037-hicache-repeat-publication-diagnostics.patch",
+      "sha256": "c8533b10f771c726698a701a4c0e0da59c26016049cf468d61ba8c0d6005fdf5",
+      "files": {
+        "python/sglang/srt/mem_cache/unified_cache/unified_tree_core.py": {
+          "before": "0e07712e8f432b061c81ce42acbf9306ab9abca60a5e8ec5f56dfa5e4b3baf68",
+          "after": "06c38d57145b111364a2b3a39a0d818f2d6b7c0a2e4fe1d8779c9e73872f9d93"
+        },
+        "python/sglang/srt/mem_cache/cache_diagnostics.py": {
+          "before": "fc9afe363981a6873e07c1cc1bd36a17e700ccb1604c658a5736774a0d938838",
+          "after": "fecb42523021c46613943a5e365e4042db7c68b6db7333cc13fcf3bd51cf3f44"
+        }
+      }
+    },
+    {
+      "file": "0038-hicache-advanced-prefix-retry.patch",
+      "sha256": "8008394b4a69e531c5cf8c534e45d9a49407e105c28730ad0c194637152b8191",
+      "files": {
+        "python/sglang/srt/managers/scheduler.py": {
+          "before": "a635de5f5f094451668a0a9d6895ba42ba9fe816bff3bb8ae23a863c00a25674",
+          "after": "3ea764fe9d2888a7fc83c95a9e925b1e05bc29db49c24d5520c5d90ea0a48f37"
+        },
+        "python/sglang/srt/mem_cache/prefetch_retry.py": {
+          "before": null,
+          "after": "1a7f4b546a8df61570b40a469440f1bda59ec8c6079f03e179ba9160b58de818"
+        }
+      }
     }
   ],
   "files": {
@@ -359,7 +387,7 @@
     },
     "python/sglang/srt/managers/scheduler.py": {
       "before": "8bc11f8bd2ddef96bf32adc1fe5b52c3929e23538cde1047914eb336f3994595",
-      "after": "a635de5f5f094451668a0a9d6895ba42ba9fe816bff3bb8ae23a863c00a25674"
+      "after": "3ea764fe9d2888a7fc83c95a9e925b1e05bc29db49c24d5520c5d90ea0a48f37"
     },
     "python/sglang/srt/model_executor/model_runner.py": {
       "before": "d93a427b8ba77128ba0752adb990a1d69a489e3249c189ee9bca67583ace2069",
@@ -375,7 +403,7 @@
     },
     "python/sglang/srt/mem_cache/cache_diagnostics.py": {
       "before": null,
-      "after": "fc9afe363981a6873e07c1cc1bd36a17e700ccb1604c658a5736774a0d938838"
+      "after": "fecb42523021c46613943a5e365e4042db7c68b6db7333cc13fcf3bd51cf3f44"
     },
     "python/sglang/srt/models/packed_ple.py": {
       "before": "32a733d445fae43d5fadc85106c6a3617248e1d0be4e8b101607aef197bff6c0",
@@ -391,7 +419,7 @@
     },
     "python/sglang/srt/mem_cache/unified_cache/unified_tree_core.py": {
       "before": "2b66bd6c8105c12d8b57b5d6c1abd3a87136bfaf0524fd9606c7746c81327aed",
-      "after": "0e07712e8f432b061c81ce42acbf9306ab9abca60a5e8ec5f56dfa5e4b3baf68"
+      "after": "06c38d57145b111364a2b3a39a0d818f2d6b7c0a2e4fe1d8779c9e73872f9d93"
     },
     "python/sglang/srt/mem_cache/unified_cache/components/mamba_component.py": {
       "before": "9bfcb7a20af48c2fce8cb63537db54cb4231456d9c04896370e290611e0ba799",
@@ -420,9 +448,13 @@
     "python/sglang/srt/mem_cache/hiradix_cache.py": {
       "before": "6defcfe6b90f8205078aa08a605ea560d708d81d5121445205408d39cbdc846a",
       "after": "50695ac96bc98556007f7a4fe84c0e3f85f9aa200a329fcd5834561f774f23f9"
+    },
+    "python/sglang/srt/mem_cache/prefetch_retry.py": {
+      "before": null,
+      "after": "1a7f4b546a8df61570b40a469440f1bda59ec8c6079f03e179ba9160b58de818"
     }
   },
-  "result_inventory_sha256": "f5dbb24dcbbfae821794b91e19af202efd7a1693ed14c3ab4b6c0d0b89aac671",
+  "result_inventory_sha256": "efdcf341c17ad7243c74b7ea075ce5c860456dc5a0a4926ef75bb1a554fb05b6",
   "retained_validation": {
     "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
     "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",

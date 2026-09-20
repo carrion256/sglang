@@ -14,3 +14,5 @@
 0034-hicache-checkpoint-preservation.patch
 0035-hicache-prefetch-namespace.patch
 0036-hicache-writeback-admission.patch
+0037-hicache-repeat-publication-diagnostics.patch
+0038-hicache-advanced-prefix-retry.patch

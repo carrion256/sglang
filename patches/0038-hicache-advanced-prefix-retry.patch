@@ -1,0 +1,77 @@
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -2712,6 +2712,7 @@
+                 or getattr(tree_cache, "is_write_back", False)
+             ):
+                 matched_len = len(req.prefix_indices) + req.host_hit_length
++                req._hicache_prefetch_prefix = matched_len
+                 match_end = req._compute_max_prefix_len(
+                     len(req.full_untruncated_fill_ids)
+                 )
+@@ -3407,6 +3408,11 @@
+                 if loaded_tokens > 0:
+                     req.storage_hit_length = loaded_tokens
+ 
++            if self.enable_hicache_storage:
++                from sglang.srt.mem_cache.prefetch_retry import retry_advanced_prefix
++                if retry_advanced_prefix(self, req):
++                    continue
++
+             req.init_next_round_input(self.tree_cache)
+             diagnostic_input_tokens = len(req.full_untruncated_fill_ids)
+             res = adder.add_one_req(
+@@ -3416,6 +3422,7 @@
+             )
+ 
+             if self.enable_hicache_storage and adder.can_run_list and req is adder.can_run_list[-1]:
++                req._hicache_retry_admitted = True
+                 diagnostics = getattr(self.tree_cache, "cache_diagnostics", None)
+                 if diagnostics is not None:
+                     diagnostics.admission(
+--- /dev/null
++++ b/python/sglang/srt/mem_cache/prefetch_retry.py
+@@ -0,0 +1,44 @@
++"""One pre-admission disk retry after the compatible local prefix advances."""
++import logging
++
++from sglang.srt.mem_cache.checkpoint_coordination import agree, all_ready
++
++logger = logging.getLogger(__name__)
++
++
++def retry_advanced_prefix(scheduler, req):
++    cache = scheduler.tree_cache
++    # Only the unified write-back path has the coordinated prefetch contract.
++    if not getattr(cache, 'is_write_back', False) or not hasattr(cache, 'tree_core'):
++        return False
++    previous = getattr(req, '_hicache_prefetch_prefix', None)
++    eligible = (
++        previous is not None
++        and not getattr(req, '_hicache_prefetch_retried', False)
++        and not getattr(req, '_hicache_retry_admitted', False)
++        and not req.output_ids
++        and not getattr(req, 'storage_hit_length', 0)
++    )
++    if not all_ready(cache, eligible):
++        return False
++    # A probe must not reserve/donate the request's Mamba COW slot.
++    req.init_next_round_input(cache, cow_mamba=False)
++    current = len(req.prefix_indices) + req.host_hit_length
++    remaining = req._compute_max_prefix_len(len(req.full_untruncated_fill_ids)) - current
++    eligible = current > previous and remaining >= cache.prefetch_threshold
++    if not all_ready(cache, eligible):
++        return False
++    if not agree(cache, ('prefetch_retry', req.rid, previous, current,
++                         req.last_host_node, remaining), optional=True):
++        return False
++    req._hicache_prefetch_retried = True
++    logger.debug('HiCache prefetch retry reason=local_prefix_advanced previous=%d current=%d',
++                 previous, current)
++    diagnostics = getattr(cache, 'cache_diagnostics', None)
++    if diagnostics is not None:
++        # Admission must describe the retry, not retain the superseded miss.
++        diagnostics.pending.pop(req.rid, None)
++    scheduler._prefetch_kvcache(req)
++    # Enqueue may decline for capacity/threshold reasons. One queue pass is safe
++    # in either case; normal completion handling owns all transfer cleanup.
++    return True

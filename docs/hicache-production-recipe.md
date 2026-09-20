@@ -134,8 +134,8 @@ NEXTN decoding. It counts batches, not GPU time or generated tokens. The current
 chunked request keeps prefill priority over newcomers; this does not make cache
 admission asynchronous. See [scheduling behavior and restrictions](prefill-decode-interleaving.md).
 
-The recipe retains the existing published HiCache/PLE patch stack. No unpublished
-cache, abort, tokenizer or throughput diagnostic patches are added. The underlying
+That interleaving update retained the then-published HiCache/PLE patch stack
+without additional cache, abort, tokenizer or throughput diagnostic patches. The underlying
 scheduling flag still defaults to zero; this recipe explicitly selects0.5.
 No production restart or new public container publication is implied by this
 recipe change. Combined-profile CPU verification is separate from the historical
@@ -157,3 +157,16 @@ recipe flags, N=0.5 interleaving and disk format are unchanged. Routine
 remain ERROR. See [validation and limitations](hicache-wip.md#checkpoint-preservation-and-namespace-fixes-2026-09-19)
 before qualifying a deployment. Rebuild the selected image explicitly; a source
 update does not change an already running service.
+
+
+### Prefetch retry and publication diagnostics update (2026-09-20)
+
+The opt-in profile now also includes0037–0038: one coordinated disk-prefetch retry
+when the usable local prefix advances before first admission, plus publication
+history and a counter for prior-success `missing_mamba` rejections. Those repeat
+rejections log at DEBUG; first-publication and unrelated failures remain ERROR.
+Prior publication success is not a current disk-residency guarantee.
+
+Recipe flags, storage format and default build profiles are unchanged. See
+[retry validation and limits](hicache-wip.md#bounded-prefetch-retry-and-repeat-publication-diagnostics-2026-09-20).
+Source inclusion does not publish a container or update a running service.

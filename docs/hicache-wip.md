@@ -68,8 +68,8 @@ kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3ee
 This parent already contains patches 0015–0019 for Responses, effort aliases,
 multimodal aliases, and invalid-token failures. `provenance/hicache-wip.json`
 records every hash transition, the ordered patch hashes, and the resulting
-4,395-file inventory digest. The new sources are `qsa_pool_host.py`,
-`cache_diagnostics.py`, and `checkpoint_coordination.py` under
+4,396-file inventory digest. The new sources are `qsa_pool_host.py`,
+`cache_diagnostics.py`, `checkpoint_coordination.py`, and `prefetch_retry.py` under
 `python/sglang/srt/mem_cache/`.
 
 ## Retained evidence
@@ -124,7 +124,7 @@ HICACHE_WIP_IMAGE=qwen-hicache:wip bash scripts/test_hicache_wip.sh
 
 The runner uses no network or GPUs. It executes the CPU suites from
 `validation/hicache/` and `validation/prefill/` inside the candidate image;
-the current checkpoint/admission profile passes 223 cases. The three GPU files are retained
+the current checkpoint/admission/retry profile passes 265 cases. The three GPU files are retained
 for review and require an explicitly isolated GPU environment; the runner does
 not claim or acquire an available GPU.
 
@@ -343,3 +343,38 @@ and existing cache regressions. Five packaging checks pass; clean replay of all
 16 patches verifies4395 runtime files. CPU containers expose no GPU devices,
 network or production caches. No new GPU qualification or service restart was
 performed for this amendment; earlier runtime evidence keeps its stated limits.
+
+
+## Bounded prefetch retry and repeat-publication diagnostics (2026-09-20)
+
+Patch0038 gives unified write-back requests one additional disk lookup when their
+usable GPU/RAM prefix advances between enqueue and first admission. The probe
+avoids Mamba copy-on-write. All attention ranks must agree on eligibility and the
+request/anchor identity before retrying. Requests with generated output, positive
+storage-hit accounting, prior admission or a consumed retry budget are excluded.
+The remaining suffix must still meet the prefetch threshold. The retry budget is
+consumed even if enqueue refuses the lookup, so admission cannot loop indefinitely.
+Namespace, checkpoint compatibility and allocation checks remain in force.
+
+Patch0037 includes publication history in missing-state diagnostics. Only
+`missing_mamba` with a recorded prior successful publication moves to DEBUG.
+First-publication failures and other failure reasons remain ERROR. An in-memory
+counter and optional Prometheus counter
+`sglang:hicache_repeat_publication_rejections_total` with `tp_rank`/`dp_rank` labels
+retain visibility into these repeat rejections. Prior success does not prove the
+entry still exists on disk; the message explicitly says
+`storage_residency=unverified`. This change neither repairs missing checkpoints
+nor changes cache eviction or disk retention.
+
+Validation: 265 CPU tests, including the added 42 retry/history/lifecycle cases
+and real two-rank Gloo coordination; five packaging checks; clean replay of all
+18 patches and full verification of 4,396 source files. The test runner gives
+native CPU hash extensions a separate ephemeral executable tmpfs while keeping
+ordinary temporary files non-executable. The first run exposed that harness
+restriction; rerunning with the dedicated extension directory passed.
+
+The equivalent deployed changes passed 116 focused CPU tests and four bounded
+Chat/Responses normal/streaming smoke checks. Those operational tests are separate
+from this upstream source reconstruction. Neither establishes that the original
+historical idle-session miss is recovered. No new public image, GPU qualification,
+cache reset or service restart is performed by this upstream amendment.
