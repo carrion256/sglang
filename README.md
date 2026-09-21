@@ -1,13 +1,30 @@
 # Qwen TP2 packed-PLE vision on SM120
 
-**Experimental draft:** [Qwen HiCache state-transfer work](docs/hicache-wip.md)
-preserves RAM/file fixes and focused tests. End-to-end generation still has an
-unresolved corruption failure, so this separate profile must not be deployed or
-added to the default patch series.
+**Published cumulative compatibility runtime:**
+[`production-cumulative-compat-20260914-v3`](docs/production-cumulative-compat-20260914.md)
+contains the ordered `0015` → `0016` → `0017` → `0018` → `0019` stack at
+`docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458`.
+It includes the Qwen effort aliases, [Responses namespace/custom and phase/order
+compatibility](docs/responses-compat.md), [Flash-Next multimodal processor
+aliases](docs/qwen-multimodal-alias.md), and [invalid generated-token failure
+propagation](docs/invalid-token-failure.md). The image was rebuilt from clean
+`main`, verified against all 4,392 source hashes, and anonymously pulled by tag
+and digest. Publication does not imply production deployment.
 
-**Unpublished CPU candidate:** [Responses namespace/custom compatibility](docs/responses-compat.md)
-adds a separately attested boundary backport after the effort-alias profile.
-Historical production profiles below are unchanged; no deployment is implied.
+**Opt-in HiCache profile:** [Qwen RAM/file state transfer](docs/hicache-wip.md)
+adds companion-state handling and upstream QSA, router and restore-order fixes
+after the cumulative runtime. See the configuration-specific live results and
+remaining limits before enabling it; default images and patch series are unchanged.
+
+**Opt-in separate prefill/decode scheduling:**
+[Integer and reciprocal turn ratios](docs/prefill-decode-interleaving.md) let
+existing decoders progress between long prefill chunks without mixed batches.
+Default scheduling stays unchanged; the standalone profile has no HiCache dependency.
+The [production HiCache recipe](docs/hicache-production-recipe.md) includes the
+same patch in its build and explicitly selects N=0.5.
+
+Historical production profiles below remain available as rollback and audit
+records.
 
 Publishable source and deployment package for the locally accepted Qwen3.8
 Flash-Next LIL NVFP4 stack. **No model weights, container archives, credentials,

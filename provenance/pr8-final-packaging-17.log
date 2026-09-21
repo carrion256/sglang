@@ -1,0 +1,22 @@
+test_changed_runtime_hashes_match_manifest (tests.test_packaging.PackagingTests.test_changed_runtime_hashes_match_manifest) ... ok
+test_patch_path_coverage_is_exact (tests.test_packaging.PackagingTests.test_patch_path_coverage_is_exact) ... ok
+test_preimage_drift_is_rejected_before_patching (tests.test_packaging.PackagingTests.test_preimage_drift_is_rejected_before_patching) ... ok
+test_source_drift_is_rejected (tests.test_packaging.PackagingTests.test_source_drift_is_rejected) ... ok
+test_all_five_mounted_sources_fail_on_drift (tests.test_responses_packaging.ResponsesPackagingTest.test_all_five_mounted_sources_fail_on_drift) ... ok
+test_full_manifest_chain_and_new_file_count (tests.test_responses_packaging.ResponsesPackagingTest.test_full_manifest_chain_and_new_file_count) ... ok
+test_packaged_source_drift_fails_closed (tests.test_responses_packaging.ResponsesPackagingTest.test_packaged_source_drift_fails_closed) ... ok
+test_patch_drift_fails_closed (tests.test_responses_packaging.ResponsesPackagingTest.test_patch_drift_fails_closed) ... ok
+test_dockerfile_mounts_cumulative_overlay_and_verifies_inventory (tests.test_qwen_multimodal_packaging.QwenMultimodalPackagingTest.test_dockerfile_mounts_cumulative_overlay_and_verifies_inventory) ... ok
+test_inventory_drift_fails_closed (tests.test_qwen_multimodal_packaging.QwenMultimodalPackagingTest.test_inventory_drift_fails_closed) ... ok
+test_manifest_chain_and_runtime_compile (tests.test_qwen_multimodal_packaging.QwenMultimodalPackagingTest.test_manifest_chain_and_runtime_compile) ... ok
+test_patch_drift_fails_closed (tests.test_qwen_multimodal_packaging.QwenMultimodalPackagingTest.test_patch_drift_fails_closed) ... ok
+test_runtime_drift_fails_closed (tests.test_qwen_multimodal_packaging.QwenMultimodalPackagingTest.test_runtime_drift_fails_closed) ... ok
+test_dockerfile_mounts_cumulative_overlay_and_verifies_inventory (tests.test_invalid_token_packaging.InvalidTokenPackagingTest.test_dockerfile_mounts_cumulative_overlay_and_verifies_inventory) ... ok
+test_manifest_chain_and_runtime_compile (tests.test_invalid_token_packaging.InvalidTokenPackagingTest.test_manifest_chain_and_runtime_compile) ... ok
+test_patch_and_inventory_drift_fail_closed (tests.test_invalid_token_packaging.InvalidTokenPackagingTest.test_patch_and_inventory_drift_fail_closed) ... ok
+test_runtime_drift_fails_closed (tests.test_invalid_token_packaging.InvalidTokenPackagingTest.test_runtime_drift_fails_closed) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 0.219s
+
+OK

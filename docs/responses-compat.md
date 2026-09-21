@@ -1,6 +1,9 @@
-# Responses namespace/custom boundary — CPU candidate only
+# Responses compatibility and Qwen phase/order — CPU candidate only
 
-This profile follows alias commit `04e0816a68638e85ddd4ff8764b401d3ed27997e`.
+This profile is rebased on main `de9abbe3d10c0510ac7eba898fcf721b6a73a41d`.
+Its alias predecessor commit `dccd493277c1adb71a3aefe3b4f2513e13e14206`
+includes the Qwen `minimal` → `low` rendering alias as well as `high`/`max` →
+`xhigh`.
 It does not upgrade the engine, change kernels/schedulers/checkpoints, or change
 any deployment. No image is built or published. Historical production, combined,
 Chat-effort and alias manifests/series retain their original meanings.
@@ -9,7 +12,8 @@ The exact base image and upstream reference heads are recorded in
 `provenance/responses-compat.json`. References #39174, #38359, #38690 and #35216
 informed the design; this is not a wholesale serving-file transplant. The serving
 file starts from the attested installed runtime; patch 0016 contains its narrow
-delta. The only new installed module is `responses_compat.py`.
+delta. Patch 0017 adds phase and ordering behavior on top of that exact result.
+The only new installed module is `responses_compat.py`.
 
 ## Contract
 
@@ -81,6 +85,32 @@ delta. The only new installed module is `responses_compat.py`.
   parser silently drops unknown names. Custom argument JSON is decoded only when
   complete, then emitted as a raw-input delta and done event. There is no claim of
   token-by-token custom-input latency.
+- Response message items carry `phase="commentary"` or `phase="final_answer"`.
+  Streaming text is emitted immediately; an added message leaves phase unresolved
+  when later reasoning or tool output can still change it. The completed item sets
+  commentary when a tool call or renewed reasoning follows and final_answer when
+  the text ends the response. Affected Qwen complete outputs use a dedicated typed
+  nonstream collector when a tool or renewed-reasoning boundary would otherwise
+  collapse items. It never serializes or revalidates a streaming terminal response,
+  so request metadata, usage details and requested output logprobs stay on the normal
+  nonstream response path while text → tool → text and text → reasoning → final order
+  is preserved.
+- Qwen3.8 Flash-Next markup is fed to the existing reasoning and tool parsers only at
+  recognized `<think>`, tool-call, function and parameter markers. Coalesced,
+  fragmented, and affected complete outputs preserve `reasoning -> text -> tool ->
+  text` wire order instead of merging text across a tool call. Ordinary angle-bracket
+  text and custom raw input are not generically split. Possible partial control-marker
+  prefixes are buffered across engine chunks; repeated explicit reasoning blocks and
+  tool → renewed-reasoning transitions retain order. Required JSON values containing
+  marker-like strings remain data, as do recognized marker strings inside native
+  function/custom parameter payloads after reasoning. This behavior is limited to
+  loaded model types
+  `qwen3_8_flash_next` and `qwen3_8_flash_next_text`; `qwen4_exp` is an explicit
+  negative control.
+- Replay groups adjacent Qwen assistant items only while their stage order remains
+  renderable as one native assistant turn. Explicit phase changes and restarted
+  reasoning/tool sequences remain separate turns. Stored response replay retains
+  reasoning and phase fields as well as text and calls.
 
 ## CPU reproduction
 
@@ -93,13 +123,33 @@ QWEN_TOKENIZER_PATH=/absolute/pinned/tokenizer bash scripts/test_qwen_effort_ali
 ```
 
 The candidate runner verifies all five mounted runtime files against the cumulative
-inventory, as well as patch/tokenizer hashes. It uses the exact
+inventory, as well as all three patch and tokenizer hashes. It uses the exact
 existing image with no pull/network/GPU, read-only root and mounts, scratch caches,
 dropped capabilities and CPU/memory/PID limits. Tests import the actual serving
 modules and exercise `http_server.app` endpoints through ASGI TestClient. Only
 generation is an injected controlled CPU manager, explicitly labelled **MOCK**.
 There is no alternate endpoint implementation or mocked serving method. Existing
 alias/Chat/Responses/tokenize tests and `scripts/test.sh` also run.
+
+Strict TDD evidence is retained in `provenance/pr5-merge-gate-red.{json,log}` and
+`provenance/pr5-merge-gate-green.json`. The RED run is pinned to reviewed head
+`ed43202a522bc2a09eb08ebdc89705afc355030e`: 65 tests ran with four expected
+failures covering usage details, requested logprobs, generic angle splitting and the
+`qwen4_exp` scope leak. Independent reviews then found additional parser/order cases;
+`provenance/pr5-followup-red.{json,log}` records 69 methods with 18 expected failing
+subtests, and `pr5-followup2-red.{json,log}` records two focused methods with three
+expected failing subtests. `pr5-followup3-red.{json,log}` records one focused method
+with four expected failing subtests; `pr5-followup4-red.{json,log}` records two
+focused methods with five expected failing subtests before the native implicit-close
+and final `qwen4_exp` scope repairs. `pr5-followup5-red.{json,log}` records one focused
+method with four expected failing subtests before renewed reasoning after an implicit
+tool close was repaired. `pr5-followup6-red.{json,log}` records two focused methods
+with three expected failures before empty implicit-close renewal and per-message
+logprob attribution were repaired. The final exact-image targeted rerun passes both
+named regressions; the focused run passes 75 Responses tests, and the full package
+run passes 75 Responses, 14 effort-alias and 81 package CPU tests (170 executions).
+The reconstruction receipt records two successful full-tree verifications of all
+4,392 resulting files.
 
 The pinned image contains OpenAI Python SDK 2.6.1. Imported SDK output and event
 unions, JSON serialization, and the actual SDK client against ASGI endpoints are
@@ -120,8 +170,8 @@ python3 scripts/verify_responses_compat.py --tree TREE --from-image
 python3 scripts/verify_responses_compat.py --tree TREE
 ```
 
-The verifier checks all 4,391 image files, applies 0015 then 0016, and checks all
-4,392 resulting paths and hashes including the new module. Alternatively, `--apply`
+The verifier checks all 4,391 image files, applies 0015, 0016, then 0017, and checks
+all 4,392 resulting paths and hashes including the new module. Alternatively, `--apply`
 accepts a completely verified alias predecessor tree. Neither modifies historical
 profiles. Source equivalence is not byte-identical image reproduction. Do not use
 historical Dockerfiles with the changed overlay to claim reproduction of an

@@ -1,0 +1,22 @@
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/awq/awq.py:52: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+W0914 14:28:07.078000 1 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+test_harmony_responses_stream_failure_uses_failed_terminal_event (__main__.InvalidTokenFailureTest.test_harmony_responses_stream_failure_uses_failed_terminal_event) ... FAIL
+
+======================================================================
+FAIL: test_harmony_responses_stream_failure_uses_failed_terminal_event (__main__.InvalidTokenFailureTest.test_harmony_responses_stream_failure_uses_failed_terminal_event)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_invalid_token_failure.py", line 386, in test_harmony_responses_stream_failure_uses_failed_terminal_event
+    self.assertEqual(events[-1]["type"], "response.failed")
+AssertionError: 'response.completed' != 'response.failed'
+- response.completed
++ response.failed
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.430s
+
+FAILED (failures=1)

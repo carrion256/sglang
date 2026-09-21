@@ -1,0 +1,111 @@
+{
+  "phase": "GREEN",
+  "reviewed_head": "ed43202a522bc2a09eb08ebdc89705afc355030e",
+  "red_commit": "df22281b6d35fc04f802a9384b22297c0857c8cd",
+  "image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+  "focused": {
+    "command": "exact pinned image, read-only/no-network CPU runner: python3 /repo/tests/runtime_responses_compat.py -v",
+    "tests_run": 75,
+    "failures": 0,
+    "errors": 0,
+    "log": "pr5-merge-gate-green-focused.log",
+    "log_sha256": "466d33314fdf3097dcd7ac704de2ccc1024d18ca19877a42548063f5dbab57fb"
+  },
+  "full_package": {
+    "command": "QWEN_TOKENIZER_PATH=/home/kanadaj/sglang-tuning/qwen-effort-alias-patch/tokenizer bash scripts/test_responses_compat.sh",
+    "suite_counts": {
+      "responses": 75,
+      "qwen_effort_alias": 14,
+      "package_cpu": 81
+    },
+    "suite_executions_total": 170,
+    "failures": 0,
+    "errors": 0,
+    "log": "pr5-merge-gate-green-full.log",
+    "log_sha256": "e2cb8985fedff808ff9ab4b3be07c1f47ef253307d622c9c52c275e170954909"
+  },
+  "exact_image_reconstruction": {
+    "source_files": 4392,
+    "successful_full_tree_verifications": 2,
+    "log": "pr5-exact-image-reconstruction.log",
+    "log_sha256": "896d0b4ce6fdf0d9c561c6898fa4a00bdb13c608f0ffc3735f9ee398cb3efa86"
+  },
+  "compile_diff_security": {
+    "compileall": "passed on reconstructed tree",
+    "focused_py_compile": "passed for sources and final fixture",
+    "git_diff_check": "passed",
+    "patch_apply_check": "passed against verified patch-0016 predecessor",
+    "added_line_security_findings": 0,
+    "generic_angle_split_present": false,
+    "qwen4_exp_in_patch0017": false,
+    "log": "pr5-compile-diff-security.log",
+    "log_sha256": "14159ffc0b334f3e3e13ea9997e4b6af4f648c92cfbaa459add6730ddf3f9965"
+  },
+  "artifact_sha256": {
+    "tests/runtime_responses_compat.py": "a8bf6933dc433e7841b0715cea2ae43d7a9424c98327a33bdc1e05c04ad95d62",
+    "runtime/python/sglang/srt/entrypoints/openai/protocol.py": "0d4ab08ef507764b1a477d12ff63ca6a70c48151b1464881c29928a87e392165",
+    "runtime/python/sglang/srt/entrypoints/openai/serving_responses.py": "e65084c831bb3755bcef6a3288587582c065538857b58d09c8d2c2bc3ecf696c",
+    "patches/0017-responses-phase-order.patch": "2a4df18aaf0f1d15207ea2eed70f60bdb75a4bfcaa3c053a89ad33b859e27057",
+    "provenance/responses-phase-order-runtime-files.json": "1fc662bc6553af87a0b79f2857c910de02b8aaebb0f96fd6ac11674657dbb903"
+  },
+  "final_tested_source_sha256": "e65084c831bb3755bcef6a3288587582c065538857b58d09c8d2c2bc3ecf696c",
+  "followup_red": {
+    "manifest": "pr5-followup-red.json",
+    "log": "pr5-followup-red.log",
+    "test_methods_run": 69,
+    "failing_subtests": 18
+  },
+  "followup2_red": {
+    "commit": "76f04a2d6a5b82a9ffd7cb1e101a022cff790545",
+    "manifest": "pr5-followup2-red.json",
+    "manifest_sha256": "c1186ce38b47a48faa7dfd0e1c0abd52e0bfd29e9687a8277f5bf65bd64e208e",
+    "log": "pr5-followup2-red.log",
+    "log_sha256": "a10bc67cb2203c425b5e260d20b7f6b96d018300360408babf3235fb745a6a74",
+    "test_methods_run": 2,
+    "failing_subtests": 3
+  },
+  "followup3_red": {
+    "commit": "1cdf3838b38089fbcf3884662a6b30d2de6c9627",
+    "manifest": "pr5-followup3-red.json",
+    "manifest_sha256": "0ff207cda0182a1f020c9975d504322b2e099c027332fda72469555da7bf081d",
+    "log": "pr5-followup3-red.log",
+    "log_sha256": "f17a5afcb1b675f2691bf9dbe2e18c465af78416d3ca4e53d0c583c6cb1a8dfa",
+    "test_methods_run": 1,
+    "failing_subtests": 4
+  },
+  "followup4_red": {
+    "commit": "7fe50de3595dad2a6425f54c23f59cb46e8db409",
+    "manifest": "pr5-followup4-red.json",
+    "manifest_sha256": "744bbe990580c7c5faf736b01c2e6704c345ca7508d17d80c176ca84cb299356",
+    "log": "pr5-followup4-red.log",
+    "log_sha256": "bdde78b1e45273d083fb14148bf180536816815c583d5a39ae31f17e96b073be",
+    "test_methods_run": 2,
+    "failing_subtests": 5
+  },
+  "followup5_red": {
+    "commit": "8b33799e4b21ef54c8a39250b692cd3a60b3c44b",
+    "manifest": "pr5-followup5-red.json",
+    "manifest_sha256": "e4e6541d1fe35cc74e1bf86ac4331b3d64db92b7997ed54412fa59e08377cbce",
+    "log": "pr5-followup5-red.log",
+    "log_sha256": "9e9774959574a801f33723dacb6a3328c42fce90afec54483a329c795c3f6504",
+    "test_methods_run": 1,
+    "failing_subtests": 4
+  },
+  "targeted_final": {
+    "command": "exact pinned image, read-only/no-network CPU runner: two named MockHTTPTest methods",
+    "tests_run": 2,
+    "failures": 0,
+    "errors": 0,
+    "log": "pr5-final-targeted-green.log",
+    "log_sha256": "1a423b7e0d69b3af65ccee9c99cbf3413ab37df5348a2318b788fdbbc8e13f8b"
+  },
+  "followup6_red": {
+    "commit": "a42cf78b1e16642b0baaba276d5bde2a0bae8238",
+    "manifest": "pr5-followup6-red.json",
+    "manifest_sha256": "a6462211dba15a969afec8cefe33844b35de816300c0ea621c9ee043b67bd43b",
+    "log": "pr5-followup6-red.log",
+    "log_sha256": "9cd9dd70b7642de394f52d763d6397eb053d521423128937c5e4546af555b703",
+    "test_methods_run": 2,
+    "failing_subtests": 3
+  }
+}

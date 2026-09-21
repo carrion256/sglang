@@ -1,0 +1,188 @@
+--- a/python/sglang/srt/layers/attention/qsa/sparse_attn.py
++++ b/python/sglang/srt/layers/attention/qsa/sparse_attn.py
+@@ -196,6 +196,12 @@
+     BLOCK_M: tl.constexpr,
+     BLOCK_N: tl.constexpr,
+     HEAD_DIM: tl.constexpr,
++    req_to_token,
++    req_indices,
++    req_stride: tl.constexpr,
++    req_width: tl.constexpr,
++    pool_rows: tl.constexpr,
++    PAGED: tl.constexpr,
+ ):
+     query_relative = tl.program_id(0).to(tl.int64)
+     batch_group = tl.program_id(1)
+@@ -206,7 +212,11 @@
+     query = (q_start + query_relative).to(tl.int64)
+     if query >= q_end:
+         return
+-    k_start = tl.load(cu_k + batch).to(tl.int64)
++    if PAGED:
++        req = tl.load(req_indices + batch).to(tl.int64)
++        k_start = tl.full((), 0, tl.int64)
++    else:
++        k_start = tl.load(cu_k + batch).to(tl.int64)
+     kv_len = tl.load(kv_lens + batch).to(tl.int64)
+     visible = query_relative + kv_len - (q_end - q_start) + 1
+     row_topk = tl.minimum(topk, visible)
+@@ -233,6 +243,15 @@
+         current = start + offs_n
+         token = tl.load(idx_row + current * si_n, mask=current < topk, other=-1)
+         valid = token >= 0
++        if PAGED:
++            valid = valid & (current < topk) & (token < visible) & (token < req_width)
++            slot = tl.load(
++                req_to_token + req * req_stride + tl.where(valid, token, 0).to(tl.int64),
++                mask=valid,
++                other=0,
++            ).to(tl.int64)
++            valid = valid & (slot >= 0) & (slot < pool_rows)
++            token = tl.where(valid, slot, 0)
+         keys = tl.load(
+             k_base + token[None, :] * sk_n + offs_d[:, None] * sk_d,
+             mask=valid[None, :],
+@@ -245,14 +264,23 @@
+         ).to(q_values.dtype)
+         scores = tl.where(valid[None, :], tl.dot(q_values, keys), -float("inf"))
+         next_max = tl.maximum(max_value, tl.max(scores, 1))
+-        alpha = tl.math.exp2(max_value - next_max)
+-        probabilities = tl.math.exp2(scores - next_max[:, None])
++        if PAGED:
++            # Preserve the running maximum across empty tiles without inf - inf.
++            safe_max = tl.where(next_max == -float("inf"), 0.0, next_max)
++            alpha = tl.where(max_value == -float("inf"), 0.0, tl.math.exp2(max_value - safe_max))
++            probabilities = tl.math.exp2(scores - safe_max[:, None])
++        else:
++            alpha = tl.math.exp2(max_value - next_max)
++            probabilities = tl.math.exp2(scores - next_max[:, None])
+         accumulator = tl.dot(
+             probabilities.to(values.dtype), values, accumulator * alpha[:, None]
+         )
+         normalizer = normalizer * alpha + tl.sum(probabilities, 1)
+         max_value = next_max
+-    output = accumulator / normalizer[:, None]
++    if PAGED:
++        output = accumulator / tl.where(normalizer > 0, normalizer, 1.0)[:, None]
++    else:
++        output = accumulator / normalizer[:, None]
+     tl.store(
+         out
+         + query * so_m
+@@ -263,12 +291,29 @@
+     )
+ 
+ 
+-def sparse_gqa_fwd_interface_triton_ck(q, k, v, indices, cu_q, cu_k, kv_lens, scale):
+-    k, v = k.contiguous(), v.contiguous()
++def sparse_gqa_fwd_interface_triton_ck(
++    q, k, v, indices, cu_q, cu_k, kv_lens, scale,
++    *, req_to_token=None, req_indices=None, max_q=None,
++):
++    paged = req_to_token is not None
++    if paged != (req_indices is not None):
++        raise ValueError("Paged prefill requires both request table and request indices")
++    if paged:
++        if max_q is None or max_q <= 0:
++            raise ValueError("Paged prefill requires a positive CPU max query length")
++        if req_to_token.ndim != 2 or req_to_token.stride(1) != 1:
++            raise ValueError("Request table must have contiguous token rows")
++        if req_indices.ndim != 1 or req_indices.numel() != cu_q.numel() - 1:
++            raise ValueError("Request indices must match the query sequence count")
++        if req_indices.stride(0) != 1:
++            raise ValueError("Request indices must be contiguous")
++    else:
++        k, v = k.contiguous(), v.contiguous()
+     total_q, num_q_heads, head_dim = q.shape
+     num_kv_heads = k.shape[1]
+     group_size = num_q_heads // num_kv_heads
+-    max_q = int((cu_q[1:] - cu_q[:-1]).max().item())
++    if not paged:
++        max_q = int((cu_q[1:] - cu_q[:-1]).max().item())
+     block_m = max(16, triton.next_power_of_2(group_size))
+     block_n, warps, stages = _get_best_config(total_q)
+     out = torch.empty_like(q)
+@@ -279,7 +324,7 @@
+         out,
+         indices,
+         cu_q,
+-        cu_k,
++        cu_k if not paged else cu_q,
+         kv_lens,
+         scale,
+         indices.shape[-1],
+@@ -303,6 +348,12 @@
+         BLOCK_M=block_m,
+         BLOCK_N=block_n,
+         HEAD_DIM=head_dim,
++        req_to_token=req_to_token if paged else cu_q,
++        req_indices=req_indices if paged else cu_q,
++        req_stride=req_to_token.stride(0) if paged else 0,
++        req_width=req_to_token.shape[1] if paged else 0,
++        pool_rows=k.shape[0],
++        PAGED=paged,
+         num_warps=warps,
+         num_stages=stages,
+     )
+--- a/python/sglang/srt/layers/attention/qwen_sparse_attn_backend.py
++++ b/python/sglang/srt/layers/attention/qwen_sparse_attn_backend.py
+@@ -1466,50 +1466,21 @@
+             )
+             return self._pad_extend_output(output, num_output_rows)
+ 
+-        # The validated chunk-prefill kernel consumes tightly packed full-context K/V.
+-        # Current-chunk K/V has already been committed to the cache above.
++        # Read selected slots directly; full-context BF16 copies can exceed the
++        # transient memory budget even for a small extension of a long prefix.
+         pool = self.token_to_kv_pool
+-        k_buffer = pool.get_key_buffer(layer.layer_id)
+-        v_buffer = pool.get_value_buffer(layer.layer_id)
+-        req_to_token = self.req_to_token_pool.req_to_token
+-        req_indices = forward_batch.req_pool_indices.tolist()
+-        # With --kv-cache-dtype fp8_e4m3 this path receives an fp8 KV buffer.
+-        # tl.dot inside sparse_gqa_fwd_interface_triton_ck rejects fp8 rhs operands
+-        # ("Unsupported rhs dtype fp8e4nv"), so the selected rows are cast to the query dtype.
+-        # TODO: assumes the direct-cast e4m3 store, KV scale 1.0.
+-        # If a checkpoint ships per-layer KV descale, apply those scales here.
+-        _kv_cast = (
+-            (lambda t: t.to(q.dtype)) if k_buffer.dtype != q.dtype else (lambda t: t)
+-        )
+-        k_parts = [
+-            _kv_cast(
+-                k_buffer.index_select(
+-                    0, req_to_token[req_indices[i], : sequence_lens[i]].long()
+-                )
+-            )
+-            for i in range(len(sequence_lens))
+-        ]
+-        v_parts = [
+-            _kv_cast(
+-                v_buffer.index_select(
+-                    0, req_to_token[req_indices[i], : sequence_lens[i]].long()
+-                )
+-            )
+-            for i in range(len(sequence_lens))
+-        ]
+-        sequence_lens_tensor = torch.tensor(
+-            sequence_lens, dtype=torch.int32, device=q.device
+-        )
+-        cu_seqlens_k = F.pad(sequence_lens_tensor.cumsum(0), (1, 0)).contiguous()
+         output = sparse_gqa_fwd_interface_triton_ck(
+             q.contiguous(),
+-            torch.cat(k_parts),
+-            torch.cat(v_parts),
++            pool.get_key_buffer(layer.layer_id),
++            pool.get_value_buffer(layer.layer_id),
+             topk_indices,
+             cu_seqlens_q,
+-            cu_seqlens_k,
+-            sequence_lens_tensor,
++            None,
++            forward_batch.seq_lens,
+             layer.scaling,
++            req_to_token=self.req_to_token_pool.req_to_token,
++            req_indices=forward_batch.req_pool_indices,
++            max_q=max(extend_lens, default=0),
+         )
+         return self._pad_extend_output(output, num_output_rows)
+ 

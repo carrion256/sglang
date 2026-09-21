@@ -16,7 +16,8 @@ def digest(path):
 
 
 def package_records():
-    manifest = json.loads((ROOT / 'provenance/responses-compat.json').read_text())
+    base_manifest = json.loads((ROOT / 'provenance/responses-compat.json').read_text())
+    manifest = json.loads((ROOT / 'provenance/responses-phase-order.json').read_text())
     records = json.loads((ROOT / 'provenance/production/runtime-files.json').read_text())
     for profile in ('chat-effort', 'qwen-effort-alias'):
         delta = json.loads((ROOT / f'provenance/{profile}.json').read_text())
@@ -24,16 +25,29 @@ def package_records():
             if records[name]['sha256'] != hashes['before']:
                 raise ValueError('Predecessor hash mismatch: ' + name)
             records[name]['sha256'] = hashes['after']
-    for name, hashes in manifest['files'].items():
+    for name, hashes in base_manifest['files'].items():
         if records.get(name, {}).get('sha256') != hashes['before']:
             raise ValueError('Responses preimage mismatch: ' + name)
+        records[name] = {**records.get(name, {}), 'sha256': hashes['after']}
+    patch = ROOT / 'patches' / base_manifest['patch']
+    if digest(patch) != base_manifest['patch_sha256']:
+        raise ValueError('Responses compatibility patch hash mismatch')
+    base_inventory_path = ROOT / 'provenance/responses-compat-runtime-files.json'
+    base_inventory = json.loads(base_inventory_path.read_text())
+    if base_inventory != {name: row['sha256'] for name, row in sorted(records.items())}:
+        raise ValueError('Responses compatibility inventory differs')
+    if digest(base_inventory_path) != base_manifest['inventory_sha256']:
+        raise ValueError('Responses compatibility inventory digest mismatch')
+    for name, hashes in manifest['files'].items():
+        if records.get(name, {}).get('sha256') != hashes['before']:
+            raise ValueError('Phase/order preimage mismatch: ' + name)
         if digest(ROOT / 'runtime' / name) != hashes['after']:
             raise ValueError('Packaged runtime mismatch: ' + name)
         records[name] = {**records.get(name, {}), 'sha256': hashes['after']}
     patch = ROOT / 'patches' / manifest['patch']
     if digest(patch) != manifest['patch_sha256']:
-        raise ValueError('Responses patch hash mismatch')
-    inventory_path = ROOT / 'provenance/responses-compat-runtime-files.json'
+        raise ValueError('Phase/order patch hash mismatch')
+    inventory_path = ROOT / 'provenance' / manifest['inventory']
     inventory = json.loads(inventory_path.read_text())
     if inventory != {name: row['sha256'] for name, row in sorted(records.items())}:
         raise ValueError('Full candidate inventory differs from predecessor chain')
@@ -48,19 +62,24 @@ def package_records():
     ):
         if digest(ROOT / 'runtime' / name) != inventory[name]:
             raise ValueError('Packaged runtime mismatch: ' + name)
-    expected_series = ['0015-qwen-flash-next-effort-alias.patch', manifest['patch']]
+    expected_series = [
+        '0015-qwen-flash-next-effort-alias.patch',
+        base_manifest['patch'],
+        manifest['patch'],
+    ]
     if (ROOT / 'patches/series.responses-compat').read_text().splitlines() != expected_series:
         raise ValueError('Candidate patch order differs')
-    return manifest, inventory
+    return base_manifest, manifest, inventory
 
 
 def verify(tree, apply=False, from_image=False):
-    manifest, inventory = package_records()
+    base_manifest, manifest, inventory = package_records()
     if apply or from_image:
         verify_alias(tree, apply=from_image)
-        patch = ROOT / 'patches' / manifest['patch']
-        subprocess.run(['git', 'apply', '--check', str(patch)], cwd=tree, check=True)
-        subprocess.run(['git', 'apply', str(patch)], cwd=tree, check=True)
+        for patch_name in (base_manifest['patch'], manifest['patch']):
+            patch = ROOT / 'patches' / patch_name
+            subprocess.run(['git', 'apply', '--check', str(patch)], cwd=tree, check=True)
+            subprocess.run(['git', 'apply', str(patch)], cwd=tree, check=True)
     actual = {str(path.relative_to(tree)) for path in (tree / 'python/sglang').rglob('*')
               if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc'}
     if actual != set(inventory):
@@ -76,8 +95,8 @@ if __name__ == '__main__':
     parser.add_argument('--tree', type=Path)
     parser.add_argument('--tokenizer', type=Path)
     actions = parser.add_mutually_exclusive_group()
-    actions.add_argument('--apply', action='store_true', help='Apply 0016 to verified alias source')
-    actions.add_argument('--from-image', action='store_true', help='Apply 0015 then 0016 to exact image source')
+    actions.add_argument('--apply', action='store_true', help='Apply Responses patches to verified alias source')
+    actions.add_argument('--from-image', action='store_true', help='Apply 0015 then Responses patches to exact image source')
     args = parser.parse_args()
     if args.tokenizer is not None:
         tokenizer = json.loads((ROOT / 'provenance/qwen-effort-alias.json').read_text())['tokenizer']
@@ -86,6 +105,6 @@ if __name__ == '__main__':
                 raise ValueError('Tokenizer metadata mismatch: ' + name)
     if (args.apply or args.from_image) and args.tree is None:
         parser.error('Application requires --tree')
-    count = verify(args.tree.resolve(), args.apply, args.from_image) if args.tree else len(package_records()[1])
-    print(json.dumps({'profile': 'responses-compat-candidate', 'source_files': count,
+    count = verify(args.tree.resolve(), args.apply, args.from_image) if args.tree else len(package_records()[2])
+    print(json.dumps({'profile': 'responses-phase-order-candidate', 'source_files': count,
                       'full_tree_verified': args.tree is not None}))

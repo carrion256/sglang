@@ -1,0 +1,70 @@
+--- a/python/sglang/srt/mem_cache/unified_cache/unified_tree_core.py
++++ b/python/sglang/srt/mem_cache/unified_cache/unified_tree_core.py
+@@ -1840,14 +1840,36 @@
+         mamba = node.component_data[ComponentType.MAMBA]
+         if not node.hash_value:
+             logger.error(
+-                "HiCache backup failed phase=publication reason=missing_hash node=%d",
++                "HiCache backup failed phase=publication reason=missing_hash node=%d "
++                "publication_history=%s generation=%d prior_success_generation=%d "
++                "device_mamba=%s host_mamba=%s checkpoint_required=%s "
++                "storage_residency=unverified",
+                 node.id,
++                "prior_success" if node.mamba_storage_success_generation > 0 else "no_prior_success",
++                node.mamba_storage_generation,
++                node.mamba_storage_success_generation,
++                mamba.value is not None,
++                mamba.host_value is not None,
++                node.mamba_checkpoint_required,
+             )
+             return None
+         if (node.mamba_checkpoint_required or mamba.value is not None) and mamba.host_value is None:
+-            logger.error(
+-                "HiCache backup failed phase=publication reason=missing_mamba node=%d",
++            log = logger.error
++            if node.mamba_storage_success_generation > 0:
++                self.components_by_type[ComponentType.MAMBA].cache.cache_diagnostics.record_repeat_publication()
++                log = logger.debug
++            log(
++                "HiCache backup failed phase=publication reason=missing_mamba node=%d "
++                "publication_history=%s generation=%d prior_success_generation=%d "
++                "device_mamba=%s host_mamba=%s checkpoint_required=%s "
++                "storage_residency=unverified",
+                 node.id,
++                "prior_success" if node.mamba_storage_success_generation > 0 else "no_prior_success",
++                node.mamba_storage_generation,
++                node.mamba_storage_success_generation,
++                mamba.value is not None,
++                mamba.host_value is not None,
++                node.mamba_checkpoint_required,
+             )
+             return None
+         prefix_keys = None
+--- a/python/sglang/srt/mem_cache/cache_diagnostics.py
++++ b/python/sglang/srt/mem_cache/cache_diagnostics.py
+@@ -21,6 +21,8 @@
+         self.suppressed = Counter()
+         self.last_log = {}
+         self.pending = OrderedDict()
++        self.repeat_publications = 0
++        self.repeat_publication_metric = None
+         self.metric = None
+         if metrics:
+             from prometheus_client import Counter as PromCounter
+@@ -30,6 +32,16 @@
+                 ['tp_rank', 'dp_rank', 'reason'],
+             )
+             self.metric_labels = {'tp_rank': str(rank), 'dp_rank': str(dp_rank)}
++            self.repeat_publication_metric = PromCounter(
++                'sglang:hicache_repeat_publication_rejections_total',
++                'Missing-Mamba publication rejections after prior success; not confirmed checkpoint loss.',
++                ['tp_rank', 'dp_rank'],
++            ).labels(**self.metric_labels)
++
++    def record_repeat_publication(self):
++        self.repeat_publications += 1
++        if self.repeat_publication_metric is not None:
++            self.repeat_publication_metric.inc()
+ 
+     def record(self, request_id, reason, requested=0, matched=0, elapsed=0.0, budget=0.0, details=None):
+         self.counts[reason] += 1

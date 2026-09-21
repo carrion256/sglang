@@ -1,13 +1,12 @@
-# EXPERIMENTAL: this profile preserves incomplete HiCache work for review.
-# It is not qualified for deployment; see docs/hicache-wip.md.
-FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404
+# EXPERIMENTAL: opt-in HiCache profile, isolated from the default images.
+# Configuration-specific qualification is recorded in docs/hicache-wip.md.
+FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458
 ARG SOURCE_REVISION
 LABEL org.opencontainers.image.source="https://github.com/kanadaj/sglang" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
-      org.opencontainers.image.description="Experimental unqualified Qwen HiCache state-transfer profile"
-COPY patches/0020-hicache-ple-state.patch patches/0021-hicache-file-integrity.patch patches/0022-hicache-qsa-sidecar.patch patches/series.hicache-wip /opt/qwen-hicache-wip/patches/
-COPY provenance/production/runtime-files.json /opt/qwen-hicache-wip/provenance/production/runtime-files.json
-COPY provenance/chat-effort.json provenance/hicache-wip.json /opt/qwen-hicache-wip/provenance/
+      org.opencontainers.image.description="Opt-in Qwen HiCache state-transfer profile; qualify the deployment configuration"
+COPY patches/0020-hicache-ple-state.patch patches/0021-hicache-file-integrity.patch patches/0022-hicache-qsa-sidecar.patch patches/0023-qsa-sparse-gather-memory-safety.patch patches/0024-router-pdl-bias-order.patch patches/0025-hicache-load-order.patch patches/0026-qsa-short-extend-bounds.patch patches/0027-qsa-paged-prefill.patch patches/0029-hicache-common-boundary.patch patches/0030-hicache-selective-diagnostics.patch patches/0031-hicache-prefill-impact.patch patches/0032-shared-ple-host-table.patch patches/0033-prefill-decode-interleaving.patch patches/0040-hicache-checkpoint-preservation.patch patches/0041-hicache-prefetch-namespace.patch patches/0042-hicache-writeback-admission.patch patches/0043-hicache-repeat-publication-diagnostics.patch patches/0044-hicache-advanced-prefix-retry.patch patches/0045-hicache-sparse-host-refill.patch patches/series.hicache-wip /opt/qwen-hicache-wip/patches/
+COPY provenance/invalid-token-failure-runtime-files.json provenance/hicache-wip.json /opt/qwen-hicache-wip/provenance/
 COPY scripts/verify_hicache_wip.py /opt/qwen-hicache-wip/scripts/verify_hicache_wip.py
 RUN python3 -B /opt/qwen-hicache-wip/scripts/verify_hicache_wip.py \
       --tree /sgl-workspace/sglang --apply

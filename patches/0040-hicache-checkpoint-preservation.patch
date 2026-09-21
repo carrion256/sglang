@@ -1,0 +1,1842 @@
+--- a/python/sglang/srt/mem_cache/unified_radix_cache.py
++++ b/python/sglang/srt/mem_cache/unified_radix_cache.py
+@@ -7,6 +7,7 @@
+ from typing import TYPE_CHECKING, Iterator, NamedTuple, Optional, Sequence, TypeVar
+ 
+ import torch
++from sglang.srt.mem_cache.checkpoint_coordination import agree, all_ready, max_values, reduce_values, reserve, enqueue, CheckpointPreparationError
+ 
+ from sglang.srt.distributed.communication_tags import P2PTag
+ from sglang.srt.environ import envs
+@@ -32,6 +33,7 @@
+ )
+ from sglang.srt.mem_cache.hybrid_cache.hybrid_cache_controller import (
+     HybridCacheController,
++    StorageOperation,
+ )
+ from sglang.srt.mem_cache.radix_cache import RadixKey
+ from sglang.srt.mem_cache.unified_cache.cache_action import (
+@@ -110,6 +112,7 @@
+     node_id: NodeId
+     lock_params: Optional[DecLockRefParams]
+     publish_node_ids: list[NodeId]
++    host_lock_params: tuple[DecLockRefParams, ...] = ()
+ 
+ 
+ class _OngoingLoadBack(NamedTuple):
+@@ -228,6 +231,10 @@
+             f"Init Unified Radix Cache. Components: {self.tree_components}. "
+             f"Tree Core: {type(self.tree_core).__name__}"
+         )
++
++    def _checkpoint_demands(self, phase, values):
++        agree(self, ("demand", phase, len(values)))
++        return max_values(self, values)
+ 
+     def _all_reduce_attn_groups(self, tensor: torch.Tensor, op):
+         reduced = False
+@@ -781,6 +788,14 @@
+             cache_salt=req.cache_salt,
+         )
+ 
++        if effective_cache_len <= 0:
++            req.prefix_indices = kv_indices_orig.to(dtype=torch.int64, copy=True)
++            for comp in self._components_tuple:
++                comp.cleanup_after_caching_req(
++                    req, is_finished=False, insert_params=insert_params
++                )
++            return
++
+         if envs.SGLANG_OPT_UNIFIED_CACHE_FREE_OUT_OF_WINDOW_SLOTS.get():
+             # The frontier lands a page below page_floor(pre_len + 1), which has to
+             # be where the insert stops, or the leaf it creates keeps less than a
+@@ -789,14 +804,6 @@
+             # one shorter than the tokens it spans, so measure the key.
+             for comp in self._components_tuple:
+                 comp.free_out_of_window_slots(req, len(radix_key) - 1, insert_params)
+-
+-        if effective_cache_len <= 0:
+-            req.prefix_indices = kv_indices_orig.to(dtype=torch.int64, copy=True)
+-            for comp in self._components_tuple:
+-                comp.cleanup_after_caching_req(
+-                    req, is_finished=False, insert_params=insert_params
+-                )
+-            return
+ 
+         kv_indices = kv_indices_orig[:effective_cache_len]
+ 
+@@ -923,30 +930,101 @@
+ 
+     # ---- HiCache: Backup / LoadBack ----
+ 
++    def preserve_mamba_before_eviction(self, node_id: NodeId) -> None:
++        """Best-effort preservation; failed backups must not prevent reclamation."""
++        if self.cache_controller is None or not self.is_write_back:
++            return
++        node = self.tree_core.node_by_id(node_id)
++        data = node.component_data[ComponentType.MAMBA]
++        agree(self, ("preserve", node_id, data.value is not None, data.host_value is not None,
++                     node.write_through_pending_id,
++                     node.component_data[BASE_COMPONENT_TYPE].value is not None,
++                     getattr(node, "mamba_backup_in_progress", False)))
++        if data.value is None:
++            return
++        node.mamba_checkpoint_required = True
++        if data.host_value is not None:
++            if node.write_through_pending_id is not None:
++                self.writing_check(write_back=True)
++            return
++        if node.component_data[BASE_COMPONENT_TYPE].value is None:
++            # Full demotion already attempted preservation before cascading.
++            # A failed attempt must not retry against a freed source tensor.
++            return
++        # Allocation can evict host entries, but must not recursively back up
++        # this same endpoint while preparing its transfer.
++        if getattr(node, "mamba_backup_in_progress", False):
++            return
++        node.mamba_backup_in_progress = True
++        try:
++            success = self._execute_and_commit_kv_backup(
++                BackupKV([node_id]), write_back=True
++            )
++            if success:
++                self.writing_check(write_back=True)
++            if not success or data.host_value is None:
++                logger.error(
++                    "HiCache backup failed phase=device_eviction reason=checkpoint_loss "
++                    "node=%d action=recompute",
++                    node_id,
++                )
++        finally:
++            node.mamba_backup_in_progress = False
++
+     def _execute_and_commit_kv_backup(
+         self, action: BackupKV, write_back: bool = False
+-    ) -> int:
+-        """Run a backup action top-down, stopping at the first failed backup."""
+-        written = 0
++    ) -> bool:
++        """Return transfer success independently of newly copied Full-KV volume."""
++        agree(self, ("backup", tuple(action.node_ids), write_back))
+         for node_id in action.node_ids:
+-            device_value, comp_xfers = self.tree_core.build_backup_spec(node_id)
+-            # Overlapping chain actions may revisit nodes with Full KV already
+-            # backed up. Skip only when no transfer remains.
+-            if device_value.numel() == 0 and not comp_xfers:
+-                continue
+-            sidecar_xfers = self._build_backup_sidecar(device_value, comp_xfers)
+-            host_indices = self._execute_kv_backup(
+-                node_id, device_value, comp_xfers, sidecar_xfers
+-            )
+-            if host_indices is None:
+-                return 0
+-            self.tree_core.commit_backup(node_id, host_indices, comp_xfers)
+-            lock_params = None
+-            if not write_back:
+-                lock_params = self.inc_lock_ref(node_id).to_dec_params()
+-            self._track_write_through_node(node_id, lock_params)
+-            written = len(host_indices)
+-        return written
++            # Pin existing entries before allocation can evict host duplicates.
++            before = self.inc_host_lock_ref(node_id).to_dec_params()
++            transferred = False
++            unsafe_failure = False
++            try:
++                prepared = True
++                try:
++                    device_value, comp_xfers = self.tree_core.build_backup_spec(node_id)
++                    sidecar_xfers = self._build_backup_sidecar(device_value, comp_xfers)
++                except (MemoryError, ValueError, KeyError, AttributeError) as error:
++                    logger.error("HiCache backup failed phase=preparation node=%d reason=%s action=skip_backup",
++                                 node_id, type(error).__name__)
++                    prepared = False
++                if not all_ready(self, prepared):
++                    logger.error("HiCache backup failed phase=preparation node=%d reason=peer_failure action=skip_backup", node_id)
++                    return False
++                agree(self, ("backup_spec", node_id, device_value.numel(),
++                             [(str(ct), [(str(x.name), None if x.device_indices is None else x.device_indices.numel())
++                                         for x in xfers]) for ct, xfers in comp_xfers.items()]))
++                if device_value.numel() == 0 and not comp_xfers:
++                    continue
++                host_indices = self._execute_kv_backup(
++                    node_id, device_value, comp_xfers, sidecar_xfers
++                )
++                if host_indices is None:
++                    logger.error(
++                        "HiCache backup failed phase=host_allocation node=%d", node_id
++                    )
++                    return False
++                self.tree_core.commit_backup(node_id, host_indices, comp_xfers)
++                # The first lock skipped absent components; this second lock
++                # covers the newly allocated entries until the copy completes.
++                after = self.inc_host_lock_ref(node_id).to_dec_params()
++                lock_params = None
++                if not write_back:
++                    lock_params = self.inc_lock_ref(node_id).to_dec_params()
++                self._track_write_through_node(node_id, lock_params, (before, after))
++                transferred = True
++            except Exception:
++                # Submission may have started DMA before raising. Keep pins;
++                # never turn an unknown device failure into reusable buffers.
++                unsafe_failure = True
++                logger.error("HiCache backup failed phase=device_transfer node=%d action=retain_pins", node_id)
++                raise
++            finally:
++                if not transferred and not unsafe_failure:
++                    self.dec_host_lock_ref(node_id, before)
++        return True
+ 
+     def _build_backup_sidecar(self, device_value, comp_xfers):
+         """Gather sidecar transfer spec."""
+@@ -956,27 +1034,20 @@
+         )
+ 
+     def _execute_kv_backup(self, node_id, device_value, comp_xfers, sidecar_xfers):
+-        """Execute Backup action."""
+-        kv_tokens = len(device_value)
+-        host_avail = self.cache_controller.mem_pool_host.available_size()
+-        if host_avail < kv_tokens:
+-            needed = kv_tokens - host_avail
+-            if self.evict_host(needed) < needed:
+-                return None
++        self.cache_controller.checkpoint_owner = self
+         aux_xfers = [x for xfers in comp_xfers.values() for x in xfers]
+         aux_xfers.extend(sidecar_xfers)
+-        return self.cache_controller.write(
+-            device_value, node_id=node_id, extra_pools=aux_xfers or None
+-        )
++        return self.cache_controller.write(device_value, node_id=node_id, extra_pools=aux_xfers or None)
+ 
+     def _track_write_through_node(
+         self,
+         node_id: NodeId,
+         lock_params: Optional[DecLockRefParams],
++        host_lock_params: tuple[DecLockRefParams, ...] = (),
+     ) -> None:
+         self.tree_core.mark_write_through_pending(node_id)
+         self.ongoing_write_through[node_id] = _OngoingWriteThrough(
+-            node_id, lock_params, [node_id]
++            node_id, lock_params, [node_id], host_lock_params
+         )
+ 
+     def _replace_pending_write_through_node(
+@@ -986,7 +1057,7 @@
+         if pending is None:
+             return
+ 
+-        lock_node_id, lock_params, publish_node_ids = pending
++        lock_node_id, lock_params, publish_node_ids, host_lock_params = pending
+         updated_node_ids = []
+         replaced = False
+         for node_id in publish_node_ids:
+@@ -1003,20 +1074,23 @@
+             lock_node_id,
+             lock_params,
+             updated_node_ids,
++            host_lock_params,
+         )
+ 
+     def _finish_write_through_ack(self, ack_id: int) -> None:
+-        lock_node_id, lock_params, publish_node_ids = self.ongoing_write_through.pop(
+-            ack_id
+-        )
++        pending = self.ongoing_write_through.pop(ack_id)
++        node_id, lock_params, publish_node_ids, host_lock_params = pending
+         self.tree_core.finish_write_through(publish_node_ids, ack_id)
+-        if lock_params is not None:
+-            self.dec_lock_ref(lock_node_id, lock_params)
+-        if self.enable_storage:
+-            # Back up each fragment: after a split, lock_node only holds the
+-            # suffix; the prefix fragment must be persisted as well.
+-            for node_id in publish_node_ids:
+-                self.write_backup_storage(node_id)
++        try:
++            if self.enable_storage:
++                for publish_id in publish_node_ids:
++                    self.write_backup_storage(publish_id)
++        finally:
++            # Disk publication acquires its own pins before these are released.
++            for params in reversed(host_lock_params):
++                self.dec_host_lock_ref(node_id, params)
++            if lock_params is not None:
++                self.dec_lock_ref(node_id, lock_params)
+ 
+     def load_back(
+         self,
+@@ -1036,10 +1110,22 @@
+ 
+         # Let each component pre-allocate per-request state for the load-back;
+         # the finally below lets components recover it unless the load succeeds.
+-        preps: dict[ComponentType, PrepareLoadBackResult] = {
+-            comp.component_type: comp.prepare_load_back(node_id, req=req)
+-            for comp in self._components_tuple
+-        }
++        agree(self, ("load_back", node_id, tuple(str(c.component_type) for c in self._components_tuple)))
++        preps = {}
++        prepared = True
++        for comp in self._components_tuple:
++            try:
++                preps[comp.component_type] = comp.prepare_load_back(node_id, req=req)
++            except CheckpointPreparationError as error:
++                logger.error("HiCache checkpoint failed phase=load_preparation reason=%s", type(error).__name__)
++                prepared = False
++            if not all_ready(self, prepared):
++                for previous in self._components_tuple:
++                    if previous.component_type in preps:
++                        previous.finalize_load_back(req, preps[previous.component_type], False)
++                self.dec_lock_ref(node_id, ancestor_lock_params)
++                self.dec_host_lock_ref(node_id, host_anchor_params)
++                return False
+         success = False
+         try:
+             success = self._load_back_transfers(
+@@ -1065,38 +1151,27 @@
+         ancestor_lock_params: DecLockRefParams,
+         host_anchor_params: DecLockRefParams,
+     ) -> bool:
+-        # Build the KV + per-component aux transfers.
+-        kv_xfer, comp_xfers = self.tree_core.build_load_back_spec(node_id, req=req)
+-        kv_tokens = len(kv_xfer.host_indices)
+-        sidecar_xfers = self._build_sidecar_transfers(
+-            CacheTransferPhase.LOAD_BACK, kv_xfer, comp_xfers
+-        )
+-
+-        # Skip if there is nothing to load, or if the Full-KV transfer is too
+-        # small / exceeds memory quota. Aux transfers should still run even
+-        # when the Full-KV load is skipped by thresholding.
+-        if (kv_tokens < self.load_back_threshold and not comp_xfers) or (
+-            mem_quota is not None and kv_tokens > mem_quota + result.delta
+-        ):
++        prepared = True
++        try:
++            kv_xfer, comp_xfers = self.tree_core.build_load_back_spec(node_id, req=req)
++            kv_tokens = len(kv_xfer.host_indices)
++            sidecar_xfers = self._build_sidecar_transfers(CacheTransferPhase.LOAD_BACK, kv_xfer, comp_xfers)
++            eligible = not ((kv_tokens < self.load_back_threshold and not comp_xfers) or
++                            (mem_quota is not None and kv_tokens > mem_quota + result.delta))
++            aux_xfers = [x for xfers in comp_xfers.values() for x in xfers]
++            aux_xfers.extend(sidecar_xfers)
++        except (MemoryError, ValueError, KeyError, AttributeError) as error:
++            logger.error("HiCache checkpoint failed phase=load_preparation reason=%s", type(error).__name__)
++            prepared = False
++            eligible = False
++        if not all_ready(self, prepared and eligible):
+             self.dec_lock_ref(node_id, ancestor_lock_params)
+             self.dec_host_lock_ref(node_id, host_anchor_params)
+             return False
+ 
+-        if self.supports_swa():
+-            avail = self.token_to_kv_pool_allocator.full_available_size()
+-        else:
+-            avail = self.token_to_kv_pool_allocator.available_size()
+-        if avail < kv_tokens:
+-            needed = kv_tokens - avail
+-            result = self.evict(EvictParams(num_tokens=needed))
+-            if result.num_tokens_evicted < needed:
+-                self.dec_lock_ref(node_id, ancestor_lock_params)
+-                self.dec_host_lock_ref(node_id, host_anchor_params)
+-                return False
+-
+-        # Load H→D
+-        aux_xfers = [x for xfers in comp_xfers.values() for x in xfers]
+-        aux_xfers.extend(sidecar_xfers)
++        self.cache_controller.checkpoint_owner = self
++
++        # Load H→D using the agreed, prepared transfer list.
+         device_indices = self.cache_controller.load(
+             host_indices=kv_xfer.host_indices,
+             node_id=node_id,
+@@ -1177,34 +1252,64 @@
+     def write_backup_storage(self, node_id: NodeId) -> None:
+         if not self.enable_storage or self.cache_controller is None:
+             return
+-        spec = self.tree_core.build_storage_backup_spec(
+-            node_id, self.hicache_storage_pass_prefix_keys
+-        )
+-        if spec is None:
+-            return
+-
+-        kv_xfer = PoolTransfer(
+-            name=PoolName.KV,
+-            host_indices=spec.host_value,
+-            keys=spec.hash_value,
+-        )
+-        sidecar_xfers = self._build_sidecar_transfers(
+-            CacheTransferPhase.BACKUP_STORAGE, kv_xfer, spec.comp_xfers
+-        )
+-        aux_xfers = [x for xfers in spec.comp_xfers.values() for x in xfers]
+-        aux_xfers.extend(sidecar_xfers)
+-
+-        operation_id = self.cache_controller.write_storage(
+-            spec.host_value,
+-            spec.token_ids,
+-            spec.hash_value,
+-            spec.prefix_keys,
+-            extra_pools=aux_xfers or None,
+-        )
+-        self.ongoing_backup[operation_id] = (
+-            node_id,
+-            self.inc_host_lock_ref(node_id).to_dec_params(),
+-        )
++        node = self.tree_core.node_by_id(node_id)
++        node.mamba_storage_generation += 1
++        generation = node.mamba_storage_generation
++        node.mamba_loss_logged = False
++        # Every attempted publication has one terminal completion on every rank,
++        # including preparation/enqueue rejection. ACK draining is TP-synchronized.
++        operation = StorageOperation(torch.empty(0, dtype=torch.int64), [], hash_value=[])
++        operation.checkpoint_node = node
++        self.ongoing_backup[operation.id] = (node_id, None)
++        node.mamba_storage_pending[operation.id] = generation
++        self.cache_controller.register_backup_publication(operation)
++        try:
++            pins = self.inc_host_lock_ref(node_id).to_dec_params()
++            self.ongoing_backup[operation.id] = (node_id, pins)
++            spec = self.tree_core.build_storage_backup_spec(
++                node_id, self.hicache_storage_pass_prefix_keys
++            )
++            if spec is None:
++                operation.backup_failure = "invalid_spec"
++                self.cache_controller.complete_backup_publication(operation)
++                return
++            kv_xfer = PoolTransfer(name=PoolName.KV, host_indices=spec.host_value, keys=spec.hash_value)
++            sidecar_xfers = self._build_sidecar_transfers(
++                CacheTransferPhase.BACKUP_STORAGE, kv_xfer, spec.comp_xfers
++            )
++            aux_xfers = [x for xfers in spec.comp_xfers.values() for x in xfers]
++            aux_xfers.extend(sidecar_xfers)
++            self.cache_controller.write_storage(
++                spec.host_value, spec.token_ids, spec.hash_value, spec.prefix_keys,
++                extra_pools=aux_xfers or None, operation=operation,
++            )
++        except Exception as error:
++            logger.error("HiCache backup failed phase=storage_enqueue node=%d reason=%s action=recompute", node_id, type(error).__name__)
++            operation.backup_failure = type(error).__name__
++            operation.completed_tokens = 0
++            self.cache_controller.complete_backup_publication(operation)
++
++    def _finish_storage_backup(self, operation) -> None:
++        entry = self.ongoing_backup.get(operation.id)
++        if entry is None:
++            return
++        node_id, lock_params = entry
++        node = getattr(operation, "checkpoint_node", None)
++        if node is None:
++            node = self.tree_core.node_by_id(node_id)
++        generation = node.mamba_storage_pending.pop(operation.id)
++        if getattr(operation, "backup_failure", None) is not None:
++            if generation > node.mamba_storage_success_generation:
++                node.mamba_storage_failures.add(generation)
++        else:
++            node.mamba_storage_success_generation = max(node.mamba_storage_success_generation, generation)
++            # An old success cannot clear a newer failed publication.
++            node.mamba_storage_failures.difference_update(
++                failed for failed in tuple(node.mamba_storage_failures) if failed <= generation
++            )
++        self.ongoing_backup.pop(operation.id)
++        if lock_params is not None:
++            self.dec_host_lock_ref(node_id, lock_params)
+ 
+     def is_backuped(self, node_id: NodeId) -> bool:
+         return self.tree_core.is_backuped(node_id)
+@@ -1219,88 +1324,91 @@
+         return self.tree_core.get_prefix_hash_values(node_id)
+ 
+     def prefetch_from_storage(
+-        self,
+-        req_id: str,
+-        last_host_node_id: NodeId,
+-        new_input_tokens: list[int],
+-        last_hash: Optional[str] = None,
+-        prefix_keys: Optional[list[str]] = None,
++        self, req_id: str, last_host_node_id: NodeId, new_input_tokens: list[int],
++        last_hash: Optional[str] = None, prefix_keys: Optional[list[str]] = None,
+     ) -> None:
+         if not self.enable_storage or self.cache_controller is None:
+             return
+-
+-        extra_key, cache_salt = self.tree_core.prefetch_anchor_info(last_host_node_id)
+-        prefetch_key = RadixKey(
+-            new_input_tokens,
+-            extra_key=extra_key,
+-            is_bigram=self.tree_core.is_eagle,
+-            cache_salt=cache_salt,
+-        ).page_aligned(self.page_size)
+-        prefetch_length = len(prefetch_key)
++        from sglang.srt.mem_cache.hybrid_cache.hybrid_cache_controller import PrefetchOperation
++        prepared = True
++        try:
++            extra_key, cache_salt = self.tree_core.prefetch_anchor_info(last_host_node_id)
++            prefetch_key = RadixKey(new_input_tokens, extra_key=extra_key,
++                                   is_bigram=self.tree_core.is_eagle, cache_salt=cache_salt).page_aligned(self.page_size)
++            prefetch_length = len(prefetch_key)
++        except (MemoryError, ValueError, KeyError) as error:
++            logger.error("HiCache checkpoint failed phase=prefetch_key reason=%s", type(error).__name__)
++            prepared = False
++        if not all_ready(self, prepared):
++            return
++        agree(self, ("prefetch", req_id, last_host_node_id, prefetch_length))
+         if prefetch_length < self.prefetch_threshold:
+             record_cache_decision(self, req_id, "below_threshold", requested=prefetch_length)
+             return
+-        if self.cache_controller.prefetch_rate_limited():
++        if not all_ready(self, not self.cache_controller.prefetch_rate_limited()):
+             record_cache_decision(self, req_id, "prefetch_capacity", requested=prefetch_length)
+             return
+-
+         anchor_lock_params = self.inc_host_lock_ref(last_host_node_id).to_dec_params()
+-        comp_xfers: dict[ComponentType, list[PoolTransfer]] = {}
+-        alloc_failed = False
+-        for ct in self.tree_components:
+-            if ct == BASE_COMPONENT_TYPE:
+-                continue
+-            # Pre-allocate the component's prefetch host buffer so the build stays pure.
+-            prep = self.components[ct].prepare_prefetch(
+-                last_host_node_id, prefetch_tokens=len(prefetch_key)
+-            )
+-            if prep.alloc_failed:
+-                alloc_failed = True
+-                break
+-            if prep.host_indices is None:
+-                continue
+-            transfers = self.tree_core.build_hicache_transfers(
+-                ct,
+-                last_host_node_id,
+-                CacheTransferPhase.PREFETCH,
+-                token_ids=prefetch_key.token_ids,
+-                prefetch_tokens=len(prefetch_key),
+-                last_hash=last_hash,
+-                host_indices=prep.host_indices,
+-            )
+-            if transfers:
+-                comp_xfers[ct] = transfers
+-        kv_xfer = PoolTransfer(name=PoolName.KV, host_indices=None)
+-        sidecar_xfers = self._build_sidecar_transfers(
+-            CacheTransferPhase.PREFETCH, kv_xfer, comp_xfers
+-        )
+-        if alloc_failed:
+-            record_cache_decision(self, req_id, "component_capacity", requested=prefetch_length,
+-                                  details={"component": str(ct)})
+-            self.cache_controller.append_host_mem_release(
+-                extra_pools=[x for xfers in comp_xfers.values() for x in xfers],
+-            )
+-            self.dec_host_lock_ref(last_host_node_id, anchor_lock_params)
+-            return
+-
+-        aux_xfers = [x for xfers in comp_xfers.values() for x in xfers]
+-        aux_xfers.extend(sidecar_xfers)
+-        operation = self.cache_controller.prefetch(
+-            req_id,
+-            prefetch_key,
+-            last_hash,
+-            prefix_keys,
+-            extra_pools=aux_xfers or None,
+-        )
+-        self.ongoing_prefetch[req_id] = _OngoingPrefetch(
+-            last_host_node_id,
+-            prefetch_key,
+-            None,
+-            operation,
+-            anchor_lock_params,
+-            comp_xfers,
+-        )
+-        self.cache_controller.prefetch_tokens_occupied += len(prefetch_key)
++        comp_xfers = {}
++        owned = []
++        committed = False
++        try:
++            for ct in self.tree_components:
++                if ct == BASE_COMPONENT_TYPE:
++                    continue
++                prep = self.components[ct].prepare_prefetch(last_host_node_id, prefetch_tokens=prefetch_length)
++                prepared = not prep.alloc_failed
++                if prep.host_indices is not None:
++                    # Track allocations even when transfer construction fails.
++                    host_pool = self.components[ct]._mamba_pool_host if ct == ComponentType.MAMBA else self.components[ct]._swa_kv_pool_host
++                    owned.append((host_pool, prep.host_indices))
++                    try:
++                        transfers = self.tree_core.build_hicache_transfers(
++                            ct, last_host_node_id, CacheTransferPhase.PREFETCH,
++                            token_ids=prefetch_key.token_ids, prefetch_tokens=prefetch_length,
++                            last_hash=last_hash, host_indices=prep.host_indices)
++                        if not transfers:
++                            prepared = False
++                        else:
++                            comp_xfers[ct] = transfers
++                    except (MemoryError, ValueError, KeyError, AttributeError) as error:
++                        logger.error("HiCache checkpoint failed phase=prefetch_spec reason=%s", type(error).__name__)
++                        prepared = False
++                if not all_ready(self, prepared):
++                    logger.error("HiCache checkpoint failed phase=prefetch_spec reason=peer_failure action=skip_cache")
++                    return
++            prepared = True
++            try:
++                kv_xfer = PoolTransfer(name=PoolName.KV, host_indices=None)
++                sidecars = self._build_sidecar_transfers(CacheTransferPhase.PREFETCH, kv_xfer, comp_xfers)
++                aux = [x for xfers in comp_xfers.values() for x in xfers] + sidecars
++                operation = PrefetchOperation(req_id, prefetch_key, last_hash, prefix_keys=prefix_keys, pool_transfers=aux or None)
++                pending = _OngoingPrefetch(last_host_node_id, prefetch_key, None, operation, anchor_lock_params, comp_xfers)
++            except (MemoryError, ValueError, KeyError, AttributeError) as error:
++                logger.error("HiCache checkpoint failed phase=prefetch_preparation reason=%s", type(error).__name__)
++                prepared = False
++            if not all_ready(self, prepared):
++                return
++            recorded = False
++            try:
++                self.ongoing_prefetch[req_id] = pending
++                recorded = True
++            except MemoryError:
++                logger.error("HiCache checkpoint failed phase=prefetch_registration reason=MemoryError")
++            if not all_ready(self, recorded):
++                if recorded:
++                    self.ongoing_prefetch.pop(req_id)
++                return
++            if not enqueue(self, self.cache_controller.prefetch_queue, operation):
++                self.ongoing_prefetch.pop(req_id)
++                return
++            self.cache_controller.prefetch_tokens_occupied += prefetch_length
++            committed = True
++        finally:
++            if not committed:
++                for pool, indices in reversed(owned):
++                    pool.free(indices)
++                self.dec_host_lock_ref(last_host_node_id, anchor_lock_params)
+ 
+     def _prefetch_timeout_check_linear_func(self, operation: PrefetchOperation) -> bool:
+         return (
+@@ -1643,6 +1751,9 @@
+             for operation in _drain_queue(cc.prefetch_hit_queue, n_storage_hit):
+                 req_id = operation.request_id
+                 info = self.ongoing_prefetch.get(req_id)
++                agree(self, ("storage_hit", req_id, info is not None, operation.is_terminated()))
++                operation.storage_hit_count = reduce_values(
++                    self, [operation.storage_hit_count], torch.distributed.ReduceOp.MIN)[0]
+                 if info is None:
+                     # request already aborted/cleaned up, skip
+                     continue
+@@ -1672,20 +1783,18 @@
+                     "target_tokens": alloc_len,
+                     "free_before": cc.mem_pool_host.available_size(),
+                 }
+-                host_indices = cc.mem_pool_host.alloc(alloc_len)
+-                if host_indices is None:
+-                    self.evict_host(alloc_len)
+-                    operation.diagnostic_allocation["free_after_eviction"] = cc.mem_pool_host.available_size()
+-                    host_indices = cc.mem_pool_host.alloc(alloc_len)
+-                if host_indices is None:
+-                    # Memory-pressure fallback: a shorter page-aligned prefix.
+-                    available_size = cc.mem_pool_host.available_size()
+-                    alloc_len = min(
+-                        operation.storage_hit_count,
+-                        available_size - (available_size % self.page_size),
+-                    )
++                slots = reserve(self, ("storage_hit", req_id, alloc_len),
++                                [("kv_host", alloc_len, cc.mem_pool_host.alloc, cc.mem_pool_host.free)],
++                                lambda: self.evict_host(alloc_len))
++                if slots is None:
++                    available = cc.mem_pool_host.available_size()
++                    shorter = min(alloc_len, available - available % self.page_size)
++                    alloc_len = reduce_values(self, [shorter], torch.distributed.ReduceOp.MIN)[0]
+                     if alloc_len >= self.prefetch_threshold:
+-                        host_indices = cc.mem_pool_host.alloc(alloc_len)
++                        slots = reserve(self, ("storage_hit_short", req_id, alloc_len),
++                                        [("kv_host", alloc_len, cc.mem_pool_host.alloc, cc.mem_pool_host.free)],
++                                        lambda: None)
++                host_indices = None if slots is None else slots[0]
+                 if host_indices is None:
+                     record_cache_decision(
+                         self, req_id, "host_capacity", requested=operation.storage_hit_count,
+@@ -1703,16 +1812,18 @@
+                 ]
+                 operation.host_indices = host_indices
+                 self.ongoing_prefetch[req_id] = info._replace(host_indices=host_indices)
+-                cc.prefetch_buffer.put(operation)
++                if not enqueue(self, cc.prefetch_buffer, operation):
++                    # The worker never acquired these primary buffers.
++                    cc.mem_pool_host.free(host_indices)
++                    operation.host_indices = None
++                    self.ongoing_prefetch[req_id] = info._replace(host_indices=None)
++                    self._revoke_pending_prefetch(req_id)
+ 
+         def _drain_backup():
+             drained = 0
+             for operation in _drain_queue(cc.ack_backup_queue, n_backup):
+                 drained += 1
+-                entry = self.ongoing_backup.pop(operation.id, None)
+-                if entry is not None:
+-                    node_id, lock_params = entry
+-                    self.dec_host_lock_ref(node_id, lock_params)
++                self._finish_storage_backup(operation)
+                 if (
+                     log_metrics
+                     and self.enable_storage_metrics
+--- a/python/sglang/srt/mem_cache/unified_cache/unified_tree_core.py
++++ b/python/sglang/srt/mem_cache/unified_cache/unified_tree_core.py
+@@ -117,6 +117,12 @@
+         self.last_access_time = get_and_increase_time_counter()
+         self.creation_time = get_and_increase_time_counter()
+         self.hash_value = None
++        self.mamba_checkpoint_required = False
++        self.mamba_storage_failures = set()
++        self.mamba_storage_generation = 0
++        self.mamba_storage_success_generation = 0
++        self.mamba_storage_pending = {}
++        self.mamba_loss_logged = False
+         # Namespace-aware hashes used only for external KV events.
+         self.event_hash_value: Optional[list[str]] = None
+         self.hit_count = 0
+@@ -1589,6 +1595,27 @@
+         target: EvictLayer = EvictLayer.DEVICE,
+         tracker: Optional[dict[ComponentType, int]] = None,
+     ) -> tuple[int, int]:
++        # Preserve endpoint state before Full eviction can cascade into Mamba.
++        mamba = self.components_by_type.get(ComponentType.MAMBA)
++        if (
++            self.is_write_back and mamba is not None
++            and target == EvictLayer.DEVICE
++            and comp.component_type in (BASE_COMPONENT_TYPE, ComponentType.MAMBA)
++        ):
++            mamba.cache.preserve_mamba_before_eviction(node.id)
++        if (
++            mamba is not None and EvictLayer.HOST in target
++            and comp.component_type in (BASE_COMPONENT_TYPE, ComponentType.MAMBA)
++        ):
++            mamba_data = node.component_data[ComponentType.MAMBA]
++            if (node.mamba_storage_failures and not node.mamba_loss_logged
++                    and mamba_data.host_value is not None
++                    and (mamba_data.value is None or target == EvictLayer.ALL)):
++                logger.error(
++                    "HiCache backup failed phase=host_eviction reason=checkpoint_loss node=%d failures=%d action=recompute",
++                    node.id, len(node.mamba_storage_failures),
++                )
++                node.mamba_loss_logged = True
+         device_freed, host_freed = comp.evict_component(
+             node, target=target, device_frees=device_frees, host_frees=host_frees
+         )
+@@ -1809,6 +1836,19 @@
+         """Gather a node's device->storage backup spec; None if the node is not backuped."""
+         node = self.node_by_id(node_id)
+         if not node.backuped:
++            return None
++        mamba = node.component_data[ComponentType.MAMBA]
++        if not node.hash_value:
++            logger.error(
++                "HiCache backup failed phase=publication reason=missing_hash node=%d",
++                node.id,
++            )
++            return None
++        if (node.mamba_checkpoint_required or mamba.value is not None) and mamba.host_value is None:
++            logger.error(
++                "HiCache backup failed phase=publication reason=missing_mamba node=%d",
++                node.id,
++            )
+             return None
+         prefix_keys = None
+         if pass_prefix_keys:
+--- a/python/sglang/srt/mem_cache/unified_cache/components/mamba_component.py
++++ b/python/sglang/srt/mem_cache/unified_cache/components/mamba_component.py
+@@ -1,9 +1,14 @@
+ from __future__ import annotations
++
++import logging
++
++logger = logging.getLogger(__name__)
+ 
+ from collections import defaultdict
+ from typing import TYPE_CHECKING, Callable, Optional, Sequence
+ 
+ import torch
++from sglang.srt.mem_cache.checkpoint_coordination import agree, all_ready, reserve, CheckpointPreparationError
+ 
+ from sglang.srt.mem_cache.base_prefix_cache import (
+     DecLockRefParams,
+@@ -186,29 +191,31 @@
+     def finalize_match_result_in_cache(
+         self, params: MatchPrefixParams, result: MatchResult
+     ) -> MatchResult:
++        agree(self.cache, ("match", params.cow_mamba, result.best_match_node,
++                           params.req is not None,
++                           params.req.mamba_pool_idx is not None if params.req is not None else False))
+         # Copy-on-write the matched device mamba state into a per-request slot.
+         if not params.cow_mamba:
+             return result
+         src_index = self.tree_core.get_component_device_value(
+             result.best_match_node, self.component_type
+         )
++        agree(self.cache, ("match_source", result.best_match_node, src_index is not None))
+         if src_index is None:
+             return result
+         req = params.req
+         assert req is not None
+         if req.mamba_pool_idx is None:
+-            dst_index = self.cache.req_to_token_pool.mamba_allocator.alloc(1)
+-            if dst_index is None:
+-                # Pin the window via inc/dec_lock_ref so evict's SWA release
+-                # stops at this request's window boundary instead of walking to
+-                # root and over-decrementing locks held by other requests.
+-                lock_result = self.cache.inc_lock_ref(result.best_match_node)
+-                self.cache.evict(EvictParams(num_tokens=0, mamba_num=1))
+-                dst_index = self.cache.req_to_token_pool.mamba_allocator.alloc(1)
+-                self.cache.dec_lock_ref(
+-                    result.best_match_node, lock_result.to_dec_params()
+-                )
+-                assert dst_index is not None, "Can not alloc mamba cache"
++            lock_result = self.cache.inc_lock_ref(result.best_match_node)
++            try:
++                allocator = self.cache.req_to_token_pool.mamba_allocator
++                slots = reserve(self.cache, ("match_mamba", result.best_match_node),
++                                [("mamba", 1, allocator.alloc, allocator.free)],
++                                lambda: self.cache.evict(EvictParams(num_tokens=0, mamba_num=1)))
++                assert slots is not None, "Can not alloc mamba cache"
++                dst_index = slots[0]
++            finally:
++                self.cache.dec_lock_ref(result.best_match_node, lock_result.to_dec_params())
+             req.mamba_pool_idx = dst_index[0]
+         req.mamba_cow_src_index = src_index
+         req.mamba_needs_clear = False
+@@ -223,6 +230,7 @@
+         cache_actions: list[CacheAction | ComponentAction],
+     ) -> None:
+         assert params.mamba_value is not None
++        node.mamba_checkpoint_required = True
+         if is_new_leaf:
+             node.component_data[self.component_type].value = params.mamba_value
+             self.tree_core.lru_lists[self.component_type].insert_mru(node)
+@@ -483,35 +491,12 @@
+                 self.tree_core.component_protected_size_[ct] -= vlen
+             cd.lock_ref -= 1
+ 
+-    def _alloc_mamba_slot(self) -> torch.Tensor:
+-        """Allocate one mamba pool slot, evicting if necessary."""
+-        slot = self.cache.req_to_token_pool.mamba_allocator.alloc(1)
+-        if slot is None:
+-            self.cache.evict(EvictParams(num_tokens=0, mamba_num=1))
+-            slot = self.cache.req_to_token_pool.mamba_allocator.alloc(1)
+-            assert slot is not None, "Can not alloc mamba cache"
+-        return slot
+ 
+     @property
+     def int8_ckpt_pool(self):
+         return getattr(self.cache.req_to_token_pool, "mamba_ckpt_pool", None)
+ 
+-    def _alloc_int8_ckpt_slot(self) -> torch.Tensor:
+-        slot = self.int8_ckpt_pool.alloc(1)
+-        if slot is None:
+-            self.cache.evict(EvictParams(num_tokens=0, mamba_num=1))
+-            slot = self.int8_ckpt_pool.alloc(1)
+-            assert slot is not None, "Can not alloc int8 mamba checkpoint slot"
+-        return slot
+-
+-    def _commit_int8_checkpoint(self, active_slots: torch.Tensor) -> torch.Tensor:
+-        ckpt_slot = self._alloc_int8_ckpt_slot()
+-        self.int8_ckpt_pool.store_from_active(
+-            self.cache.req_to_token_pool.mamba_pool,
+-            active_slots.view(-1),
+-            ckpt_slot,
+-        )
+-        return ckpt_slot
++
+ 
+     def _free_mamba_value(self, mamba_value: torch.Tensor) -> None:
+         if self.int8_ckpt_pool is not None:
+@@ -520,83 +505,77 @@
+             self.cache.req_to_token_pool.mamba_allocator.free(mamba_value)
+ 
+     def prepare_for_caching_req(
+-        self,
+-        req: Req,
+-        insert_params: InsertParams,
+-        token_ids_len: int,
++        self, req: Req, insert_params: InsertParams, token_ids_len: int,
+         is_finished: bool,
+     ) -> Optional[int]:
+-        if self.cache.enable_mamba_extra_buffer:
+-            cache_len = req.mamba_last_track_seqlen
+-        else:
+-            cache_len = token_ids_len
+-            # ReplaySSM (no_buffer): `temporal[slot]` lags the live state by the
+-            # slot's unflushed ring depth (`write_pos`), so on request finish cap
+-            # the donate to the last flush boundary (where temporal is current)
+-            # and reset the cursor, keeping the donated checkpoint consistent with
+-            # its key length. page_size is asserted == 1, so no realign. Mirrors
+-            # MambaRadixCache.cache_finished_req.
+-            if is_finished:
+-                write_pos_buf = (
+-                    self.cache.req_to_token_pool.mamba_pool.replayssm_write_pos
+-                )
++        prepared = True
++        try:
++            pool = self.cache.req_to_token_pool
++            extra = self.cache.enable_mamba_extra_buffer
++            compressed = self.int8_ckpt_pool is not None
++            cache_len = req.mamba_last_track_seqlen if extra else token_ids_len
++            write_pos_buf = None
++            active = None
++            if is_finished and not extra:
++                write_pos_buf = pool.mamba_pool.replayssm_write_pos
+                 if write_pos_buf is not None:
+                     cache_len -= int(write_pos_buf[req.mamba_pool_idx].item())
+-                    write_pos_buf[req.mamba_pool_idx] = 0
+-
++            if cache_len is not None and cache_len > 0:
++                if is_finished and extra:
++                    keep = pool.get_mamba_ping_pong_keep_idx(req)
++                    active = req.mamba_ping_pong_track_buffer[keep].unsqueeze(-1).clone()
++                elif not extra:
++                    active = req.mamba_pool_idx.unsqueeze(-1).clone()
++                if active is not None:
++                    active = active.view(-1)
++            identity = ("creation", getattr(req, "rid", None), is_finished, extra,
++                        compressed, cache_len)
++        except (MemoryError, ValueError, AttributeError, IndexError) as error:
++            logger.error("HiCache checkpoint failed phase=creation_preparation reason=%s", type(error).__name__)
++            prepared = False
++        if not all_ready(self.cache, prepared):
++            logger.error("HiCache checkpoint failed phase=creation_preparation reason=peer_failure action=skip_cache")
++            return 0
++        if not agree(self.cache, identity, optional=True) or cache_len is None or cache_len <= 0:
++            return 0
++
++        resources = []
++        if compressed:
++            resources.append(("int8", 1, self.int8_ckpt_pool.alloc, self.int8_ckpt_pool.free))
++        if not is_finished and (extra or not compressed):
++            resources.append(("mamba", 1, pool.mamba_allocator.alloc, pool.mamba_allocator.free))
++        slots = reserve(self.cache, identity, resources,
++                        lambda: self.cache.evict(EvictParams(num_tokens=0, mamba_num=1)))
++        if slots is None:
++            return 0
++
++        # No request slot or ReplaySSM cursor changes before every rank is ready.
+         if is_finished:
+-            if cache_len is None:
+-                cache_len = 0
+-            if self.cache.enable_mamba_extra_buffer:
+-                keep_idx = self.cache.req_to_token_pool.get_mamba_ping_pong_keep_idx(
+-                    req
+-                )
+-                active_value = (
+-                    req.mamba_ping_pong_track_buffer[keep_idx].unsqueeze(-1).clone()
+-                )
++            if compressed:
++                value = slots[0]
++                self.int8_ckpt_pool.store_from_active(pool.mamba_pool, active.view(-1), value)
+             else:
+-                active_value = req.mamba_pool_idx.unsqueeze(-1).clone()
+-            if self.int8_ckpt_pool is not None:
+-                insert_params.mamba_value = self._commit_int8_checkpoint(active_value)
++                value = active
++            if write_pos_buf is not None:
++                write_pos_buf[req.mamba_pool_idx] = 0
++        elif extra:
++            replacement = slots[-1]
++            active = pool.donate_mamba_ping_pong_slot(req, replacement)
++            if compressed:
++                value = slots[0]
++                self.int8_ckpt_pool.store_from_active(pool.mamba_pool, active.view(-1), value)
++                pool.mamba_allocator.free(active)
+             else:
+-                insert_params.mamba_value = active_value
+-            return cache_len
++                value = active
++        elif compressed:
++            value = slots[0]
++            self.int8_ckpt_pool.store_from_active(pool.mamba_pool, active, value)
+         else:
+-            if cache_len is None:
+-                return 0
+-            # Donate the mamba index to the radix cache instead of copying.
+-            if self.int8_ckpt_pool is not None:
+-                if self.cache.enable_mamba_extra_buffer:
+-                    new_slot = self._alloc_mamba_slot()
+-                    src_active = (
+-                        self.cache.req_to_token_pool.donate_mamba_ping_pong_slot(
+-                            req, new_slot
+-                        )
+-                    )
+-                    mamba_value_donated = self._commit_int8_checkpoint(src_active)
+-                    self.cache.req_to_token_pool.mamba_allocator.free(src_active)
+-                else:
+-                    mamba_value_donated = self._commit_int8_checkpoint(
+-                        req.mamba_pool_idx.view(-1)
+-                    )
+-            elif self.cache.enable_mamba_extra_buffer:
+-                new_slot = self._alloc_mamba_slot()
+-                mamba_value_donated = (
+-                    self.cache.req_to_token_pool.donate_mamba_ping_pong_slot(
+-                        req, new_slot
+-                    )
+-                )
+-            else:
+-                mamba_value_donated = self._alloc_mamba_slot()
+-                # mamba_pool is a pure PHYSICAL store; translate both slot ids
+-                # virtual->physical (identity for the non-unified memory pool) first.
+-                translate = self.cache.req_to_token_pool.translate_mamba_indices
+-                self.cache.req_to_token_pool.mamba_pool.copy_from(
+-                    translate(req.mamba_pool_idx.unsqueeze(0)),
+-                    translate(mamba_value_donated),
+-                )
+-            insert_params.mamba_value = mamba_value_donated
+-            return cache_len
++            value = slots[0]
++            translate = pool.translate_mamba_indices
++            pool.mamba_pool.copy_from(translate(req.mamba_pool_idx.unsqueeze(0)), translate(value))
++        insert_params.mamba_value = value
++        return cache_len
+ 
+     def cleanup_after_caching_req(
+         self,
+@@ -640,7 +619,8 @@
+                 insert_result is None or insert_result.mamba_exist
+             ):
+                 self._free_mamba_value(insert_params.mamba_value)
+-            req.mamba_last_track_seqlen = None
++            if insert_params.mamba_value is not None:
++                req.mamba_last_track_seqlen = None
+ 
+     # ---- HiCache Hooks ----
+ 
+@@ -650,6 +630,9 @@
+         *,
+         req: Optional[Req] = None,
+     ) -> PrepareLoadBackResult:
++        agree(self.cache, ("load_mamba_eligibility", node_id, req is not None,
++                           req.mamba_pool_idx is not None if req is not None else False,
++                           self.tree_core.component_has_host_value_only(node_id, self.component_type)))
+         if (
+             req is None
+             or req.mamba_pool_idx is not None
+@@ -658,11 +641,13 @@
+             )
+         ):
+             return PrepareLoadBackResult()
+-        dst = self.cache.req_to_token_pool.mamba_allocator.alloc(1)
+-        if dst is None:
+-            self.cache.evict(EvictParams(num_tokens=0, mamba_num=1))
+-            dst = self.cache.req_to_token_pool.mamba_allocator.alloc(1)
+-            assert dst is not None, "Cannot alloc mamba for load_back"
++        allocator = self.cache.req_to_token_pool.mamba_allocator
++        slots = reserve(self.cache, ("load_mamba", node_id),
++                        [("mamba", 1, allocator.alloc, allocator.free)],
++                        lambda: self.cache.evict(EvictParams(num_tokens=0, mamba_num=1)))
++        if slots is None:
++            raise CheckpointPreparationError("Cannot alloc mamba for load_back")
++        dst = slots[0]
+         req.mamba_pool_idx = dst[0]
+         return PrepareLoadBackResult(allocated_mamba_slot=dst)
+ 
+@@ -674,19 +659,21 @@
+             self.cache.req_to_token_pool.mamba_allocator.free(prep.allocated_mamba_slot)
+             req.mamba_pool_idx = None
+ 
+-    def prepare_prefetch(
+-        self,
+-        node_id: NodeId,
+-        *,
+-        prefetch_tokens: int = 0,
+-    ) -> PreparePrefetchResult:
+-        host_indices = self._mamba_pool_host.alloc(1)
+-        if host_indices is None:
+-            self.cache.evict_host(1, ComponentType.MAMBA)
+-            host_indices = self._mamba_pool_host.alloc(1)
+-        if host_indices is None:
++    def prepare_prefetch(self, node_id: NodeId, *, prefetch_tokens: int = 0) -> PreparePrefetchResult:
++        prepared = True
++        try:
++            pool = self._mamba_pool_host
++            resources = [("mamba_host", 1, pool.alloc, pool.free)]
++        except (MemoryError, ValueError, AttributeError) as error:
++            logger.error("HiCache checkpoint failed phase=prefetch_preparation reason=%s", type(error).__name__)
++            prepared = False
++        if not all_ready(self.cache, prepared):
+             return PreparePrefetchResult(alloc_failed=True)
+-        return PreparePrefetchResult(host_indices=host_indices)
++        slots = reserve(self.cache, ("prefetch_mamba", node_id), resources,
++                        lambda: self.cache.evict_host(1, ComponentType.MAMBA))
++        if slots is None:
++            return PreparePrefetchResult(alloc_failed=True)
++        return PreparePrefetchResult(host_indices=slots[0])
+ 
+     def build_hicache_transfers(
+         self,
+@@ -831,6 +818,7 @@
+                     insert_result.mamba_exist = True
+                 return
+ 
++            target_node.mamba_checkpoint_required = True
+             target_node.component_data[ct].host_value = host_indices.clone()
+             if target_node.component_data[ct].value is None:
+                 host_lru = self.tree_core.host_lru_lists[ct]
+--- a/python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py
++++ b/python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py
+@@ -6,10 +6,12 @@
+ import threading
+ import time
+ from dataclasses import replace
++from collections import deque
+ from queue import Empty, Queue
+ from typing import TYPE_CHECKING, Any, Callable, List, Optional
+ 
+ import torch
++from sglang.srt.mem_cache.checkpoint_coordination import transfer
+ 
+ from sglang.srt.managers.cache_controller import (
+     CacheOperation,
+@@ -98,6 +100,27 @@
+         return self._terminated_flag
+ 
+ 
++class _OrderedBackupCompletions:
++    """Expose only a completed registration-order prefix to TP ACK draining."""
++    def __init__(self):
++        self.order = deque()
++        self.completed = {}
++        self.lock = threading.Lock()
++
++    def register(self, operation):
++        with self.lock:
++            self.order.append(operation.id)
++
++    def complete(self, operation, ack_queue):
++        with self.lock:
++            self.completed[operation.id] = operation
++            while self.order and self.order[0] in self.completed:
++                op_id = self.order[0]
++                ack_queue.put(self.completed[op_id])
++                self.order.popleft()
++                del self.completed[op_id]
++
++
+ class HybridCacheController(BaseHiCacheController):
+     def __init__(
+         self,
+@@ -118,6 +141,7 @@
+         transfer_layer_num: Optional[int] = None,
+         enable_storage_metrics: bool = False,
+     ):
++        self._backup_completions = _OrderedBackupCompletions()
+         startup_storage_backend = storage_backend
+         self.extra_host_mem_release_queues: dict[PoolName, Queue[torch.Tensor]] = {}
+         super().__init__(
+@@ -323,6 +347,7 @@
+ 
+     def reset(self):
+         super().reset()
++        self._backup_completions = _OrderedBackupCompletions()
+         if self.enable_storage:
+             self.host_mem_release_queue.queue.clear()
+             for release_queue in self.extra_host_mem_release_queues.values():
+@@ -336,28 +361,47 @@
+         node_id: int = -1,
+         extra_pools: Optional[list[PoolTransfer]] = None,
+     ) -> Optional[torch.Tensor]:
+-        host_indices = self.mem_pool_host.alloc(len(device_indices))
+-        if host_indices is None:
++        owner = getattr(self, "checkpoint_owner", None)
++        if owner is not None:
++            return transfer(self, owner, device_indices, extra_pools, node_id, priority, to_host=True)
++        host_indices = None
++        pool_transfers = None
++        existing_host_pools = {id(pool) for pool in extra_pools or [] if pool.host_indices is not None}
++        try:
++            host_indices = self.mem_pool_host.alloc(len(device_indices))
++            if host_indices is None:
++                return None
++            pool_transfers = self._resolve_pool_transfers_allocation(
++                extra_pools,
++                alloc_host=True,
++                kv_device_indices=device_indices,
++                kv_host_indices=host_indices,
++            )
++            if pool_transfers is None and extra_pools:
++                self.mem_pool_host.free(host_indices)
++                return None
++
++            self.write_queue.append(
++                CacheOperation(
++                    host_indices,
++                    device_indices,
++                    node_id,
++                    priority,
++                    pool_transfers=pool_transfers or None,
++                )
++            )
++        except Exception as error:
++            if host_indices is not None:
++                self.mem_pool_host.free(host_indices)
++            # Allocation helper owns rollback until its successful return.
++            if pool_transfers:
++                for pool in pool_transfers:
++                    if (id(pool) not in existing_host_pools
++                            and pool.indices_from_pool is None and pool.host_indices is not None):
++                        self.mem_pool_host.entry_map[pool.name].host_pool.free(pool.host_indices)
++                        pool.host_indices = None
++            logger.error("HiCache backup failed phase=allocation node=%d reason=%s", node_id, type(error).__name__)
+             return None
+-        pool_transfers = self._resolve_pool_transfers_allocation(
+-            extra_pools,
+-            alloc_host=True,
+-            kv_device_indices=device_indices,
+-            kv_host_indices=host_indices,
+-        )
+-        if pool_transfers is None and extra_pools:
+-            self.mem_pool_host.free(host_indices)
+-            return None
+-
+-        self.write_queue.append(
+-            CacheOperation(
+-                host_indices,
+-                device_indices,
+-                node_id,
+-                priority,
+-                pool_transfers=pool_transfers or None,
+-            )
+-        )
+         self.start_writing()
+         return host_indices
+ 
+@@ -533,6 +577,9 @@
+         node_id: int = -1,
+         extra_pools: Optional[list[PoolTransfer]] = None,
+     ) -> Optional[torch.Tensor]:
++        owner = getattr(self, "checkpoint_owner", None)
++        if owner is not None:
++            return transfer(self, owner, host_indices, extra_pools, node_id, priority, to_host=False)
+         need_load_kv = host_indices.numel() > 0
+ 
+         full_allocator = getattr(
+@@ -587,6 +634,15 @@
+         self.prefetch_queue.put(operation)
+         return operation
+ 
++    def register_backup_publication(self, operation):
++        # Initialization is normally eager; this also supports isolated CPU fixtures.
++        if not hasattr(self, "_backup_completions"):
++            self._backup_completions = _OrderedBackupCompletions()
++        self._backup_completions.register(operation)
++
++    def complete_backup_publication(self, operation):
++        self._backup_completions.complete(operation, self.ack_backup_queue)
++
+     def write_storage(
+         self,
+         host_indices: torch.Tensor,
+@@ -594,15 +650,23 @@
+         hash_value: Optional[List[str]] = None,
+         prefix_keys: Optional[List[str]] = None,
+         extra_pools: Optional[list[PoolTransfer]] = None,
++        operation: Optional[StorageOperation] = None,
+     ) -> int:
+-        operation = StorageOperation(
+-            host_indices,
+-            token_ids,
+-            hash_value=hash_value,
+-            prefix_keys=prefix_keys,
+-            pool_transfers=extra_pools,
+-        )
+-        self.backup_queue.put(operation)
++        if operation is None:
++            operation = StorageOperation(host_indices, token_ids, hash_value=hash_value,
++                                         prefix_keys=prefix_keys, pool_transfers=extra_pools)
++            self.register_backup_publication(operation)
++        else:
++            operation.host_indices = host_indices
++            operation.token_ids = token_ids
++            operation.hash_value = hash_value
++            operation.prefix_keys = prefix_keys
++            operation.pool_transfers = extra_pools
++        try:
++            self.backup_queue.put(operation)
++        except Exception as error:
++            logger.warning("HiCache backup recovery phase=storage_enqueue operation=%d reason=%s action=retry", operation.id, type(error).__name__)
++            self.backup_queue.put(operation)
+         return operation.id
+ 
+     def _storage_hit_query(self, operation) -> tuple[list[str], int]:
+@@ -682,41 +746,39 @@
+         operation.pool_transfers_done = True
+ 
+     def _page_backup(self, operation):
+-        # MLA KV is replicated across TP ranks and should still be written only
+-        # by TP0. Rank-sharded sidecars still need every TP rank.
+-        backup_transfers = [
+-            transfer
+-            for transfer in operation.pool_transfers or []
+-            if self.should_backup(transfer)
+-        ]
+-
+-        if backup_transfers:
++        transfers = [t for t in operation.pool_transfers or [] if self.should_backup(t)]
++        if transfers:
+             self._resolve_sidecar_derived_pool_transfers(operation)
+-            results = self.storage_backend.batch_set_v2(backup_transfers)
++            results = self.storage_backend.batch_set_v2(transfers)
++            if not isinstance(results, dict):
++                operation.backup_failure = "invalid_sidecar_result"
++                return
++            for transfer in transfers:
++                result = results.get(transfer.name, results.get(transfer.name.value))
++                expected = len(transfer.keys or [])
++                if (expected == 0 or not isinstance(result, (list, tuple))
++                        or len(result) != expected or not all(bool(ok) for ok in result)):
++                    # Never advertise primary publication as successful after
++                    # a required companion write failed.
++                    operation.backup_failure = "sidecar_write"
++                    operation.backup_failure_pool = str(transfer.name)
++                    operation.backup_expected_pages = expected
++                    operation.backup_written_pages = (
++                        sum(bool(ok) for ok in result) if isinstance(result, (list, tuple)) else 0
++                    )
++                    return
+             operation.pool_storage_result.update_extra_pool_hit_pages(results)
+-
+         if not self.backup_skip:
+             super()._page_backup(operation)
+-        else:
+-            sidecar_ok = bool(backup_transfers)
+-            if sidecar_ok:
+-                for transfer in backup_transfers:
+-                    result = results.get(transfer.name)
+-                    if result is None:
+-                        result = results.get(transfer.name.value)
+-                    expected = len(transfer.keys or [])
+-                    if expected == 0 and transfer.host_indices is not None:
+-                        expected = int(transfer.host_indices.numel())
+-                    if (
+-                        not isinstance(result, (list, tuple))
+-                        or len(result) != expected
+-                        or not all(bool(ok) for ok in result)
+-                    ):
+-                        sidecar_ok = False
+-                        break
+-            operation.completed_tokens = (
+-                len(operation.hash_value) * self.page_size if sidecar_ok else 0
+-            )
++        elif transfers:
++            operation.completed_tokens = len(operation.hash_value) * self.page_size
++        if operation.completed_tokens != len(operation.hash_value) * self.page_size:
++            operation.backup_failure = "primary_write"
++        elif transfers and not self.backup_skip and isinstance(self.storage_backend, HiCacheFile):
++            final = self.storage_backend.batch_exists_v2(operation.hash_value, transfers)
++            if final.kv_hit_pages != len(operation.hash_value):
++                operation.backup_failure = "publication_evicted"
++                operation.completed_tokens = 0
+ 
+     def should_backup(self, transfer: PoolTransfer) -> bool:
+         if not self.backup_skip:
+@@ -741,21 +803,48 @@
+         return False
+ 
+     def backup_thread_func(self):
+-        """Back up rank-sharded sidecars on every TP rank.
+-
+-        The base implementation skips the entire operation on non-zero MLA TP
+-        ranks. That optimization is valid for replicated MLA KV, but not for
+-        hybrid rank-sharded pools such as Kimi-K3 Mamba state.
+-        """
+         while not self.storage_stop_event.is_set():
+             try:
+                 operation = self.backup_queue.get(block=True, timeout=1)
+-                if operation is None:
+-                    continue
+-                self._page_backup(operation)
+-                self.ack_backup_queue.put(operation)
+             except Empty:
+                 continue
++            if operation is None:
++                continue
++            # File writes are immutable-key/idempotent. Retry at most three times, rebuilding
++            # accounting so partial success cannot be counted twice.
++            prefix_keys = operation.prefix_keys.copy() if operation.prefix_keys else None
++            try:
++                for attempt in range(4):
++                    operation.completed_tokens = 0
++                    operation.backup_failure = None
++                    operation.backup_failure_pool = "kv"
++                    operation.backup_expected_pages = len(operation.hash_value)
++                    operation.backup_written_pages = 0
++                    operation.pool_storage_result = PoolTransferResult.empty()
++                    operation.prefix_keys = prefix_keys.copy() if prefix_keys else None
++                    try:
++                        self._page_backup(operation)
++                    except Exception as error:
++                        # This worker owns CPU/file IO only; CUDA submission
++                        # errors are deliberately not handled by this boundary.
++                        operation.backup_failure = type(error).__name__
++                    if operation.backup_failure is None:
++                        break
++                    if attempt < 3:
++                        logger.warning(
++                            "HiCache backup recovery phase=storage operation=%d reason=%s pool=%s action=retry",
++                            operation.id, operation.backup_failure, operation.backup_failure_pool,
++                        )
++                    else:
++                        logger.error(
++                            "HiCache backup failed phase=storage operation=%d reason=%s pool=%s written_pages=%d expected_pages=%d completed=%d expected=%d",
++                            operation.id, operation.backup_failure, operation.backup_failure_pool,
++                            operation.backup_written_pages, operation.backup_expected_pages, operation.completed_tokens,
++                            len(operation.hash_value) * self.page_size,
++                        )
++            finally:
++                # Failure is also a completed operation: release its host pins.
++                self.complete_backup_publication(operation)
+ 
+     def _resolve_sidecar_derived_pool_transfers(self, operation):
+         for transfer in operation.pool_transfers:
+@@ -826,63 +915,89 @@
+                 else:
+                     prev_pool.device_indices = None
+ 
+-        for pool in extra_pools:
+-            if pool.indices_from_pool is not None:
+-                derived_transfers.append(pool)
+-                continue
+-            entry = self.mem_pool_host.entry_map.get(pool.name)
+-            if entry is None:
+-                continue
+-            if alloc_host:
+-                if pool.host_indices is not None or pool.device_indices is None:
++        try:
++            for pool in extra_pools:
++                if pool.name not in self.mem_pool_host.entry_map:
++                    logger.error("HiCache backup failed phase=allocation reason=unregistered_pool pool=%s", pool.name)
++                    rollback_allocated()
++                    return None
++                if pool.indices_from_pool is not None:
++                    derived_transfers.append(pool)
+                     continue
+-                alloc_fn = entry.host_pool.alloc
+-                free_fn = entry.host_pool.free
+-                evict_fn = entry.host_evict_fn
+-                size = len(pool.device_indices)
+-            else:
+-                if pool.device_indices is not None or pool.host_indices is None:
++                entry = self.mem_pool_host.entry_map.get(pool.name)
++                if entry is None:
++                    logger.error("HiCache backup failed phase=allocation reason=unregistered_pool pool=%s", pool.name)
++                    rollback_allocated()
++                    return None
++                if alloc_host:
++                    if pool.host_indices is not None or pool.device_indices is None:
++                        continue
++                    alloc_fn = entry.host_pool.alloc
++                    free_fn = entry.host_pool.free
++                    evict_fn = entry.host_evict_fn
++                    size = len(pool.device_indices)
++                else:
++                    if pool.device_indices is not None or pool.host_indices is None:
++                        continue
++                    # device_alloc_fn / device_free_fn override entry.device_pool's
++                    # methods for pools whose device_pool is a raw KV pool (layout)
++                    # rather than an allocator (e.g. SWA).
++                    alloc_fn = entry.device_alloc_fn or entry.device_pool.alloc
++                    free_fn = entry.device_free_fn or entry.device_pool.free
++                    evict_fn = entry.device_evict_fn
++                    size = len(pool.host_indices)
++                indices = alloc_fn(size)
++                if indices is None and evict_fn:
++                    logger.warning(
++                        "HiCache transfer recovery phase=allocation pool=%s host=%s requested=%d action=evict",
++                        pool.name, alloc_host, size,
++                    )
++                    evict_fn(size)
++                    indices = alloc_fn(size)
++                if indices is None:
++                    logger.error(
++                        "HiCache transfer failed phase=allocation pool=%s host=%s requested=%d",
++                        pool.name, alloc_host, size,
++                    )
++                    # Atomic rollback: free everything we successfully allocated.
++                    rollback_allocated()
++                    return None
++                if alloc_host:
++                    pool.host_indices = indices
++                else:
++                    pool.device_indices = indices
++                newly_allocated.append((pool, free_fn, indices))
++
++            # Assign indices to deferred pools from their source.
++            for pool in derived_transfers:
++                if pool.indices_from_pool == PoolName.KV:
++                    pool.host_indices = kv_host_indices
++                    pool.device_indices = kv_device_indices
+                     continue
+-                # device_alloc_fn / device_free_fn override entry.device_pool's
+-                # methods for pools whose device_pool is a raw KV pool (layout)
+-                # rather than an allocator (e.g. SWA).
+-                alloc_fn = entry.device_alloc_fn or entry.device_pool.alloc
+-                free_fn = entry.device_free_fn or entry.device_pool.free
+-                evict_fn = entry.device_evict_fn
+-                size = len(pool.host_indices)
+-            indices = alloc_fn(size)
+-            if indices is None and evict_fn:
+-                evict_fn(size)
+-                indices = alloc_fn(size)
+-            if indices is None:
+-                # Atomic rollback: free everything we successfully allocated.
+-                rollback_allocated()
+-                return None
+-            if alloc_host:
+-                pool.host_indices = indices
+-            else:
+-                pool.device_indices = indices
+-            newly_allocated.append((pool, free_fn, indices))
+-
+-        # Assign indices to deferred pools from their source.
+-        for pool in derived_transfers:
+-            if pool.indices_from_pool == PoolName.KV:
+-                pool.host_indices = kv_host_indices
+-                pool.device_indices = kv_device_indices
+-                continue
+-
+-            source = next(
+-                (
+-                    transfer
+-                    for transfer in extra_pools
+-                    if transfer.indices_from_pool is None
+-                    and transfer.name == pool.indices_from_pool
+-                ),
+-                None,
+-            )
+-            if source is None:
+-                rollback_allocated()
+-                return None
+-            pool.host_indices = source.host_indices
+-            pool.device_indices = source.device_indices
++
++                source = next(
++                    (
++                        transfer
++                        for transfer in extra_pools
++                        if transfer.indices_from_pool is None
++                        and transfer.name == pool.indices_from_pool
++                    ),
++                    None,
++                )
++                if source is None:
++                    logger.error("HiCache backup failed phase=allocation reason=missing_source pool=%s", pool.name)
++                    rollback_allocated()
++                    return None
++                pool.host_indices = source.host_indices
++                pool.device_indices = source.device_indices
++            for pool in extra_pools:
++                if (not isinstance(pool.host_indices, torch.Tensor)
++                        or not isinstance(pool.device_indices, torch.Tensor)
++                        or pool.host_indices.numel() != pool.device_indices.numel()):
++                    logger.error("HiCache backup failed phase=allocation reason=unresolved_indices pool=%s", pool.name)
++                    rollback_allocated()
++                    return None
++        except Exception:
++            rollback_allocated()
++            raise
+         return extra_pools
+--- a/python/sglang/srt/mem_cache/common.py
++++ b/python/sglang/srt/mem_cache/common.py
+@@ -112,30 +112,19 @@
+ 
+ 
+ def evict_from_tree_cache(tree_cache: BasePrefixCache | None, num_tokens: int):
+-    if tree_cache is None:
+-        return
+-
+-    if tree_cache.is_chunk_cache():
+-        return
+-
++    if tree_cache is None or tree_cache.is_chunk_cache():
++        return
+     allocator = tree_cache.token_to_kv_pool_allocator
+-
+     if isinstance(allocator, SWATokenToKVPoolAllocator):
+-        # Hybrid allocator
+-        full_available_size = allocator.full_available_size()
+-        swa_available_size = allocator.swa_available_size()
+-
+-        if full_available_size < num_tokens or swa_available_size < num_tokens:
+-            full_num_tokens = max(0, num_tokens - full_available_size)
+-            swa_num_tokens = max(0, num_tokens - swa_available_size)
+-            tree_cache.evict(
+-                EvictParams(num_tokens=full_num_tokens, swa_num_tokens=swa_num_tokens)
+-            )
++        demand = [max(0, num_tokens - allocator.full_available_size()),
++                  max(0, num_tokens - allocator.swa_available_size())]
+     else:
+-        # Standard allocator: evict only the shortfall (mirrors the SWA arm)
+-        available_size = allocator.available_size()
+-        if available_size < num_tokens:
+-            tree_cache.evict(EvictParams(num_tokens=num_tokens - available_size))
++        demand = [max(0, num_tokens - allocator.available_size()), 0]
++    coordinate = getattr(tree_cache, "_checkpoint_demands", None)
++    if coordinate is not None:
++        demand = coordinate("token_allocation", demand)
++    if any(demand):
++        tree_cache.evict(EvictParams(num_tokens=demand[0], swa_num_tokens=demand[1]))
+ 
+ 
+ 
+--- a/python/sglang/srt/mem_cache/allocation.py
++++ b/python/sglang/srt/mem_cache/allocation.py
+@@ -283,6 +283,10 @@
+         else:
+             factor = MAMBA_STATE_PER_REQ_NO_CACHE
+         mamba_state_needed = num_reqs * factor
++        coordinate = getattr(tree_cache, "_checkpoint_demands", None)
++        if coordinate is not None:
++            shortage = coordinate("request_allocation", [max(0, mamba_state_needed - mamba_available_size)])[0]
++            mamba_available_size = mamba_state_needed - shortage
+         if mamba_available_size < mamba_state_needed:
+             if tree_cache is not None and tree_cache.supports_mamba():
+                 mamba_num = max(0, mamba_state_needed - mamba_available_size)
+--- a/python/sglang/srt/mem_cache/unified_cache/components/swa_component.py
++++ b/python/sglang/srt/mem_cache/unified_cache/components/swa_component.py
+@@ -3,6 +3,7 @@
+ from typing import TYPE_CHECKING, Callable, Optional, Sequence
+ 
+ import torch
++from sglang.srt.mem_cache.checkpoint_coordination import agree, reserve
+ 
+ from sglang.srt.mem_cache.base_prefix_cache import (
+     DecLockRefParams,
+@@ -776,12 +777,13 @@
+         if sw_pages == 0 or prefetch_tokens // self.cache.page_size < sw_pages:
+             return PreparePrefetchResult()
+         num_tokens = sw_pages * self.cache.page_size
+-        host_indices = self._swa_kv_pool_host.alloc(num_tokens)
+-        if host_indices is None:
+-            self.cache.evict_host(num_tokens, ComponentType.SWA)
+-            host_indices = self._swa_kv_pool_host.alloc(num_tokens)
+-        if host_indices is None:
++        pool = self._swa_kv_pool_host
++        slots = reserve(self.cache, ("prefetch_swa", node_id, num_tokens),
++                        [("swa_host", num_tokens, pool.alloc, pool.free)],
++                        lambda: self.cache.evict_host(num_tokens, ComponentType.SWA))
++        if slots is None:
+             return PreparePrefetchResult(alloc_failed=True)
++        host_indices = slots[0]
+         return PreparePrefetchResult(host_indices=host_indices)
+ 
+     def build_hicache_transfers(
+--- /dev/null
++++ b/python/sglang/srt/mem_cache/checkpoint_coordination.py
+@@ -0,0 +1,222 @@
++"""Scheduler-owned, attention-rank agreement before cache ownership changes."""
++import hashlib
++import logging
++
++import torch
++
++logger = logging.getLogger(__name__)
++
++
++def reduce_values(cache, values, op):
++    data = torch.tensor(values, dtype=torch.int64, device="cpu")
++    # A single-rank cache has no process group (also true for CPU unit fixtures).
++    if (getattr(cache, "tp_world_size", 1) > 1 or
++            getattr(cache, "attn_cp_group", None) is not None or
++            getattr(cache, "attn_tp_group", None) is not None):
++        cache._all_reduce_attn_groups(data, op)
++    return data.tolist()
++
++
++def all_ready(cache, ready):
++    return bool(reduce_values(cache, [int(ready)], torch.distributed.ReduceOp.MIN)[0])
++
++
++def max_values(cache, values):
++    return reduce_values(cache, values, torch.distributed.ReduceOp.MAX)
++
++
++def agree(cache, identity, *, optional=False):
++    """Check exact boundaries; a different frontier cannot label the same state."""
++    digest = hashlib.sha256(repr(identity).encode()).digest()
++    words = [int.from_bytes(digest[i:i + 4], "big") for i in range(0, 32, 4)]
++    lo = reduce_values(cache, words, torch.distributed.ReduceOp.MIN)
++    hi = reduce_values(cache, words, torch.distributed.ReduceOp.MAX)
++    if lo == hi:
++        return True
++    logger.error("HiCache checkpoint failed phase=agreement reason=rank_mismatch action=%s",
++                 "skip_cache" if optional else "stop")
++    if optional:
++        return False
++    raise RuntimeError("HiCache checkpoint rank transaction mismatch")
++
++
++def reserve(cache, identity, resources, recover, *, recoveries=None):
++    """Reserve all resources, undo on any rank's failure, recover once together.
++
++    Each resource is (name, count, alloc, free). Alloc/free must not submit device
++    work or evict tree entries. The caller commits only after successful return.
++    """
++    agree(cache, (identity, [(name, count) for name, count, _, _ in resources]))
++    for attempt in range(2):
++        slots = []
++        failed = False
++        failures = []
++        for name, count, allocate, free in resources:
++            try:
++                value = allocate(count)
++            except MemoryError as error:
++                # Only CPU reservation belongs here; device copies stay outside.
++                logger.error("HiCache checkpoint failed phase=reservation pool=%s reason=%s",
++                             name, type(error).__name__)
++                value = None
++            failures.append(int(value is None))
++            if value is None:
++                failed = True
++            else:
++                slots.append((free, value))
++        if all_ready(cache, not failed):
++            return [value for _, value in slots]
++        for free, value in reversed(slots):
++            free(value)
++        if attempt == 0:
++            logger.debug("HiCache checkpoint recovery phase=reservation action=shared_evict")
++            if recoveries is None:
++                recover()
++            else:
++                for failure, recovery in zip(max_values(cache, failures), recoveries):
++                    if failure:
++                        recovery()
++        else:
++            logger.error("HiCache checkpoint failed phase=reservation reason=exhausted action=skip_cache")
++    return None
++
++
++def transfer(controller, cache, source, extra_pools, node_id, priority, *, to_host):
++    """Reserve a complete hybrid transfer before publishing it to the DMA queue."""
++    from sglang.srt.mem_cache.hicache_storage import PoolName
++    from sglang.srt.managers.cache_controller import CacheOperation
++    from sglang.srt.mem_cache.base_prefix_cache import EvictParams
++
++    resources = []
++    targets = []
++    recoveries = []
++    ready = True
++    extra_pools = extra_pools or []
++    try:
++        full = (controller.mem_pool_host if to_host else
++                getattr(controller.mem_pool_device_allocator, "full_attn_allocator",
++                        controller.mem_pool_device_allocator))
++        resources.append(("kv", len(source), full.alloc, full.free))
++        targets.append(None)
++        recoveries.append(lambda: cache.evict_host(len(source)) if to_host else
++                          cache.evict(EvictParams(num_tokens=len(source))))
++        for pool in extra_pools:
++            entry = controller.mem_pool_host.entry_map[pool.name]
++            if pool.indices_from_pool is not None:
++                if pool.indices_from_pool != PoolName.KV and not any(
++                    p.name == pool.indices_from_pool and p.indices_from_pool is None
++                    for p in extra_pools
++                ):
++                    raise ValueError("missing derived pool source")
++                continue
++            existing = pool.host_indices if to_host else pool.device_indices
++            incoming = pool.device_indices if to_host else pool.host_indices
++            if not isinstance(incoming, torch.Tensor):
++                raise ValueError("missing transfer source")
++            if existing is not None:
++                if existing.numel() != incoming.numel():
++                    raise ValueError("incompatible borrowed destination")
++                continue
++            allocate = entry.host_pool.alloc if to_host else (entry.device_alloc_fn or entry.device_pool.alloc)
++            free = entry.host_pool.free if to_host else (entry.device_free_fn or entry.device_pool.free)
++            evict = entry.host_evict_fn if to_host else entry.device_evict_fn
++            count = len(incoming)
++            resources.append((str(pool.name), count, allocate, free))
++            targets.append(pool)
++            recoveries.append(lambda fn=evict, size=count: fn(size) if fn else None)
++    except (MemoryError, KeyError, ValueError, AttributeError) as error:
++        logger.error("HiCache backup failed phase=preparation reason=%s", type(error).__name__)
++        ready = False
++    if not all_ready(cache, ready):
++        logger.error("HiCache backup failed phase=preparation reason=peer_failure action=skip_backup")
++        return None
++    agree(cache, ("transfer", node_id, to_host, [
++        (str(p.name), str(p.indices_from_pool),
++         None if p.host_indices is None else p.host_indices.numel(),
++         None if p.device_indices is None else p.device_indices.numel()) for p in extra_pools]))
++    slots = reserve(cache, ("transfer", node_id, to_host), resources,
++                    lambda: None, recoveries=recoveries)
++    if slots is None:
++        return None
++    previous = [(pool, pool.host_indices, pool.device_indices) for pool in extra_pools]
++    destination = slots[0]
++    prepared = True
++    try:
++        for pool, indices in zip(targets[1:], slots[1:]):
++            if to_host:
++                pool.host_indices = indices
++            else:
++                pool.device_indices = indices
++        host = destination if to_host else source
++        device = source if to_host else destination
++        for pool in extra_pools:
++            if pool.indices_from_pool is not None:
++                if pool.indices_from_pool == PoolName.KV:
++                    pool.host_indices, pool.device_indices = host, device
++                else:
++                    parent = next(p for p in extra_pools if p.name == pool.indices_from_pool
++                                  and p.indices_from_pool is None)
++                    pool.host_indices, pool.device_indices = parent.host_indices, parent.device_indices
++        for pool in extra_pools:
++            if (not isinstance(pool.host_indices, torch.Tensor)
++                    or not isinstance(pool.device_indices, torch.Tensor)
++                    or pool.host_indices.numel() != pool.device_indices.numel()):
++                raise ValueError("incompatible transfer indices")
++        if not isinstance(destination, torch.Tensor) or destination.numel() != source.numel():
++            raise ValueError("incompatible primary indices")
++    except (MemoryError, ValueError, AttributeError) as error:
++        logger.error("HiCache backup failed phase=indices reason=%s", type(error).__name__)
++        prepared = False
++    if not all_ready(cache, prepared):
++        for (_, _, _, free), indices in reversed(list(zip(resources, slots))):
++            free(indices)
++        for pool, old_host, old_device in previous:
++            pool.host_indices, pool.device_indices = old_host, old_device
++        return None
++    queue = controller.write_queue if to_host else controller.load_queue
++    operation = None
++    queued = False
++    try:
++        operation = CacheOperation(host, device, node_id, priority, pool_transfers=extra_pools or None)
++        queue.append(operation)
++        queued = True
++    except MemoryError:
++        logger.error("HiCache backup failed phase=enqueue reason=MemoryError")
++    if not all_ready(cache, queued):
++        if queued:
++            assert queue[-1] is operation
++            queue.pop()
++        for (_, _, _, free), indices in reversed(list(zip(resources, slots))):
++            free(indices)
++        for pool, old_host, old_device in previous:
++            pool.host_indices, pool.device_indices = old_host, old_device
++        logger.error("HiCache backup failed phase=enqueue reason=peer_failure action=skip_backup")
++        return None
++    # A failure after submission is unsafe to recover by freeing reservations.
++    if to_host:
++        controller.start_writing()
++    return destination
++
++
++class CheckpointPreparationError(Exception):
++    """Optional cache work failed before device submission."""
++
++
++def enqueue(cache, queue, operation):
++    """Keep a CPU worker from consuming a publication before rank agreement."""
++    # Queue.put cannot undo a publication after notifying its consumer.
++    with queue.not_full:
++        queued = False
++        try:
++            queue._put(operation)
++            queued = True
++        except MemoryError:
++            logger.error("HiCache checkpoint failed phase=queue reason=MemoryError")
++        if not all_ready(cache, queued):
++            if queued:
++                assert queue.queue[-1] is operation
++                queue.queue.pop()
++            return False
++        queue.unfinished_tasks += 1
++        queue.not_empty.notify()
++    return True

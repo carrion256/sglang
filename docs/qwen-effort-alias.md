@@ -1,6 +1,6 @@
 # Qwen Flash-Next effort aliases — candidate, not deployed
 
-This source-only candidate is based on main `b8e8bebf2274e0099c3abce5718ac8813dd9001d`
+This source-only candidate is based on main `93463c3466b0de9d21776fbeff95657285df8269`
 and the published Chat precedence image
 `kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404`.
 No image was built/published and no production settings or checkpoint files were changed.
@@ -12,8 +12,9 @@ of the deployed image from the candidate runtime overlay.
 
 Only loaded `hf_config.model_type` equal to `qwen3_8_flash_next` or
 `qwen3_8_flash_next_text` opts in. A client `model` name cannot opt another
-checkpoint in. `high` and `max` deliberately render as `xhigh`; case/whitespace
-variants are not repaired. Other models retain native `high` behavior.
+checkpoint in. `minimal` deliberately renders as `low`; `high` and `max`
+deliberately render as `xhigh`. Case/whitespace variants are not repaired.
+Other models retain their native effort behavior.
 
 Precedence: nonnull `chat_template_kwargs.reasoning_effort`, then nonnull
 request effort, then server default. The production server default stays
@@ -35,6 +36,9 @@ are not aliased. No extra logging, prompt capture, or checkpoint template rewrit
 - Responses `/v1/responses`: `reasoning.effort` and nested template kwargs via
   the actual non-Harmony `_make_request` conversion. This Qwen-specific path
   also fixes request effort being hidden by the medium server default.
+- Anthropic `/v1/messages`: `output_config.effort` through the actual Anthropic
+  request conversion and the shared Chat renderer. Anthropic `xhigh` first
+  becomes the OpenAI-compatible literal `max`, then renders as Qwen `xhigh`.
 - `/v1/tokenize` with messages: actual `_tokenize_chat_request` path.
 - Text-only and multimodal prompt rendering branches share normalization;
   CPU tests cover rendered multimodal text, not image encoding/inference.
@@ -42,10 +46,11 @@ are not aliased. No extra logging, prompt capture, or checkpoint template rewrit
   and are not normalized. Harmony/custom encoders and other model families
   are outside this patch. No HTTP server or GPU inference validation is claimed.
 
-**Schema finding:** the exact published base already accepts `max` in
-`ReasoningEffortTier`, Chat and `ResponseReasoningParam`. Both imported request
-classes were exercised. No schema widening or global alias is needed. The
-failure in this runtime is the unchanged Qwen template rejecting high/max.
+**Schema finding:** the exact published base already accepts `minimal`, `high`,
+and `max` through the Chat and Responses request models; Anthropic
+`output_config.effort` also accepts them. The imported request classes were
+exercised. No schema widening or global alias is needed. The failure in this
+runtime is the unchanged Qwen template rejecting minimal/high/max.
 
 ## Reproduction
 
@@ -64,8 +69,8 @@ QWEN_TOKENIZER_PATH=/absolute/scratch/tokenizer bash scripts/test_qwen_effort_al
 The runner requires the published image locally, forbids pulling/network, mounts
 the repository and tokenizer read-only plus a read-only single-file runtime
 overlay, and exposes no GPUs. Tokenizer, runtime and patch hashes are checked
-before execution. Expected: 13 imported API
-test methods (including the four unchanged Chat regressions), then 77 existing
+before execution. Expected: 14 imported API
+test methods (including the four unchanged Chat regressions), then 81 existing
 CPU package tests. CUDA-unavailable and deprecated-max_tokens warnings are
 inherited from the baseline.
 

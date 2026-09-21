@@ -1,0 +1,23 @@
+{
+  "phase": "FOLLOWUP_RED",
+  "base_commit": "df22281b6d35fc04f802a9384b22297c0857c8cd",
+  "production_source_sha256": "adc658db49da4cda597db2f962ece7415678083cc26b5496793fec1d74e56a35",
+  "trigger": "independent read-only review of the first GREEN candidate",
+  "image": "kanadaj/sglang-qwen38fn-sm120-turbo@sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+  "result": {
+    "exit_code": 1,
+    "test_methods_run": 69,
+    "failing_subtests": 18,
+    "errors": 0
+  },
+  "failing_behaviors": [
+    "recognized reasoning marker split across cumulative and incremental chunks",
+    "required JSON function/custom marker-like values treated as structural output",
+    "tool call finalized after renewed reasoning instead of before it",
+    "second explicit reasoning block retained as ordinary text"
+  ],
+  "sha256": {
+    "tests/runtime_responses_compat.py": "b019131ac8415e095187dd5dacf8cb93e31eb56fd33e95b7b02948f96fa1edc2",
+    "provenance/pr5-followup-red.log": "cdc9d5bf5ad163b9f2c869936258e1b97f418a838a36cde30f56c1cde7b75e17"
+  }
+}

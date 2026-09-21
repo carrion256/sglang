@@ -1,0 +1,586 @@
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/awq/awq.py:52: UserWarning: Only CUDA, HIP and XPU support AWQ currently.
+  warnings.warn(f"Only CUDA, HIP and XPU support AWQ currently.")
+/sgl-workspace/sglang/python/sglang/srt/layers/quantization/gguf.py:69: UserWarning: Only CUDA, MUSA and NPU support GGUF quantization currently.
+  warnings.warn(f"Only CUDA, MUSA and NPU support GGUF quantization currently.")
+W0914 11:54:23.921000 1 torch/utils/cpp_extension.py:178] No CUDA runtime is found, using CUDA_HOME='/usr/local/cuda'
+test_direct_renderer_policy_unchanged (runtime_chat_effort.ChatEffortTest.test_direct_renderer_policy_unchanged) ... ok
+test_effort_matrix_and_no_cross_request_leak (runtime_chat_effort.ChatEffortTest.test_effort_matrix_and_no_cross_request_leak) ... ok
+test_invalid_effort_rejected_in_both_forms (runtime_chat_effort.ChatEffortTest.test_invalid_effort_rejected_in_both_forms) ... ok
+test_top_level_xhigh_reaches_real_tokenizer (runtime_chat_effort.ChatEffortTest.test_top_level_xhigh_reaches_real_tokenizer) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/protocol.py:1039: DeprecationWarning: max_tokens is deprecated in favor of the max_completion_tokens field
+  "max_new_tokens": self.max_completion_tokens or self.max_tokens,
+ok
+test_background_requires_storage (__main__.MockHTTPTest.test_background_requires_storage) ... /usr/local/lib/python3.12/dist-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:297: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(str(error))
+ok
+test_direct_flat_result_retains_typed_api (__main__.MockHTTPTest.test_direct_flat_result_retains_typed_api) ... ok
+test_failed_and_disconnected_stream_preserves_stored_identity (__main__.MockHTTPTest.test_failed_and_disconnected_stream_preserves_stored_identity) ... Error while streaming /v1/responses
+Traceback (most recent call last):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2711, in responses_stream_generator_non_harmony
+    tool_calls = [
+                 ^
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 42, in validated_json_calls
+    raise ValueError("Unknown generated tool identity in required output")
+ValueError: Unknown generated tool identity in required output
+ok
+test_fix2_custom_delimiter_limit_and_json_alternative (__main__.MockHTTPTest.test_fix2_custom_delimiter_limit_and_json_alternative) ... Parsed parameter 'other' is not defined in the tool parameters for tool 'patch', directly returning the string value.
+/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:650: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(str(e))
+Parsed parameter 'other' is not defined in the tool parameters for tool 'patch', directly returning the string value.
+ok
+test_fix2_custom_history_rejects_embedded_function_after_gap (__main__.MockHTTPTest.test_fix2_custom_history_rejects_embedded_function_after_gap) ... ok
+test_fix2_embedded_flat_and_history (__main__.MockHTTPTest.test_fix2_embedded_flat_and_history) ... ok
+test_fix2_embedded_identity_rejection (__main__.MockHTTPTest.test_fix2_embedded_identity_rejection) ... ok
+test_fix2_embedded_supported_and_custom_distinctions (__main__.MockHTTPTest.test_fix2_embedded_supported_and_custom_distinctions) ... ok
+test_fix2_selected_single_required_multiple (__main__.MockHTTPTest.test_fix2_selected_single_required_multiple) ... ok
+test_fix2_terminal_cardinality (__main__.MockHTTPTest.test_fix2_terminal_cardinality) ... ok
+test_fix2_unsupported_embedded_forms (__main__.MockHTTPTest.test_fix2_unsupported_embedded_forms) ... ok
+test_fix3_malformed_success_remains_rejected (__main__.MockHTTPTest.test_fix3_malformed_success_remains_rejected) ... Error while streaming /v1/responses
+Traceback (most recent call last):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2711, in responses_stream_generator_non_harmony
+    tool_calls = [
+                 ^
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 35, in validated_json_calls
+    calls = json.loads(content)
+            ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 353, in raw_decode
+    obj, end = self.scan_once(s, idx)
+               ^^^^^^^^^^^^^^^^^^^^^^
+json.decoder.JSONDecodeError: Unterminated string starting at: line 1 column 39 (char 38)
+Error while streaming /v1/responses
+Traceback (most recent call last):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2711, in responses_stream_generator_non_harmony
+    tool_calls = [
+                 ^
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 35, in validated_json_calls
+    calls = json.loads(content)
+            ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 353, in raw_decode
+    obj, end = self.scan_once(s, idx)
+               ^^^^^^^^^^^^^^^^^^^^^^
+json.decoder.JSONDecodeError: Unterminated string starting at: line 1 column 39 (char 38)
+ok
+test_fix3_native_auto_terminal_text (__main__.MockHTTPTest.test_fix3_native_auto_terminal_text) ... ok
+test_fix3_partial_no_store (__main__.MockHTTPTest.test_fix3_partial_no_store) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:1822: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(
+ok
+test_fix3_partial_terminal_matrix (__main__.MockHTTPTest.test_fix3_partial_terminal_matrix) ... ok
+test_fix3_terminal_text_and_no_store (__main__.MockHTTPTest.test_fix3_terminal_text_and_no_store) ... ok
+test_fixer_conflicting_forced_representations_before_generation (__main__.MockHTTPTest.test_fixer_conflicting_forced_representations_before_generation) ... ok
+test_fixer_descriptions_reach_rendered_prompt (__main__.MockHTTPTest.test_fixer_descriptions_reach_rendered_prompt) ... ok
+test_fixer_generated_history_survives_output_only_and_multiple_turns (__main__.MockHTTPTest.test_fixer_generated_history_survives_output_only_and_multiple_turns) ... Error while streaming /v1/responses
+Traceback (most recent call last):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2711, in responses_stream_generator_non_harmony
+    tool_calls = [
+                 ^
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 42, in validated_json_calls
+    raise ValueError("Unknown generated tool identity in required output")
+ValueError: Unknown generated tool identity in required output
+ok
+test_fixer_image_history_survives_no_declaration_gaps (__main__.MockHTTPTest.test_fixer_image_history_survives_no_declaration_gaps) ... ok
+test_fixer_pinned_sdk_client_terminal_roundtrip (__main__.MockHTTPTest.test_fixer_pinned_sdk_client_terminal_roundtrip) ... /usr/local/lib/python3.12/dist-packages/pydantic/main.py:542: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `literal['function']` - serialized value may not be as expected [field_name='type', input_value='namespace', input_type=str])
+  PydanticSerializationUnexpectedValue(Expected `FileSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ComputerTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `Mcp` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CodeInterpreter` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ImageGeneration` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `LocalShell` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CustomTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchPreviewTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...: 'call'}], format=None), input_type=FunctionTool])
+  return self.__pydantic_serializer__.to_json(
+/usr/local/lib/python3.12/dist-packages/pydantic/main.py:542: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `literal['function']` - serialized value may not be as expected [field_name='type', input_value='namespace', input_type=str])
+  PydanticSerializationUnexpectedValue(Expected `FileSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ComputerTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `Mcp` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CodeInterpreter` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ImageGeneration` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `LocalShell` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CustomTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchPreviewTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...tion', 'name': 'call'}]), input_type=FunctionTool])
+  return self.__pydantic_serializer__.to_json(
+/usr/local/lib/python3.12/dist-packages/pydantic/main.py:542: UserWarning: Pydantic serializer warnings:
+  PydanticSerializationUnexpectedValue(Expected `literal['function']` - serialized value may not be as expected [field_name='type', input_value='namespace', input_type=str])
+  PydanticSerializationUnexpectedValue(Expected `FileSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ComputerTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `Mcp` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CodeInterpreter` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `ImageGeneration` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `LocalShell` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `CustomTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  PydanticSerializationUnexpectedValue(Expected `WebSearchPreviewTool` - serialized value may not be as expected [field_name='tools', input_value=FunctionTool(name='sdk', ...stom', 'name': 'call'}]), input_type=FunctionTool])
+  return self.__pydantic_serializer__.to_json(
+ok
+test_fixer_pinned_sdk_output_and_event_roundtrip_replay (__main__.MockHTTPTest.test_fixer_pinned_sdk_output_and_event_roundtrip_replay) ... ok
+test_fixer_whole_history_collision_parity (__main__.MockHTTPTest.test_fixer_whole_history_collision_parity) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:297: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(str(error))
+ok
+test_mock_http_custom_literal_angles_preserve_order_and_payload (__main__.MockHTTPTest.test_mock_http_custom_literal_angles_preserve_order_and_payload) ... ok
+test_mock_http_custom_native_empty_and_escaped (__main__.MockHTTPTest.test_mock_http_custom_native_empty_and_escaped) ... ok
+test_mock_http_custom_raw_and_stateless_replay (__main__.MockHTTPTest.test_mock_http_custom_raw_and_stateless_replay) ... ok
+test_mock_http_flat_history_without_active_tools (__main__.MockHTTPTest.test_mock_http_flat_history_without_active_tools) ... ok
+test_mock_http_flat_regression (__main__.MockHTTPTest.test_mock_http_flat_regression) ... ok
+test_mock_http_forced_choice_cannot_emit_other_declared_tool (__main__.MockHTTPTest.test_mock_http_forced_choice_cannot_emit_other_declared_tool) ... /sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:650: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(str(e))
+Error while streaming /v1/responses
+Traceback (most recent call last):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2870, in responses_stream_generator_non_harmony
+    for ev in _emit_tool_calls(opening):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2761, in _emit_tool_calls
+    request._compat_registry.output_identity(state["name"])
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 121, in output_identity
+    raise ValueError("Generated tool call does not match forced tool choice")
+ValueError: Generated tool call does not match forced tool choice
+ok
+test_mock_http_json_schema_and_explicit_nulls (__main__.MockHTTPTest.test_mock_http_json_schema_and_explicit_nulls) ... ok
+test_mock_http_multimodal_tool_result_and_alias_provenance (__main__.MockHTTPTest.test_mock_http_multimodal_tool_result_and_alias_provenance) ... ok
+test_mock_http_namespace_nonstream_and_stateful_replay (__main__.MockHTTPTest.test_mock_http_namespace_nonstream_and_stateful_replay) ... ok
+test_mock_http_namespace_sse_lifecycle (__main__.MockHTTPTest.test_mock_http_namespace_sse_lifecycle) ... ok
+test_mock_http_native_auto_and_required (__main__.MockHTTPTest.test_mock_http_native_auto_and_required) ... ok
+test_mock_http_native_unknown_fails_closed (__main__.MockHTTPTest.test_mock_http_native_unknown_fails_closed) ... Tool 'workspace.NOT_DECLARED' is not defined in the tools list.
+Error while streaming /v1/responses
+Traceback (most recent call last):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2870, in responses_stream_generator_non_harmony
+    for ev in _emit_tool_calls(opening):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2761, in _emit_tool_calls
+    request._compat_registry.output_identity(state["name"])
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 122, in output_identity
+    return self.identity(qualified)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 116, in identity
+    raise ValueError(f"Unknown generated tool identity: {qualified}")
+ValueError: Unknown generated tool identity: workspace.NOT_DECLARED
+ok
+test_mock_http_parallel_dotted_and_duplicate_local_names (__main__.MockHTTPTest.test_mock_http_parallel_dotted_and_duplicate_local_names) ... ok
+test_mock_http_rejected_call_cannot_be_replayed_from_store (__main__.MockHTTPTest.test_mock_http_rejected_call_cannot_be_replayed_from_store) ... Tool 'workspace.NOT_DECLARED' is not defined in the tools list.
+/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py:1822: FastAPIDeprecationWarning: ORJSONResponse is deprecated, FastAPI now serializes data directly to JSON bytes via Pydantic when a return type or response model is set, which is faster and doesn't need a custom response class. Read more in the FastAPI docs: https://fastapi.tiangolo.com/advanced/custom-response/#orjson-or-response-model and https://fastapi.tiangolo.com/tutorial/response-model/
+  return self.create_error_response(
+ok
+test_mock_http_rejects_unknown_and_forced_invalid (__main__.MockHTTPTest.test_mock_http_rejects_unknown_and_forced_invalid) ... Error while streaming /v1/responses
+Traceback (most recent call last):
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/serving_responses.py", line 2711, in responses_stream_generator_non_harmony
+    tool_calls = [
+                 ^
+  File "/sgl-workspace/sglang/python/sglang/srt/entrypoints/openai/responses_compat.py", line 42, in validated_json_calls
+    raise ValueError("Unknown generated tool identity in required output")
+ValueError: Unknown generated tool identity in required output
+ok
+test_mock_http_replay_cannot_forge_flat_dotted_identity (__main__.MockHTTPTest.test_mock_http_replay_cannot_forge_flat_dotted_identity) ... ok
+test_mock_http_request_provenance_and_unrelated_model (__main__.MockHTTPTest.test_mock_http_request_provenance_and_unrelated_model) ... ok
+test_nonstream_message_phase_matches_remaining_tool_calls (__main__.MockHTTPTest.test_nonstream_message_phase_matches_remaining_tool_calls) ... ok
+test_qwen4_exp_is_negative_control_for_ordered_nonstream (__main__.MockHTTPTest.test_qwen4_exp_is_negative_control_for_ordered_nonstream) ... ok
+test_qwen_literal_angle_brackets_survive_text_tool_text (__main__.MockHTTPTest.test_qwen_literal_angle_brackets_survive_text_tool_text) ... ok
+test_qwen_nonstream_preserves_renewed_reasoning_order (__main__.MockHTTPTest.test_qwen_nonstream_preserves_renewed_reasoning_order) ... ok
+test_qwen_nonstream_preserves_text_tool_text_order (__main__.MockHTTPTest.test_qwen_nonstream_preserves_text_tool_text_order) ... ok
+test_qwen_ordered_nonstream_preserves_requested_logprobs (__main__.MockHTTPTest.test_qwen_ordered_nonstream_preserves_requested_logprobs) ... ok
+test_qwen_ordered_nonstream_preserves_usage_details (__main__.MockHTTPTest.test_qwen_ordered_nonstream_preserves_usage_details) ... ok
+test_qwen_second_reasoning_block_preserves_order (__main__.MockHTTPTest.test_qwen_second_reasoning_block_preserves_order) ...
+  test_qwen_second_reasoning_block_preserves_order (__main__.MockHTTPTest.test_qwen_second_reasoning_block_preserves_order) (stream=False) ... FAIL
+  test_qwen_second_reasoning_block_preserves_order (__main__.MockHTTPTest.test_qwen_second_reasoning_block_preserves_order) (stream=True) ... FAIL
+test_qwen_stream_has_no_generic_angle_boundary_split (__main__.MockHTTPTest.test_qwen_stream_has_no_generic_angle_boundary_split) ... ok
+test_qwen_stream_preserves_renewed_reasoning_order (__main__.MockHTTPTest.test_qwen_stream_preserves_renewed_reasoning_order) ... ok
+test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) ...
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=10) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=11) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=12) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=13) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=14) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=15) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=10) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=11) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=12) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=13) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=14) ... FAIL
+  test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=15) ... FAIL
+test_qwen_stream_preserves_text_tool_text_order_for_any_chunking (__main__.MockHTTPTest.test_qwen_stream_preserves_text_tool_text_order_for_any_chunking) ... ok
+test_qwen_tool_then_renewed_reasoning_preserves_order (__main__.MockHTTPTest.test_qwen_tool_then_renewed_reasoning_preserves_order) ...
+  test_qwen_tool_then_renewed_reasoning_preserves_order (__main__.MockHTTPTest.test_qwen_tool_then_renewed_reasoning_preserves_order) (stream=False) ... FAIL
+  test_qwen_tool_then_renewed_reasoning_preserves_order (__main__.MockHTTPTest.test_qwen_tool_then_renewed_reasoning_preserves_order) (stream=True) ... FAIL
+test_required_json_marker_like_values_remain_data (__main__.MockHTTPTest.test_required_json_marker_like_values_remain_data) ...
+  test_required_json_marker_like_values_remain_data (__main__.MockHTTPTest.test_required_json_marker_like_values_remain_data) (generated_name='inspect') ... FAIL
+  test_required_json_marker_like_values_remain_data (__main__.MockHTTPTest.test_required_json_marker_like_values_remain_data) (generated_name='patch') ... FAIL
+test_text_streams_before_phase_is_resolved (__main__.MockHTTPTest.test_text_streams_before_phase_is_resolved) ... ok
+test_collisions_and_malformed_members (__main__.ResponsesCompatTest.test_collisions_and_malformed_members) ... ok
+test_custom_declaration_reaches_chat (__main__.ResponsesCompatTest.test_custom_declaration_reaches_chat) ... ok
+test_custom_grammar_visible (__main__.ResponsesCompatTest.test_custom_grammar_visible) ... ok
+test_harmony_same_request_call_replay (__main__.ResponsesCompatTest.test_harmony_same_request_call_replay) ... ok
+test_image_result_preserved (__main__.ResponsesCompatTest.test_image_result_preserved) ... ok
+test_message_phase_survives_response_models (__main__.ResponsesCompatTest.test_message_phase_survives_response_models) ... ok
+test_namespace_declaration_reaches_chat (__main__.ResponsesCompatTest.test_namespace_declaration_reaches_chat) ... ok
+test_qualified_replay (__main__.ResponsesCompatTest.test_qualified_replay) ... ok
+test_qwen_replay_preserves_assistant_stage_order (__main__.ResponsesCompatTest.test_qwen_replay_preserves_assistant_stage_order) ... ok
+test_stored_response_replays_reasoning_phase_and_call_together (__main__.ResponsesCompatTest.test_stored_response_replays_reasoning_phase_and_call_together) ... ok
+
+======================================================================
+FAIL: test_qwen_second_reasoning_block_preserves_order (__main__.MockHTTPTest.test_qwen_second_reasoning_block_preserves_order) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 538, in test_qwen_second_reasoning_block_preserves_order
+    self.assertEqual(self.phase_semantics(body['output']), expected)
+AssertionError: Lists differ: [('re[28 chars]e', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('re[28 chars]e', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 1:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 2:
+('reasoning', 'Again')
+
+  [('reasoning', 'First'),
++  ('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
+-  ('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
+?                               -----------------------------
+
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_second_reasoning_block_preserves_order (__main__.MockHTTPTest.test_qwen_second_reasoning_block_preserves_order) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 538, in test_qwen_second_reasoning_block_preserves_order
+    self.assertEqual(self.phase_semantics(body['output']), expected)
+AssertionError: Lists differ: [('re[28 chars]e', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('re[28 chars]e', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 1:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 2:
+('reasoning', 'Again')
+
+  [('reasoning', 'First'),
++  ('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
+-  ('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
+?                               -----------------------------
+
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=10)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=11)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=12)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=13)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=14)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=False, cut=15)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=10)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=11)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=12)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=13)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=14)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_stream_preserves_split_reasoning_marker_boundaries (__main__.MockHTTPTest.test_qwen_stream_preserves_split_reasoning_marker_boundaries) (incremental=True, cut=15)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 494, in test_qwen_stream_preserves_split_reasoning_marker_boundaries
+    self.assertEqual(self.phase_semantics(output), expected)
+AssertionError: Lists differ: [('message', 'final_answer', 'Checking.<think>Again</th[15 chars]r.')] != [('message', 'commentary', 'Checking.'), ('reasoning', [50 chars]r.')]
+
+First differing element 0:
+('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')
+('message', 'commentary', 'Checking.')
+
+Second list contains 2 additional elements.
+First extra element 1:
+('reasoning', 'Again')
+
+- [('message', 'final_answer', 'Checking.<think>Again</think>Final answer.')]
++ [('message', 'commentary', 'Checking.'),
++  ('reasoning', 'Again'),
++  ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_tool_then_renewed_reasoning_preserves_order (__main__.MockHTTPTest.test_qwen_tool_then_renewed_reasoning_preserves_order) (stream=False)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 517, in test_qwen_tool_then_renewed_reasoning_preserves_order
+    self.assertEqual(self.phase_semantics(body['output']), expected)
+AssertionError: Lists differ: [('me[33 chars]), ('reasoning', 'Again'), ('function_call', '[55 chars]r.')] != [('me[33 chars]), ('function_call', 'inspect', {}), ('reasoni[55 chars]r.')]
+
+First differing element 1:
+('reasoning', 'Again')
+('function_call', 'inspect', {})
+
+  [('message', 'commentary', 'Checking.'),
++  ('function_call', 'inspect', {}),
+   ('reasoning', 'Again'),
+-  ('function_call', 'inspect', {}),
+   ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_qwen_tool_then_renewed_reasoning_preserves_order (__main__.MockHTTPTest.test_qwen_tool_then_renewed_reasoning_preserves_order) (stream=True)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 517, in test_qwen_tool_then_renewed_reasoning_preserves_order
+    self.assertEqual(self.phase_semantics(body['output']), expected)
+AssertionError: Lists differ: [('me[33 chars]), ('reasoning', 'Again'), ('function_call', '[55 chars]r.')] != [('me[33 chars]), ('function_call', 'inspect', {}), ('reasoni[55 chars]r.')]
+
+First differing element 1:
+('reasoning', 'Again')
+('function_call', 'inspect', {})
+
+  [('message', 'commentary', 'Checking.'),
++  ('function_call', 'inspect', {}),
+   ('reasoning', 'Again'),
+-  ('function_call', 'inspect', {}),
+   ('message', 'final_answer', 'Final answer.')]
+
+======================================================================
+FAIL: test_required_json_marker_like_values_remain_data (__main__.MockHTTPTest.test_required_json_marker_like_values_remain_data) (generated_name='inspect')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 559, in test_required_json_marker_like_values_remain_data
+    self.assertEqual(response.status_code, 200, response.text)
+AssertionError: 400 != 200 : {"error":{"message":"Required tool choice requires at least one call","type":"invalid_request_error","param":null,"code":400}}
+
+======================================================================
+FAIL: test_required_json_marker_like_values_remain_data (__main__.MockHTTPTest.test_required_json_marker_like_values_remain_data) (generated_name='patch')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/repo/tests/runtime_responses_compat.py", line 559, in test_required_json_marker_like_values_remain_data
+    self.assertEqual(response.status_code, 200, response.text)
+AssertionError: 400 != 200 : {"error":{"message":"Required tool choice requires at least one call","type":"invalid_request_error","param":null,"code":400}}
+
+----------------------------------------------------------------------
+Ran 69 tests in 5.141s
+
+FAILED (failures=18)

@@ -1,4 +1,4 @@
-"""Fail-closed checks for the isolated, unqualified HiCache profile."""
+"""Fail-closed checks for the isolated, opt-in HiCache profile."""
 
 import importlib.util
 from pathlib import Path
@@ -19,21 +19,37 @@ class HiCacheWipPackagingTest(unittest.TestCase):
     def test_patch_chain_and_result_inventory(self):
         manifest, inventory = VERIFIER.package_records()
         self.assertEqual(manifest["status"].split(":", 1)[0], "DRAFT / WIP")
-        self.assertEqual(len(inventory), 4392)
+        self.assertEqual(len(inventory), 4396)
         self.assertEqual(
             [row["file"] for row in manifest["patches"]],
             [
                 "0020-hicache-ple-state.patch",
                 "0021-hicache-file-integrity.patch",
                 "0022-hicache-qsa-sidecar.patch",
+                "0023-qsa-sparse-gather-memory-safety.patch",
+                "0024-router-pdl-bias-order.patch",
+                "0025-hicache-load-order.patch",
+                "0026-qsa-short-extend-bounds.patch",
+                "0027-qsa-paged-prefill.patch",
+                "0029-hicache-common-boundary.patch",
+                "0030-hicache-selective-diagnostics.patch",
+                "0031-hicache-prefill-impact.patch",
+                "0032-shared-ple-host-table.patch",
+                "0033-prefill-decode-interleaving.patch",
+                "0040-hicache-checkpoint-preservation.patch",
+                "0041-hicache-prefetch-namespace.patch",
+                "0042-hicache-writeback-admission.patch",
+                "0043-hicache-repeat-publication-diagnostics.patch",
+                "0044-hicache-advanced-prefix-retry.patch",
+                "0045-hicache-sparse-host-refill.patch",
             ],
         )
 
-    def test_new_qsa_sidecar_is_the_only_new_source(self):
+    def test_added_sources_are_explicit(self):
         manifest, _ = VERIFIER.package_records()
         added = [name for name, row in manifest["files"].items() if row["before"] is None]
         self.assertEqual(
-            added, ["python/sglang/srt/mem_cache/qsa_pool_host.py"]
+            sorted(added), ["python/sglang/srt/mem_cache/cache_diagnostics.py", "python/sglang/srt/mem_cache/checkpoint_coordination.py", "python/sglang/srt/mem_cache/prefetch_retry.py", "python/sglang/srt/mem_cache/qsa_pool_host.py"]
         )
 
     def test_patch_paths_match_the_manifest(self):
@@ -69,7 +85,7 @@ class HiCacheWipPackagingTest(unittest.TestCase):
         dockerfile = (ROOT / "Dockerfile.hicache-wip").read_text()
         self.assertIn("EXPERIMENTAL", dockerfile)
         self.assertIn(
-            "sha256:872a2bda228e39aa9c1af729b47cc28f7862e7859e448f1a8868b85a4051f404",
+            "sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458",
             dockerfile,
         )
 

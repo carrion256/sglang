@@ -1,0 +1,17 @@
+{
+  "phase": "FOLLOWUP3_RED",
+  "base_commit": "76f04a2d6a5b82a9ffd7cb1e101a022cff790545",
+  "production_source_sha256": "4643db136b36e09632b9351159ed2878c70b362919e86865efb380de887f8e21",
+  "trigger": "third independent read-only review",
+  "result": {
+    "exit_code": 1,
+    "test_methods_run": 1,
+    "failing_subtests": 4,
+    "errors": 0
+  },
+  "failing_behavior": "recognized reasoning markers inside native function/custom payloads after an earlier reasoning block",
+  "sha256": {
+    "tests/runtime_responses_compat.py": "bf09824d3850b83a3ed032f68ec5e75f2039f8a3c124c04fec57fcb629996ed2",
+    "provenance/pr5-followup3-red.log": "f17a5afcb1b675f2691bf9dbe2e18c465af78416d3ca4e53d0c583c6cb1a8dfa"
+  }
+}

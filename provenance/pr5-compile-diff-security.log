@@ -1,0 +1,1 @@
+{'compileall': 'reconstructed source tree passed', 'py_compile': 'focused sources and fixture passed', 'diff_check': 'passed', 'patch_apply_check': 'passed', 'security_findings': {'credential_assignment': 0, 'shell_execution': 0, 'dynamic_eval_exec': 0, 'unsafe_pickle': 0, 'formatted_sql': 0}, 'generic_angle_split': False, 'qwen4_exp_in_patch': False}

@@ -1072,7 +1072,7 @@ class OpenAIServingChat(OpenAIServingBase):
         """Process chat messages and apply chat template"""
         if self._uses_qwen_flash_next_effort_aliases():
             # Rendering-only compatibility: retain literal API effort/provenance.
-            # This common path also serves Responses and message tokenization.
+            # This path also serves Responses, Anthropic Messages, and tokenization.
             request = request.model_copy()
             ctk = dict(request.chat_template_kwargs or {})
             effort = ctk.pop("reasoning_effort", None)
@@ -1080,7 +1080,9 @@ class OpenAIServingChat(OpenAIServingBase):
                 effort = request.reasoning_effort
             if effort is None:
                 effort = self.default_chat_template_kwargs.get("reasoning_effort")
-            if effort in ("high", "max"):
+            if effort == "minimal":
+                effort = "low"
+            elif effort in ("high", "max"):
                 effort = "xhigh"
             request.reasoning_effort = effort
             request.chat_template_kwargs = ctk

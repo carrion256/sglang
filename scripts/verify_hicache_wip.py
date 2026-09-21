@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the isolated, unqualified HiCache patch profile."""
+"""Verify the isolated, opt-in HiCache patch profile."""
 
 import argparse
 import hashlib
@@ -21,20 +21,11 @@ def inventory_hash(inventory: dict[str, str]) -> str:
 
 
 def base_inventory() -> dict[str, str]:
-    records = json.loads(
-        (ROOT / "provenance/production/runtime-files.json").read_text()
-    )
-    inventory = {name: row["sha256"] for name, row in records.items()}
-    effort_path = ROOT / "provenance/chat-effort.json"
-    effort = json.loads(effort_path.read_text())
     manifest = json.loads((ROOT / "provenance/hicache-wip.json").read_text())
-    if digest(effort_path) != manifest["chat_effort_manifest_sha256"]:
-        raise ValueError("Chat-effort parent manifest digest mismatch")
-    for name, hashes in effort["files"].items():
-        if inventory.get(name) != hashes["before"]:
-            raise ValueError("Chat-effort parent transition mismatch: " + name)
-        inventory[name] = hashes["after"]
-    return inventory
+    inventory_path = ROOT / manifest["base_inventory"]
+    if digest(inventory_path) != manifest["base_inventory_sha256"]:
+        raise ValueError("Cumulative parent inventory digest mismatch")
+    return json.loads(inventory_path.read_text())
 
 
 def apply_patch(tree: Path, patch: Path) -> None:
@@ -118,13 +109,14 @@ if __name__ == "__main__":
         full_tree = False
     else:
         source_files = verify(args.tree.resolve(), args.apply)
-        changed = len(package_records()[0]["files"])
+        manifest, _ = package_records()
+        changed = len(manifest["files"])
         full_tree = True
     print(
         json.dumps(
             {
                 "profile": "hicache-wip",
-                "status": "unqualified",
+                "status": manifest["status"],
                 "clean_patch_apply": bool(args.tree is not None and args.apply),
                 "patch_chain_verified": True,
                 "changed_source_files": changed,

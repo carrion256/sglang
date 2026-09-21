@@ -1,0 +1,125 @@
+diff --git a/python/sglang/srt/models/packed_ple.py b/python/sglang/srt/models/packed_ple.py
+index c6fb98f..af55246 100644
+--- a/python/sglang/srt/models/packed_ple.py
++++ b/python/sglang/srt/models/packed_ple.py
+@@ -7,17 +7,98 @@ import torch
+ import triton
+ import triton.language as tl
+ 
++# Share one host PLE table between processes holding the identical padded
++# vocab range. Without this, every process allocates a private pinned copy
++# of its rows. When SGLANG_PLE_SHARED_DIR is set and the caller declares the
++# range (tp_shard=(tp_size, padded_start, padded_end)), the table lives in a
++# MAP_SHARED file keyed by shape, dtype, model and that range (tmpfs, so
++# replicas need the same mount visibility) that each process mmaps and pins
++# with cudaHostRegister. TP1 replicas of one checkpoint share the full
++# table; TP2 ranks share only with the matching rank of other replicas and
++# never across ranks, so a rank can neither overwrite nor read another
++# rank's vocabulary rows. The device/host pointer equality that
++# gather_packed_kernel relies on is verified at startup, not assumed.
++# Sharers write identical checkpoint bytes into the same range, so no
++# readiness protocol is required. Any failure (including an undeclared
++# range) falls back to the private pinned table; boot never fails here.
++_shared_maps = []  # keep the mmaps alive for the life of the process
++
++
++def _model_tag():
++    """Checkpoint identity for the shared key; None disables sharing.
++
++    Sharing is only safe between processes loading the identical table,
++    so an unavailable server args object must not collapse different
++    checkpoints onto one key.
++    """
++    try:
++        from sglang.srt.server_args import get_global_server_args
++        path = get_global_server_args().model_path or ""
++    except Exception:
++        return None
++    return "-".join(path.rstrip("/").split("/")) if path else None
++
++
++def _host_table(shape, dtype, pin_memory, tp_shard):
++    import ctypes
++    import mmap
++    import os
++    import sys
++
++    shared_dir = os.environ.get("SGLANG_PLE_SHARED_DIR")
++    model_tag = _model_tag() if shared_dir and pin_memory else None
++    if shared_dir and pin_memory and tp_shard is not None and model_tag is not None:
++        tp_size, padded_start, padded_end = tp_shard
++        nbytes = shape[0] * shape[1]  # both dtypes are one byte per element
++        path = os.path.join(
++            shared_dir,
++            "x".join(map(str, shape))
++            + f"-{str(dtype)[6:]}-{model_tag}"
++              f".tp{tp_size}-{padded_start}_{padded_end}.bin")
++        try:
++            os.makedirs(shared_dir, exist_ok=True)
++            fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
++            try:
++                if os.fstat(fd).st_size != nbytes:
++                    os.ftruncate(fd, nbytes)
++                mm = mmap.mmap(fd, nbytes, flags=mmap.MAP_SHARED)
++            finally:
++                os.close(fd)
++            host = ctypes.addressof(ctypes.c_char.from_buffer(mm))
++            cudart = torch.cuda.cudart()
++            # 1 | 2 = cudaHostRegisterPortable | cudaHostRegisterMapped
++            error = cudart.cudaHostRegister(host, nbytes, 3)
++            if int(error) != 0:
++                mm.close()
++                raise RuntimeError(f"cudaHostRegister failed: {error}")
++            device = ctypes.c_void_p()
++            lib = ctypes.CDLL("libcudart.so", mode=ctypes.RTLD_GLOBAL)
++            rc = lib.cudaHostGetDevicePointer(
++                ctypes.byref(device), ctypes.c_void_p(host), 0)
++            if rc != 0 or device.value != host:
++                cudart.cudaHostUnregister(host)
++                mm.close()
++                raise RuntimeError(
++                    f"device alias {device.value} != host pointer {host} (rc={rc})")
++            _shared_maps.append(mm)
++            print(f"[packed_ple] shared PLE mapping {path} ({nbytes} bytes)",
++                  file=sys.stderr, flush=True)
++            return torch.frombuffer(mm, dtype=torch.uint8).view(dtype).view(shape)
++        except Exception as exc:
++            print(f"[packed_ple] shared PLE mapping {path} unavailable ({exc}); "
++                  "falling back to private pinned table", file=sys.stderr, flush=True)
++    return torch.empty(shape, dtype=dtype, device='cpu', pin_memory=pin_memory)
++
+ 
+ class PackedPLEStorage:
+     """Retain row-major checkpoint bytes; never expand a checkpoint shard."""
+ 
+-    def __init__(self, rows, dim, *, pin_memory=True):
++    def __init__(self, rows, dim, *, pin_memory=True, tp_shard=None):
+         if rows <= 0 or dim <= 0 or dim % 16:
+             raise ValueError('packed PLE needs positive rows and dimension divisible by 16')
+-        self.weight = torch.empty((rows, dim // 2), dtype=torch.uint8,
+-                                  device='cpu', pin_memory=pin_memory)
+-        self.scales = torch.empty((rows, dim // 16), dtype=torch.float8_e4m3fn,
+-                                  device='cpu', pin_memory=pin_memory)
++        self.weight = _host_table((rows, dim // 2), torch.uint8, pin_memory, tp_shard)
++        self.scales = _host_table((rows, dim // 16), torch.float8_e4m3fn,
++                                  pin_memory, tp_shard)
+         self.global_scale = None
+         self._ranges = []
+         self._tp_bounds = None
+diff --git a/python/sglang/srt/models/qwen4_exp.py b/python/sglang/srt/models/qwen4_exp.py
+index bcf07f7..157d93b 100644
+--- a/python/sglang/srt/models/qwen4_exp.py
++++ b/python/sglang/srt/models/qwen4_exp.py
+@@ -839,7 +839,11 @@ class Qwen4ExpPinnedHostEmbedding(VocabParallelEmbedding):
+         if packed_nvfp4:
+             if self.tp_size not in (1, 2):
+                 raise NotImplementedError("packed host PLE supports TP1 or TP2 only")
+-            self._packed_storage = PackedPLEStorage(source_weight.shape[0], self.embedding_dim)
++            self._packed_storage = PackedPLEStorage(
++                source_weight.shape[0], self.embedding_dim,
++                tp_shard=(self.tp_size,
++                          embedding.shard_indices.padded_org_vocab_start_index,
++                          embedding.shard_indices.padded_org_vocab_end_index))
+             if self.tp_size == 2:
+                 self._packed_storage.validate_tp2_partition(self)
+         cpu_weight = nn.Parameter(

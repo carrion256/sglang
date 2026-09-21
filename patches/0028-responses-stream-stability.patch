@@ -1,0 +1,132 @@
+--- a/python/sglang/srt/entrypoints/openai/serving_responses.py
++++ b/python/sglang/srt/entrypoints/openai/serving_responses.py
+@@ -3124,41 +3124,54 @@
+                         and structural_part == "</tool_call>"
+                     ):
+                         inside_tool_call = False
+-        except Exception:
++            status = self._status_from_finish_reason(finish_reason)
++            for ev in _close_reasoning_item():
++                yield ev
++            for ev in _close_message_item():
++                yield ev
++            if status == "completed":
++                for tool_index in list(tool_call_states):
++                    for ev in _close_tool_call_state(tool_index):
++                        yield ev
++
++            final_output_items = list(emitted_items)
++            if request._compat_registry is not None:
++                request._compat_registry.validate_completion(final_output_items, status)
++        except Exception as error:
+             logger.exception("Error while streaming /v1/responses")
+-            failed = _sanitize_response_dict(
+-                ResponsesResponse.from_request(
+-                    request,
+-                    sampling_params,
+-                    model_name=model_name,
+-                    created_time=created_time,
+-                    output=[],
+-                    status="failed",
+-                    usage=None,
+-                ).model_dump()
+-            )
++            # Retain already emitted content without accepting the invalid call.
++            for ev in _close_reasoning_item():
++                yield ev
++            for ev in _close_message_item(phase="commentary"):
++                yield ev
++            failed_response = ResponsesResponse.from_request(
++                request,
++                sampling_params,
++                model_name=model_name,
++                created_time=created_time,
++                output=list(emitted_items),
++                status="failed",
++                usage=None,
++            )
++            failed_response.error = {
++                "code": "server_error",
++                "message": str(error) if isinstance(error, ValueError)
++                else "Response generation failed",
++            }
++            if request.store:
++                async with self.response_store_lock:
++                    stored = self.response_store.get(failed_response.id)
++                    if stored is None or stored.status == "in_progress":
++                        self.response_store[failed_response.id] = failed_response
++                        self._store_compat_metadata(request, failed_response.id)
+             yield _send_event(
+                 openai_responses_types.ResponseFailedEvent(
+                     type="response.failed",
+                     sequence_number=-1,
+-                    response=failed,
++                    response=_sanitize_response_dict(failed_response.model_dump()),
+                 )
+             )
+             return
+-
+-        status = self._status_from_finish_reason(finish_reason)
+-        for ev in _close_reasoning_item():
+-            yield ev
+-        for ev in _close_message_item():
+-            yield ev
+-        if status == "completed":
+-            for tool_index in list(tool_call_states):
+-                for ev in _close_tool_call_state(tool_index):
+-                    yield ev
+-
+-        final_output_items = list(emitted_items)
+-        if request._compat_registry is not None:
+-            request._compat_registry.validate_completion(final_output_items, status)
+ 
+         usage = UsageInfo(
+             prompt_tokens=prompt_tokens,
+--- a/python/sglang/srt/function_call/qwen3_coder_detector.py
++++ b/python/sglang/srt/function_call/qwen3_coder_detector.py
+@@ -278,7 +278,7 @@
+             # -------------------------------------------------------
+             # 2. Function Name: <function=name>
+             # -------------------------------------------------------
+-            if current_slice.startswith(self.tool_call_prefix):
++            if self.is_inside_tool_call and current_slice.startswith(self.tool_call_prefix):
+                 end_angle = current_slice.find(">")
+                 if end_angle != -1:
+                     func_name = current_slice[len(self.tool_call_prefix) : end_angle]
+@@ -306,7 +306,7 @@
+             # -------------------------------------------------------
+             # 3. Parameter: <parameter=name>value...
+             # -------------------------------------------------------
+-            if current_slice.startswith(self.parameter_prefix):
++            if self.is_inside_tool_call and current_slice.startswith(self.parameter_prefix):
+                 name_end = current_slice.find(">")
+                 if name_end != -1:
+                     value_start_idx = name_end + 1
+@@ -390,7 +390,7 @@
+             # -------------------------------------------------------
+             # 4. Function End: </function>
+             # -------------------------------------------------------
+-            if current_slice.startswith(self.function_end_token):
++            if self.is_inside_tool_call and current_slice.startswith(self.function_end_token):
+                 if not self.json_started:
+                     calls.append(
+                         ToolCallItem(tool_index=self.current_tool_id, parameters="{")
+@@ -407,7 +407,7 @@
+             # -------------------------------------------------------
+             # 5. Tool Call End: </tool_call>
+             # -------------------------------------------------------
+-            if current_slice.startswith(self.tool_call_end_token):
++            if self.is_inside_tool_call and current_slice.startswith(self.tool_call_end_token):
+                 self.parsed_pos += len(self.tool_call_end_token)
+                 self.is_inside_tool_call = False  # [FIX] Exit tool call region
+                 continue
+@@ -441,6 +441,9 @@
+                     self.parameter_end_token,
+                 ]
+ 
++                if not self.is_inside_tool_call:
++                    possible_tags = [self.tool_call_start_token]
++
+                 is_potential_tag = False
+                 for tag in possible_tags:
+                     if tag.startswith(current_slice):
