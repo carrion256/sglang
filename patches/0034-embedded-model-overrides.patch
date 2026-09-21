@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Kanadaj <kanadaj@royalroad.com>
+Date: Mon, 21 Sep 2026 19:30:00 +0100
+Subject: [PATCH] Merge image-embedded model config overrides into
+ json_model_override_args
+
+SGLANG_EMBEDDED_MODEL_OVERRIDES points at a JSON file baked into the
+deployment image; its keys are deep-merged on top of the CLI
+--json-model-override-args string (file wins) before any model-config
+resolution, so per-checkpoint YaRN/hybrid-MTP blobs do not have to be
+repeated verbatim in serving parameters. Missing file: warn and skip.
+Malformed file: fail loud.
+
+diff --git a/python/sglang/srt/environ.py b/python/sglang/srt/environ.py
+index a3c682f..0e9686b 100644
+--- a/python/sglang/srt/environ.py
++++ b/python/sglang/srt/environ.py
+@@ -1254,6 +1254,11 @@ class Envs:
+     # surface).
+     SGLANG_GRPC_PORT = EnvInt(None)
+     SGLANG_GRPC_WORKER_THREADS = EnvInt(4)
++    # Qwen3.8 runtime: JSON file with model-config overrides to merge into
++    # --json-model-override-args, so the bulky per-checkpoint YaRN/hybrid-MTP
++    # config can be embedded in the deployment image instead of being repeated
++    # in serving parameters. Keys from the file win over the CLI string.
++    SGLANG_EMBEDDED_MODEL_OVERRIDES = EnvStr(None)
+ 
+     # ===================================================================
+     # NUMA and CPU affinity
+diff --git a/python/sglang/srt/server_args.py b/python/sglang/srt/server_args.py
+index b653373..3da2560 100644
+--- a/python/sglang/srt/server_args.py
++++ b/python/sglang/srt/server_args.py
+@@ -107,6 +107,22 @@ from sglang.utils import is_in_ci
+ 
+ logger = logging.getLogger(__name__)
+ 
++
++def _deep_merge_model_overrides(base: dict, extra: dict) -> dict:
++    """Recursively merge ``extra`` onto ``base`` for model-config overrides.
++
++    Only dicts merge recursively; everything else (lists, scalars) is replaced
++    wholesale by ``extra``, which is the intended semantics for layer_types,
++    rope_parameters and friends.
++    """
++    out = dict(base)
++    for key, value in extra.items():
++        if isinstance(value, dict) and isinstance(out.get(key), dict):
++            out[key] = _deep_merge_model_overrides(out[key], value)
++        else:
++            out[key] = value
++    return out
++
+ # Define constants
+ DEFAULT_UVICORN_ACCESS_LOG_EXCLUDE_PREFIXES = ()
+ 
+@@ -3596,6 +3612,37 @@ class ServerArgs:
+         NS("observability"),
+     ] = None
+ 
++    def _apply_embedded_model_overrides(self) -> None:
++        """Merge image-embedded model-config overrides into the CLI string.
++
++        The deployment image may bake the bulky per-checkpoint config at
++        SGLANG_EMBEDDED_MODEL_OVERRIDES so serving parameters (GPUStack
++        backend_parameters, launch scripts) stay small. The file is deep-merged
++        on top of whatever --json-model-override-args carried; file keys win.
++        Malformed JSON fails loud: a broken image must not silently serve with
++        checkpoint-native defaults.
++        """
++        path = envs.SGLANG_EMBEDDED_MODEL_OVERRIDES.get()
++        if not path:
++            return
++        if not os.path.isfile(path):
++            logger.warning(
++                "SGLANG_EMBEDDED_MODEL_OVERRIDES=%s does not exist; skipping", path
++            )
++            return
++        with open(path, encoding="utf-8") as f:
++            embedded = json.load(f)
++        try:
++            current = json.loads(self.json_model_override_args or "{}")
++        except json.JSONDecodeError as e:
++            raise ValueError(
++                f"--json-model-override-args is not valid JSON and cannot be merged "
++                f"with the embedded overrides at {path}: {e}"
++            ) from e
++        merged = _deep_merge_model_overrides(current, embedded)
++        self.json_model_override_args = json.dumps(merged)
++        logger.info("Merged embedded model overrides from %s", path)
++
+     def __post_init__(self):
+         self._run_resolution_pipeline()
+ 
+@@ -3629,6 +3676,8 @@ class ServerArgs:
+         # _handle_model_specific_adjustments never runs.
+         self._resolved_overrides = []
+ 
++        self._apply_embedded_model_overrides()
++
+         self._handle_moe_runner_backend_alias()
+         self._handle_return_hidden_states_mode()
+         self._handle_media_url_security()

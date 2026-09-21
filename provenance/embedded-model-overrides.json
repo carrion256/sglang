@@ -1,0 +1,35 @@
+{
+  "status": "Experimental opt-in; embedded model-config overrides profile (see docs/embedded-model-overrides.md)",
+  "base_image": "docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:abe360049f6c35a872b84bda10c589d33742d87b6ddb4ea790a12fc345ead4c0",
+  "base_inventory": "provenance/embedded-model-overrides-runtime-files.json",
+  "base_inventory_sha256": "7650f180111bc6bce6351b53255f3b980a219b99f0a6df2e93eec8268bba49ea",
+  "source_files_before": 4394,
+  "source_files_after": 4394,
+  "patches": [
+    {
+      "file": "0034-embedded-model-overrides.patch",
+      "sha256": "0c7ae5336c4a29ffd405fd58402b54c359c98b740ded9b09d6ce6d1d3b25908d",
+      "files": {
+        "python/sglang/srt/environ.py": {
+          "before": "aa2cfbe7c61e27607ef443aaab7988e1fce58d995711e4b2f4f3ac9bb86583ca",
+          "after": "d505c09fb0c691f08d7b52915c02713420e62870e05b80e93aff519f149b3d08"
+        },
+        "python/sglang/srt/server_args.py": {
+          "before": "e93b5c4e4ab083f4d7505c9e1ad6e988e9bdd248c9ae257a7ba79dfe8a9c3637",
+          "after": "a90d710d25fc21b795a921e7c4f86164656149ba31a0ef9fc17cbaffa49e44de"
+        }
+      }
+    }
+  ],
+  "files": {
+    "python/sglang/srt/environ.py": {
+      "before": "aa2cfbe7c61e27607ef443aaab7988e1fce58d995711e4b2f4f3ac9bb86583ca",
+      "after": "d505c09fb0c691f08d7b52915c02713420e62870e05b80e93aff519f149b3d08"
+    },
+    "python/sglang/srt/server_args.py": {
+      "before": "e93b5c4e4ab083f4d7505c9e1ad6e988e9bdd248c9ae257a7ba79dfe8a9c3637",
+      "after": "a90d710d25fc21b795a921e7c4f86164656149ba31a0ef9fc17cbaffa49e44de"
+    }
+  },
+  "result_inventory_sha256": "0ae94639c473f27d6ff2420be6e1e73c1162b44ae37932ad5a37778fe92bf761"
+}
