@@ -277,7 +277,7 @@ source hashes and patches remain unchanged.
 
 ## Checkpoint preservation and namespace fixes (2026-09-19)
 
-Patches0034 and0035 address two ways an existing conversation could lose usable
+Patches0040 and0041 address two ways an existing conversation could lose usable
 HiCache state despite matching KV pages:
 
 - Preserve Mamba checkpoint endpoints before device eviction cascades through
@@ -327,7 +327,7 @@ service action is introduced.
 
 ### Write-back admission completion (2026-09-19)
 
-Patch0036 permits storage lookup below non-root, device-only anchors when the
+Patch0042 permits storage lookup below non-root, device-only anchors when the
 cache uses write-back. Previously the scheduler required a RAM-backed or root
 anchor, so useful disk suffixes could be skipped with `backup_pending` before
 restore compatibility was even checked. Root/backed anchors and other write
@@ -336,7 +336,7 @@ threshold, capacity and transfer ownership checks are unchanged: eligibility
 for lookup is not permission to reuse incomplete state.
 
 Validation: the added lookup regression fails against the preceding scheduler
-and passes with0036. The expanded CPU suite passes223 cases, covering legacy and
+and passes with0042. The expanded CPU suite passes223 cases, covering legacy and
 write-through negatives, exact suffix/logprob-boundary and namespace forwarding,
 real prefetch rejection/reservation, device-only host pins, checkpoint recovery
 and existing cache regressions. Five packaging checks pass; clean replay of all
@@ -347,7 +347,7 @@ performed for this amendment; earlier runtime evidence keeps its stated limits.
 
 ## Bounded prefetch retry and repeat-publication diagnostics (2026-09-20)
 
-Patch0038 gives unified write-back requests one additional disk lookup when their
+Patch0044 gives unified write-back requests one additional disk lookup when their
 usable GPU/RAM prefix advances between enqueue and first admission. The probe
 avoids Mamba copy-on-write. All attention ranks must agree on eligibility and the
 request/anchor identity before retrying. Requests with generated output, positive
@@ -356,7 +356,7 @@ The remaining suffix must still meet the prefetch threshold. The retry budget is
 consumed even if enqueue refuses the lookup, so admission cannot loop indefinitely.
 Namespace, checkpoint compatibility and allocation checks remain in force.
 
-Patch0037 includes publication history in missing-state diagnostics. Only
+Patch0043 includes publication history in missing-state diagnostics. Only
 `missing_mamba` with a recorded prior successful publication moves to DEBUG.
 First-publication failures and other failure reasons remain ERROR. An in-memory
 counter and optional Prometheus counter
@@ -382,7 +382,7 @@ cache reset or service restart is performed by this upstream amendment.
 
 ## Sparse host refill repair (2026-09-21)
 
-Patch0039 repairs completed disk-prefetch data being discarded over an existing
+Patch0045 repairs completed disk-prefetch data being discarded over an existing
 structural path whose host KV and required Mamba checkpoint have been reclaimed.
 For unified write-back with exactly FULL+Mamba components, insertion now adopts
 missing host spans and releases only actual incoming duplicates. Structural

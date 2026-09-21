@@ -148,7 +148,7 @@ the flag block above and confirms N0.5,TP2,chunk6144 and write-back HiCache.
 
 ### Checkpoint recovery update (2026-09-19)
 
-The opt-in HiCache build includes patches0034–0036 for checkpoint preservation,
+The opt-in HiCache build includes patches0040–0042 for checkpoint preservation,
 coordinated allocation recovery, prefetch namespace propagation and write-back
 lookup beneath device-only anchors. Other write policies and all restore
 compatibility/capacity checks remain unchanged. Existing
@@ -161,7 +161,7 @@ update does not change an already running service.
 
 ### Prefetch retry and publication diagnostics update (2026-09-20)
 
-The opt-in profile now also includes0037–0038: one coordinated disk-prefetch retry
+The opt-in profile now also includes0043–0044: one coordinated disk-prefetch retry
 when the usable local prefix advances before first admission, plus publication
 history and a counter for prior-success `missing_mamba` rejections. Those repeat
 rejections log at DEBUG; first-publication and unrelated failures remain ERROR.
@@ -174,7 +174,7 @@ Source inclusion does not publish a container or update a running service.
 
 ### Sparse host refill update (2026-09-21)
 
-Patch0039 repairs restored KV/Mamba state discarded over structurally matching
+Patch0045 repairs restored KV/Mamba state discarded over structurally matching
 but unusable cache paths. The repair is gated to this recipe's write-back
 FULL+Mamba/QSA layout. Existing flags, cache format and other layouts are unchanged.
 See [refill validation and limits](hicache-wip.md#sparse-host-refill-repair-2026-09-21).

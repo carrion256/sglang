@@ -36,12 +36,12 @@ class HiCacheWipPackagingTest(unittest.TestCase):
                 "0031-hicache-prefill-impact.patch",
                 "0032-shared-ple-host-table.patch",
                 "0033-prefill-decode-interleaving.patch",
-                "0034-hicache-checkpoint-preservation.patch",
-                "0035-hicache-prefetch-namespace.patch",
-                "0036-hicache-writeback-admission.patch",
-                "0037-hicache-repeat-publication-diagnostics.patch",
-                "0038-hicache-advanced-prefix-retry.patch",
-                "0039-hicache-sparse-host-refill.patch",
+                "0040-hicache-checkpoint-preservation.patch",
+                "0041-hicache-prefetch-namespace.patch",
+                "0042-hicache-writeback-admission.patch",
+                "0043-hicache-repeat-publication-diagnostics.patch",
+                "0044-hicache-advanced-prefix-retry.patch",
+                "0045-hicache-sparse-host-refill.patch",
             ],
         )
 
