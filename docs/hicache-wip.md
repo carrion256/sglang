@@ -68,8 +68,9 @@ kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3ee
 This parent already contains patches 0015–0019 for Responses, effort aliases,
 multimodal aliases, and invalid-token failures. `provenance/hicache-wip.json`
 records every hash transition, the ordered patch hashes, and the resulting
-4,393-file inventory digest. The one new source file is
-`python/sglang/srt/mem_cache/qsa_pool_host.py`.
+4,396-file inventory digest. The new sources are `qsa_pool_host.py`,
+`cache_diagnostics.py`, `checkpoint_coordination.py`, and `prefetch_retry.py` under
+`python/sglang/srt/mem_cache/`.
 
 ## Retained evidence
 
@@ -121,8 +122,9 @@ docker build --pull=false -f Dockerfile.hicache-wip \
 HICACHE_WIP_IMAGE=qwen-hicache:wip bash scripts/test_hicache_wip.sh
 ```
 
-The runner uses no network or GPUs. It executes the 67 CPU cases from
-`validation/hicache/` inside the candidate image. The three GPU files are retained
+The runner uses no network or GPUs. It executes the CPU suites from
+`validation/hicache/` and `validation/prefill/` inside the candidate image;
+the current checkpoint/admission/retry/refill profile passes 292 cases. The three GPU files are retained
 for review and require an explicitly isolated GPU environment; the runner does
 not claim or acquire an available GPU.
 
@@ -272,3 +274,135 @@ that instance below52GiB; this operational policy is external to the image.
 The tested image ID is`313128307b89435233cfd49a5470f710d66502c65daaa550441f5a3aa755483d`.
 Qualification was performed before publication metadata was updated; all runtime
 source hashes and patches remain unchanged.
+
+## Checkpoint preservation and namespace fixes (2026-09-19)
+
+Patches0040 and0041 address two ways an existing conversation could lose usable
+HiCache state despite matching KV pages:
+
+- Preserve Mamba checkpoint endpoints before device eviction cascades through
+  component state. Wait for backup ownership to become safe before reclamation.
+  Mark endpoint requirements explicitly; a prefix created by a tree split does
+  not inherit the child's recurrent checkpoint requirement.
+- Reject disk publication of an endpoint missing its required recurrent state.
+  Intermediate KV nodes without a checkpoint remain legitimate. Track transfer
+  generations and exact host pins so delayed acknowledgements, failed enqueue,
+  mutation, and deletion cannot publish incomplete state or leak ownership.
+- Coordinate checkpoint frontiers, reservations and rollback across attention
+  ranks. Optional allocation failures get one coordinated eviction/retry; failed
+  optional cache work is logged and serving continues with recomputation. An
+  unrecoverable rank-identity mismatch or failure after device submission is not
+  silently swallowed.
+- Preserve request `extra_key` and `cache_salt` when disk prefetch starts from the
+  shared empty root, in both Python HiCache backends and their callers. Reject
+  conflicting non-root anchors before reservation/publication. Disk hashes and
+  file formats are unchanged; this is not disk-level tenant isolation.
+- Routine reservation eviction/retry messages are DEBUG. Exhausted reservations
+  and skipped/failed checkpoint work remain ERROR.
+
+### Validation and limits
+
+The exact reconstructed profile passes 189 CPU tests, including asymmetric
+failures with real two-process Gloo collectives, allocator ownership, eviction,
+pending transfers, endpoint publication, namespace matching, and existing
+PLE/file/QSA/load-order/prefill regressions. Five packaging tests verify patch
+order, path/hash transitions, drift rejection and default-profile isolation.
+A clean replay of all 15 patches verifies all 4,395 resulting source files.
+
+Equivalent checkpoint changes were exercised in a TP2 production trial: four
+RAM and four disk replays each reused61,440 tokens of65,536-token synthetic
+inputs, with output token IDs matching cold references. A disk-restored appended
+turn reused65,536 tokens and answered correctly. These are bounded observations,
+not universal numerical equivalence. The operational image also retains local
+diagnostics that are not part of this PR. Following the logging-only restart,
+Chat, Responses and streaming smoke checks passed without unexpected restarts.
+
+Salted disk-restored continuation still needs full-model qualification; its
+namespace repair has CPU tree/caller/rank coverage. CPU host fixtures synthesize
+residency and transfer events, not CUDA copies. Do not force cold-reference tests
+with full-input logprobs on long prompts: a separate test exhausted CUDA memory
+in prompt-logit conversion. Normal output-only smoke tests do not exercise that
+allocation path. No cache format migration, new serving flags, or automatic
+service action is introduced.
+
+### Write-back admission completion (2026-09-19)
+
+Patch0042 permits storage lookup below non-root, device-only anchors when the
+cache uses write-back. Previously the scheduler required a RAM-backed or root
+anchor, so useful disk suffixes could be skipped with `backup_pending` before
+restore compatibility was even checked. Root/backed anchors and other write
+policies keep their prior behavior. Namespace, companion-state compatibility,
+threshold, capacity and transfer ownership checks are unchanged: eligibility
+for lookup is not permission to reuse incomplete state.
+
+Validation: the added lookup regression fails against the preceding scheduler
+and passes with0042. The expanded CPU suite passes223 cases, covering legacy and
+write-through negatives, exact suffix/logprob-boundary and namespace forwarding,
+real prefetch rejection/reservation, device-only host pins, checkpoint recovery
+and existing cache regressions. Five packaging checks pass; clean replay of all
+16 patches verifies4395 runtime files. CPU containers expose no GPU devices,
+network or production caches. No new GPU qualification or service restart was
+performed for this amendment; earlier runtime evidence keeps its stated limits.
+
+
+## Bounded prefetch retry and repeat-publication diagnostics (2026-09-20)
+
+Patch0044 gives unified write-back requests one additional disk lookup when their
+usable GPU/RAM prefix advances between enqueue and first admission. The probe
+avoids Mamba copy-on-write. All attention ranks must agree on eligibility and the
+request/anchor identity before retrying. Requests with generated output, positive
+storage-hit accounting, prior admission or a consumed retry budget are excluded.
+The remaining suffix must still meet the prefetch threshold. The retry budget is
+consumed even if enqueue refuses the lookup, so admission cannot loop indefinitely.
+Namespace, checkpoint compatibility and allocation checks remain in force.
+
+Patch0043 includes publication history in missing-state diagnostics. Only
+`missing_mamba` with a recorded prior successful publication moves to DEBUG.
+First-publication failures and other failure reasons remain ERROR. An in-memory
+counter and optional Prometheus counter
+`sglang:hicache_repeat_publication_rejections_total` with `tp_rank`/`dp_rank` labels
+retain visibility into these repeat rejections. Prior success does not prove the
+entry still exists on disk; the message explicitly says
+`storage_residency=unverified`. This change neither repairs missing checkpoints
+nor changes cache eviction or disk retention.
+
+Validation: 265 CPU tests, including the added 42 retry/history/lifecycle cases
+and real two-rank Gloo coordination; five packaging checks; clean replay of all
+18 patches and full verification of 4,396 source files. The test runner gives
+native CPU hash extensions a separate ephemeral executable tmpfs while keeping
+ordinary temporary files non-executable. The first run exposed that harness
+restriction; rerunning with the dedicated extension directory passed.
+
+The equivalent deployed changes passed 116 focused CPU tests and four bounded
+Chat/Responses normal/streaming smoke checks. Those operational tests are separate
+from this upstream source reconstruction. Neither establishes that the original
+historical idle-session miss is recovered. No new public image, GPU qualification,
+cache reset or service restart is performed by this upstream amendment.
+
+
+## Sparse host refill repair (2026-09-21)
+
+Patch0045 repairs completed disk-prefetch data being discarded over an existing
+structural path whose host KV and required Mamba checkpoint have been reclaimed.
+For unified write-back with exactly FULL+Mamba components, insertion now adopts
+missing host spans and releases only actual incoming duplicates. Structural
+prefix_len remains unchanged; explicit retained-token and duplicate-span fields
+control buffer ownership. Existing RAM spans keep their allocations, and the
+covered endpoint receives its compatible Mamba checkpoint. A companion-only repair
+can report zero newly retained KV while restoring useful state.
+
+KV-derived QSA data follows the adopted host indices without extra payload copies.
+Ownership plans agree across attention ranks before adoption; disagreement releases
+incoming completed resources and anchor pins without changing the tree. Existing
+compatibility, namespace, unread-tail and split handling remain. Write-through,
+SWA and mixed-component stacks retain the legacy path.
+
+Validation: the unchanged runtime fails the missing-host real CPU disk-restore
+regression; the repaired source passes. The expanded profile passes292 CPU cases
+and five packaging checks; a clean19-patch replay verifies4,396source files. Added
+coverage includes sparse spans/splits, companion-only restore, repeated duplicate
+release with exact allocator counts, cancellation pins and real two-rank Gloo
+agreement. GPU DMA in the fixture is simulated. QSA index preservation and existing
+QSA regressions do not establish full-model numerical equivalence. Historical
+production-request recovery remains unproven. No cache format or serving flag
+change, default-profile change or public container publication is implied.

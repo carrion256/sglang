@@ -19,7 +19,7 @@ class HiCacheWipPackagingTest(unittest.TestCase):
     def test_patch_chain_and_result_inventory(self):
         manifest, inventory = VERIFIER.package_records()
         self.assertEqual(manifest["status"].split(":", 1)[0], "DRAFT / WIP")
-        self.assertEqual(len(inventory), 4394)
+        self.assertEqual(len(inventory), 4396)
         self.assertEqual(
             [row["file"] for row in manifest["patches"]],
             [
@@ -36,6 +36,12 @@ class HiCacheWipPackagingTest(unittest.TestCase):
                 "0031-hicache-prefill-impact.patch",
                 "0032-shared-ple-host-table.patch",
                 "0033-prefill-decode-interleaving.patch",
+                "0040-hicache-checkpoint-preservation.patch",
+                "0041-hicache-prefetch-namespace.patch",
+                "0042-hicache-writeback-admission.patch",
+                "0043-hicache-repeat-publication-diagnostics.patch",
+                "0044-hicache-advanced-prefix-retry.patch",
+                "0045-hicache-sparse-host-refill.patch",
             ],
         )
 
@@ -43,7 +49,7 @@ class HiCacheWipPackagingTest(unittest.TestCase):
         manifest, _ = VERIFIER.package_records()
         added = [name for name, row in manifest["files"].items() if row["before"] is None]
         self.assertEqual(
-            sorted(added), ["python/sglang/srt/mem_cache/cache_diagnostics.py", "python/sglang/srt/mem_cache/qsa_pool_host.py"]
+            sorted(added), ["python/sglang/srt/mem_cache/cache_diagnostics.py", "python/sglang/srt/mem_cache/checkpoint_coordination.py", "python/sglang/srt/mem_cache/prefetch_retry.py", "python/sglang/srt/mem_cache/qsa_pool_host.py"]
         )
 
     def test_patch_paths_match_the_manifest(self):

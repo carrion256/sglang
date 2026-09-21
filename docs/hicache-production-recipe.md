@@ -134,8 +134,8 @@ NEXTN decoding. It counts batches, not GPU time or generated tokens. The current
 chunked request keeps prefill priority over newcomers; this does not make cache
 admission asynchronous. See [scheduling behavior and restrictions](prefill-decode-interleaving.md).
 
-The recipe retains the existing published HiCache/PLE patch stack. No unpublished
-cache, abort, tokenizer or throughput diagnostic patches are added. The underlying
+That interleaving update retained the then-published HiCache/PLE patch stack
+without additional cache, abort, tokenizer or throughput diagnostic patches. The underlying
 scheduling flag still defaults to zero; this recipe explicitly selects0.5.
 No production restart or new public container publication is implied by this
 recipe change. Combined-profile CPU verification is separate from the historical
@@ -144,3 +144,39 @@ GPU/cache evidence above; a fresh full GPU qualification of this image is not cl
 Recipe update validation: combined build verified4,394source files,28scheduling/
 CLI tests and26subtests passed, and5packaging checks passed. The CLI test parses
 the flag block above and confirms N0.5,TP2,chunk6144 and write-back HiCache.
+
+
+### Checkpoint recovery update (2026-09-19)
+
+The opt-in HiCache build includes patches0040–0042 for checkpoint preservation,
+coordinated allocation recovery, prefetch namespace propagation and write-back
+lookup beneath device-only anchors. Other write policies and all restore
+compatibility/capacity checks remain unchanged. Existing
+recipe flags, N=0.5 interleaving and disk format are unchanged. Routine
+`action=shared_evict` retries log at DEBUG; exhausted retries and skipped backups
+remain ERROR. See [validation and limitations](hicache-wip.md#checkpoint-preservation-and-namespace-fixes-2026-09-19)
+before qualifying a deployment. Rebuild the selected image explicitly; a source
+update does not change an already running service.
+
+
+### Prefetch retry and publication diagnostics update (2026-09-20)
+
+The opt-in profile now also includes0043–0044: one coordinated disk-prefetch retry
+when the usable local prefix advances before first admission, plus publication
+history and a counter for prior-success `missing_mamba` rejections. Those repeat
+rejections log at DEBUG; first-publication and unrelated failures remain ERROR.
+Prior publication success is not a current disk-residency guarantee.
+
+Recipe flags, storage format and default build profiles are unchanged. See
+[retry validation and limits](hicache-wip.md#bounded-prefetch-retry-and-repeat-publication-diagnostics-2026-09-20).
+Source inclusion does not publish a container or update a running service.
+
+
+### Sparse host refill update (2026-09-21)
+
+Patch0045 repairs restored KV/Mamba state discarded over structurally matching
+but unusable cache paths. The repair is gated to this recipe's write-back
+FULL+Mamba/QSA layout. Existing flags, cache format and other layouts are unchanged.
+See [refill validation and limits](hicache-wip.md#sparse-host-refill-repair-2026-09-21).
+Build and qualify the intended image explicitly; source inclusion does not update
+a running deployment.

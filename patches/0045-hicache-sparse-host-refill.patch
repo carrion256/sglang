@@ -1,0 +1,170 @@
+--- a/python/sglang/srt/mem_cache/base_prefix_cache.py
++++ b/python/sglang/srt/mem_cache/base_prefix_cache.py
+@@ -90,6 +90,10 @@
+     cache_actions: list[CacheAction | ComponentAction] = dataclasses.field(
+         default_factory=list
+     )
++
++    # None preserves legacy prefix-based ownership; zero is a valid refill.
++    retained_host_tokens: Optional[int] = None
++    duplicate_host_indices: list[torch.Tensor] = dataclasses.field(default_factory=list)
+ 
+ 
+ @dataclasses.dataclass
+--- a/python/sglang/srt/mem_cache/unified_cache/unified_tree_core.py
++++ b/python/sglang/srt/mem_cache/unified_cache/unified_tree_core.py
+@@ -1739,12 +1739,37 @@
+     def set_hicache_enabled(self) -> None:
+         self.enable_hicache = True
+ 
++    def host_refill_identity(self, node_id: NodeId, key: RadixKey):
++        """Describe ownership before any split or buffer adoption."""
++        node = self.node_by_id(node_id)
++        spans = []
++        remaining = key
++        while len(remaining):
++            child = node.children.get(remaining.child_key(self.page_size))
++            if child is None:
++                break
++            count = child.key.match(remaining, page_size=self.page_size)
++            spans.append((
++                child.id, len(child.key), count,
++                tuple((str(ct), child.component_data[ct].value is not None,
++                       child.component_data[ct].host_value is not None)
++                      for ct in self.components_by_type),
++                child.write_through_pending_id, child.load_back_pending_id,
++            ))
++            remaining = remaining[count:]
++            node = child
++            if count < len(child.key):
++                break
++        return node_id, len(key), key.extra_key, key.cache_salt, spans, len(remaining)
++
+     def insert_host(
+         self,
+         node_id: NodeId,
+         key: RadixKey,
+         host_value: torch.Tensor,
+         hash_value: list[str],
++        *,
++        repair_missing: bool = False,
+     ) -> InsertResult:
+         """Insert a host-side (backuped) tree path descending from the given node."""
+         node = self.node_by_id(node_id)
+@@ -1755,11 +1780,15 @@
+ 
+         child_key = key.child_key(self.page_size)
+         matched_length = 0
++        retained = 0
++        duplicates = []
+         cache_actions: list[CacheAction | ComponentAction] = []
+         while len(key) > 0 and child_key in node.children:
+             node = node.children[child_key]
+             self._touch_node(node)
+             prefix_len = node.key.match(key, page_size=self.page_size)
++            incoming = host_value[:prefix_len]
++            incoming_hashes = hash_value[: prefix_len // self.page_size]
+ 
+             key = key[prefix_len:]
+             host_value = host_value[prefix_len:]
+@@ -1771,6 +1800,19 @@
+                 if action is not None:
+                     cache_actions.append(action)
+ 
++            if repair_missing:
++                data = node.component_data[BASE_COMPONENT_TYPE]
++                if data.host_value is None:
++                    # KV-derived sidecars already occupy these same host slots.
++                    data.host_value = incoming.clone()
++                    node.hash_value = list(incoming_hashes)
++                    retained += prefix_len
++                    self._update_evictable_leaf_sets(node)
++                    self._update_evictable_leaf_sets(node.parent)
++                    self._update_duplicate_tracking(node)
++                else:
++                    duplicates.append(incoming)
++
+             if len(key):
+                 child_key = key.child_key(self.page_size)
+ 
+@@ -1778,6 +1820,8 @@
+             prefix_len=matched_length,
+             total_len=total_len,
+             cache_actions=cache_actions,
++            retained_host_tokens=retained if repair_missing else None,
++            duplicate_host_indices=duplicates,
+         )
+         if len(key) == 0:
+             if (
+@@ -1806,6 +1850,8 @@
+         self._update_evictable_leaf_sets(new_node)
+         self._update_evictable_leaf_sets(node)
+         result.inserted_host_node = new_node.id
++        if repair_missing:
++            result.retained_host_tokens += len(host_value)
+         return result
+ 
+     def build_backup_spec(self, node_id: NodeId):
+--- a/python/sglang/srt/mem_cache/unified_radix_cache.py
++++ b/python/sglang/srt/mem_cache/unified_radix_cache.py
+@@ -1514,11 +1514,34 @@
+             return True
+ 
+         fetched_key = prefetch_key[:min_completed_tokens]
++        repair_missing = self.is_write_back and set(self.tree_core.components_by_type) == {
++            ComponentType.FULL, ComponentType.MAMBA,
++        }
++        if repair_missing and not agree(
++            self, ("host_refill", req_id,
++                   self.tree_core.host_refill_identity(last_host_node_id, fetched_key)),
++            optional=True,
++        ):
++            # Reject before ownership changes; the IO worker owns unread tail slots.
++            self.cache_controller.append_host_mem_release(
++                host_indices=host_indices[:completed_tokens],
++                extra_pools=operation.pool_transfers,
++            )
++            self.dec_host_lock_ref(last_host_node_id, anchor_lock_params)
++            del self.ongoing_prefetch[req_id]
++            self.cache_controller.prefetch_tokens_occupied -= len(prefetch_key)
++            self.prefetch_loaded_tokens_by_reqid[req_id] = 0
++            record_cache_decision(
++                self, req_id, "restore_incomplete", requested=len(prefetch_key),
++                matched=min_completed_tokens, details={"phase": "host_refill_agreement"},
++            )
++            return True
+         insert_result = self.tree_core.insert_host(
+             last_host_node_id,
+             fetched_key,
+             host_indices[:min_completed_tokens],
+             hash_value[: min_completed_tokens // self.page_size],
++            repair_missing=repair_missing,
+         )
+ 
+         # Apply the host-insert walk's actions before the transfer commit.
+@@ -1545,13 +1568,21 @@
+             # The commit emits via commit_actions only; the walk's were applied above.
+             assert not insert_result.cache_actions
+ 
+-            self.cache_controller.mem_pool_host.free(
+-                host_indices[: insert_result.prefix_len]
+-            )
++            if insert_result.retained_host_tokens is None:
++                self.cache_controller.mem_pool_host.free(
++                    host_indices[: insert_result.prefix_len]
++                )
++            else:
++                for duplicate in insert_result.duplicate_host_indices:
++                    self.cache_controller.mem_pool_host.free(duplicate)
+             self.cache_controller.append_host_mem_release(
+                 host_indices[min_completed_tokens:completed_tokens]
+             )
+-            loaded_from_storage = min_completed_tokens - insert_result.prefix_len
++            loaded_from_storage = (
++                min_completed_tokens - insert_result.prefix_len
++                if insert_result.retained_host_tokens is None
++                else insert_result.retained_host_tokens
++            )
+             released_tokens = completed_tokens - min_completed_tokens
+ 
+         self.dec_host_lock_ref(last_host_node_id, anchor_lock_params)

@@ -1,0 +1,16 @@
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -2705,8 +2705,11 @@
+         if self.enable_hicache_storage:
+             req.init_next_round_input(self.tree_cache, cow_mamba=False)
+             tree_cache = self.tree_cache
+-            if tree_cache.is_backuped(req.last_host_node) or tree_cache.is_root(
+-                req.last_host_node
++            # Unified write-back supports restoring below device-only anchors.
++            if (
++                tree_cache.is_backuped(req.last_host_node)
++                or tree_cache.is_root(req.last_host_node)
++                or getattr(tree_cache, "is_write_back", False)
+             ):
+                 matched_len = len(req.prefix_indices) + req.host_hit_length
+                 match_end = req._compute_max_prefix_len(

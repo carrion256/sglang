@@ -1,0 +1,98 @@
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -2724,6 +2724,7 @@
+                     new_input_tokens,
+                     tree_cache.get_last_hash_value(req.last_host_node),
+                     prefix_keys,
++                    request_namespace=(req.extra_key, req.cache_salt),
+                 )
+             else:
+                 from sglang.srt.mem_cache.cache_diagnostics import record_cache_decision
+--- a/python/sglang/srt/disaggregation/decode_hicache_mixin.py
++++ b/python/sglang/srt/disaggregation/decode_hicache_mixin.py
+@@ -124,7 +124,8 @@
+                 else None
+             )
+             self.tree_cache.prefetch_from_storage(
+-                req.rid, prefix_match.last_host_node, suffix, last_hash, prefix_keys
++                req.rid, prefix_match.last_host_node, suffix, last_hash, prefix_keys,
++                request_namespace=(req.extra_key, req.cache_salt),
+             )
+             prefix_match.prefetch_registered = (
+                 req.rid in self.tree_cache.ongoing_prefetch
+--- a/python/sglang/srt/mem_cache/unified_radix_cache.py
++++ b/python/sglang/srt/mem_cache/unified_radix_cache.py
+@@ -1326,6 +1326,7 @@
+     def prefetch_from_storage(
+         self, req_id: str, last_host_node_id: NodeId, new_input_tokens: list[int],
+         last_hash: Optional[str] = None, prefix_keys: Optional[list[str]] = None,
++        *, request_namespace: Optional[tuple[Optional[str], Optional[str]]] = None,
+     ) -> None:
+         if not self.enable_storage or self.cache_controller is None:
+             return
+@@ -1333,6 +1334,15 @@
+         prepared = True
+         try:
+             extra_key, cache_salt = self.tree_core.prefetch_anchor_info(last_host_node_id)
++            if request_namespace is not None:
++                requested_key, requested_salt = request_namespace
++                requested_salt = requested_salt or None
++                # The shared root cannot supply a request's namespace.
++                if (not self.tree_core.is_root(last_host_node_id)
++                        and (extra_key, cache_salt or None) != (requested_key, requested_salt)):
++                    logger.error("HiCache prefetch skipped reason=namespace_mismatch")
++                    prepared = False
++                extra_key, cache_salt = requested_key, requested_salt
+             prefetch_key = RadixKey(new_input_tokens, extra_key=extra_key,
+                                    is_bigram=self.tree_core.is_eagle, cache_salt=cache_salt).page_aligned(self.page_size)
+             prefetch_length = len(prefetch_key)
+@@ -1340,6 +1350,8 @@
+             logger.error("HiCache checkpoint failed phase=prefetch_key reason=%s", type(error).__name__)
+             prepared = False
+         if not all_ready(self, prepared):
++            return
++        if not agree(self, ("prefetch_namespace", extra_key, cache_salt or None), optional=True):
+             return
+         agree(self, ("prefetch", req_id, last_host_node_id, prefetch_length))
+         if prefetch_length < self.prefetch_threshold:
+--- a/python/sglang/srt/mem_cache/hiradix_cache.py
++++ b/python/sglang/srt/mem_cache/hiradix_cache.py
+@@ -51,6 +51,7 @@
+ from sglang.srt.mem_cache.pool_host.common import get_allocator_type
+ from sglang.srt.mem_cache.pool_host.mha import get_mha_host_pool_cls
+ from sglang.srt.mem_cache.pool_host.mla import MLATokenToKVPoolHost
++from sglang.srt.mem_cache.checkpoint_coordination import all_ready, agree
+ from sglang.srt.mem_cache.radix_cache import (
+     RadixCache,
+     RadixKey,
+@@ -1774,12 +1775,28 @@
+         new_input_tokens: List[int],
+         last_hash: Optional[str] = None,
+         prefix_keys: Optional[List[str]] = None,
++        *, request_namespace: Optional[tuple[Optional[str], Optional[str]]] = None,
+     ):
++        extra_key = last_host_node.key.extra_key
++        cache_salt = last_host_node.key.cache_salt or None
++        valid = True
++        if request_namespace is not None:
++            requested_key, requested_salt = request_namespace
++            requested_salt = requested_salt or None
++            # Reject a mismatched anchor before pinning or publishing a transfer.
++            valid = (last_host_node is self.root_node
++                     or (extra_key, cache_salt) == (requested_key, requested_salt))
++            extra_key, cache_salt = requested_key, requested_salt
++        if not all_ready(self, valid):
++            logger.error("HiCache prefetch skipped reason=namespace_mismatch")
++            return
++        if not agree(self, ("prefetch_namespace", extra_key, cache_salt), optional=True):
++            return
+         prefetch_key = RadixKey(
+             new_input_tokens,
+-            extra_key=last_host_node.key.extra_key,
++            extra_key=extra_key,
+             is_bigram=self.is_eagle,
+-            cache_salt=last_host_node.key.cache_salt,
++            cache_salt=cache_salt,
+         )
+         # align the number of fetching tokens to the page size
+         prefetch_key = prefetch_key.page_aligned(self.page_size)
