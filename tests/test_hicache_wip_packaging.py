@@ -42,6 +42,7 @@ class HiCacheWipPackagingTest(unittest.TestCase):
                 "0043-hicache-repeat-publication-diagnostics.patch",
                 "0044-hicache-advanced-prefix-retry.patch",
                 "0045-hicache-sparse-host-refill.patch",
+                "0046-qwen-disable-tool-grammar.patch",
             ],
         )
 

@@ -1,8 +1,8 @@
-# Opt-in selective strict tools; no HiCache dependency or serving flag changes.
+# Qwen unconstrained profile; legacy filename retained for build compatibility.
 FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458
-COPY patches/0028-responses-stream-stability.patch patches/0032-qwen-default-strict-tools.patch patches/series.qwen-strict-tools /opt/qwen-strict-tools/patches/
+COPY patches/0028-responses-stream-stability.patch patches/0046-qwen-disable-tool-grammar.patch patches/series.qwen-strict-tools /opt/qwen-strict-tools/patches/
 COPY provenance/invalid-token-failure-runtime-files.json provenance/qwen-strict-tools.json /opt/qwen-strict-tools/provenance/
 COPY scripts/verify_qwen_strict_tools.py /opt/qwen-strict-tools/scripts/verify_qwen_strict_tools.py
 RUN python3 -B /opt/qwen-strict-tools/scripts/verify_qwen_strict_tools.py --tree /sgl-workspace/sglang --apply
-ENTRYPOINT ["python3", "-m", "sglang.launch_server"]
+ENTRYPOINT ["python3", "-m", "sglang.launch_server", "--grammar-backend", "none"]
 CMD ["--help"]

@@ -27,3 +27,10 @@ def test_production_recipe_arguments():
     assert parsed.chunked_prefill_size == 6144
     assert parsed.enable_hierarchical_cache
     assert parsed.hicache_write_policy == "write_back"
+
+    assert parsed.grammar_backend == "none"
+    assert parsed.disable_custom_all_reduce
+    assert parsed.max_mamba_cache_size == 512
+    assert parsed.mamba_track_interval == 128
+    assert parsed.context_length == 524288
+    assert parsed.max_running_requests == 64
