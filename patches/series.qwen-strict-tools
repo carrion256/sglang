@@ -1,2 +1,2 @@
 0028-responses-stream-stability.patch
-0032-qwen-default-strict-tools.patch
+0046-qwen-disable-tool-grammar.patch

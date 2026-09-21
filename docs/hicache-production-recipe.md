@@ -4,9 +4,9 @@ This is the deployed configuration on two RTX PRO 6000 Blackwell Workstation GPU
 (96 GiB each), connected through PCIe 4.0, with 256 GiB system RAM. It is a measured
 configuration for this model and hardware, not a universal cache-sizing formula.
 Use the repository's Qwen TP2/MTP3 model-loading recipe and the opt-in
-`Dockerfile.hicache-wip` profile, now including patch0033 for separate
-prefill/decode scheduling. Build from this revision before using the new flag;
-earlier published images do not include it:
+`Dockerfile.hicache-wip` profile, including scheduling patch0033, checkpoint repairs0040–0045 and grammar-disable
+support0046. Build from this revision before selecting grammar-backend none;
+earlier images can reject constrained requests instead of running unconstrained:
 
 ```sh
 docker build -f Dockerfile.hicache-wip -t local/qwen-hicache-interleaving .
@@ -18,6 +18,16 @@ Select that built image in the launch command and use these serving/cache overri
 
 ```sh
 --tp-size=2 \
+--grammar-backend=none \
+--reasoning-parser=auto \
+--tool-call-parser=auto \
+--disable-custom-all-reduce \
+--disable-prefill-cuda-graph \
+--max-mamba-cache-size=512 \
+--mamba-radix-cache-strategy=extra_buffer \
+--mamba-track-interval=128 \
+--mamba-ssm-dtype=bfloat16 \
+--gdn-mtp-cache-mode=none \
 --context-length=524288 \
 --mem-fraction-static=0.92 \
 --max-total-tokens=4342208 \
@@ -54,8 +64,8 @@ PLE host offload, and MTP configuration from the Qwen recipe.
 | Active concurrency ceiling | 64 requests; does not promise 64 full-length contexts |
 | RAM HiCache | 45 decimal GB **per TP rank**, 90 GB aggregate (~83.82 GiB) |
 | Disk payload cap | 500 decimal GB **per TP rank**, 1 TB aggregate (~931.32 GiB); filesystem overhead is additional |
-| Observed host KV capacity | 3,812,160 logical tokens, shared logical capacity across ranks; do not multiply tokens by TP2 |
-| GPU KV | Observed 4,342,208 logical tokens at this configuration; the argument is a cap, actual capacity depends on startup memory availability |
+| Observed host KV capacity | 3,808,000 logical tokens (2026-09-21 startup), shared logical capacity across ranks; do not multiply tokens by TP2 |
+| GPU KV | Observed 4,329,216 logical tokens at the 2026-09-21 startup; the argument is a cap, actual capacity depends on startup memory availability |
 | Recurrent state | `max-mamba-cache-size=512`, `mamba-radix-cache-strategy=extra_buffer`, `mamba-track-interval=128`, `mamba-ssm-dtype=bfloat16` |
 | Speculation | NEXTN, 3 steps, top-k 1, 4 draft tokens, `gdn-mtp-cache-mode=none`; retained |
 | Graphs | Target/draft decode and draft-extension graphs retained; prefill CUDA graphs disabled as in the existing deployment |
@@ -180,3 +190,22 @@ FULL+Mamba/QSA layout. Existing flags, cache format and other layouts are unchan
 See [refill validation and limits](hicache-wip.md#sparse-host-refill-repair-2026-09-21).
 Build and qualify the intended image explicitly; source inclusion does not update
 a running deployment.
+
+### Unconstrained tool generation (2026-09-21)
+
+This recipe explicitly selects `--grammar-backend=none`. Patch0046 makes that
+mode skip both frontend tool grammar construction and scheduler grammar work.
+Omitted `strict` is not promoted to true. Explicit `strict:true`, required/named
+tool choice, JSON schema, regex, EBNF and structural constraints are accepted
+without grammar enforcement. Tool definitions, ordinary parsing and reasoning
+remain available; schema compliance and forced tool selection are not guaranteed.
+
+The standalone legacy-named `Dockerfile.qwen-strict-tools` selects this mode by
+default. The HiCache image keeps its existing backend default; this recipe must
+pass the flag. Other build profiles are unchanged. A later explicit backend
+argument can re-enable enforcement; it does not restore the removed strict default.
+
+The current private deployment also contains observability patches not shipped in
+this profile. Its successful Chat/Responses/tool smoke tests do not qualify every
+schema, parser edge case or cache restore. Disabling grammar does not repair all
+XML parser defects. No throughput improvement is claimed from these smoke tests.
