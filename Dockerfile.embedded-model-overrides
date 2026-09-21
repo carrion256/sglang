@@ -1,7 +1,9 @@
 # Opt-in embedded model-config overrides on top of the 2026-09-18 interleave/shared-PLE runtime.
 # Adds SGLANG_EMBEDDED_MODEL_OVERRIDES and bakes the Qwen3.8 Flash-Next (QAD step-4000)
-# YaRN-1M config file so serving parameters no longer carry the giant
-# --json-model-override-args blob. The CLI arg still works unchanged.
+# checkpoint-native config so serving parameters no longer carry the giant
+# --json-model-override-args blob. CLI --json-model-override-args is deep-merged
+# ON TOP (keys win), so per-deployment knobs like the YaRN scaling factor stay
+# small explicit arguments; consumers passing nothing run the baked native baseline.
 FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:abe360049f6c35a872b84bda10c589d33742d87b6ddb4ea790a12fc345ead4c0
 COPY patches/0034-embedded-model-overrides.patch patches/series.embedded-model-overrides /opt/embedded-model-overrides/patches/
 COPY provenance/embedded-model-overrides-runtime-files.json provenance/embedded-model-overrides.json /opt/embedded-model-overrides/provenance/
@@ -9,6 +11,7 @@ COPY scripts/verify_embedded_model_overrides.py /opt/embedded-model-overrides/sc
 COPY deploy/embedded-model-overrides.json /opt/qwen-runtime/model_overrides.json
 # Baked default: activating the merge needs no per-model serving parameters.
 # Unset (or point elsewhere) to fall back to CLI --json-model-override-args only.
+# YaRN rope scaling factor is passed by the operator in the CLI arg if needed.
 ENV SGLANG_EMBEDDED_MODEL_OVERRIDES=/opt/qwen-runtime/model_overrides.json
 RUN python3 -B /opt/embedded-model-overrides/scripts/verify_embedded_model_overrides.py --tree /sgl-workspace/sglang --apply
 ENTRYPOINT ["python3", "-m", "sglang.launch_server"]

@@ -7,7 +7,7 @@
   "num_attention_heads": 24,
   "num_key_value_heads": 2,
   "hidden_act": "silu",
-  "max_position_embeddings": 1048576,
+  "max_position_embeddings": 262144,
   "initializer_range": 0.02,
   "rms_norm_eps": 1e-06,
   "use_cache": true,
@@ -94,17 +94,15 @@
   "indexer_budget": 2048,
   "indexer_compress_ratio": 4,
   "rope_parameters": {
-   "rope_type": "yarn",
-   "factor": 4.0,
-   "original_max_position_embeddings": 262144,
-   "rope_theta": 10000000,
    "mrope_interleaved": true,
    "mrope_section": [
     11,
     11,
     10
    ],
-   "partial_rotary_factor": 0.25
+   "partial_rotary_factor": 0.25,
+   "rope_theta": 10000000,
+   "rope_type": "default"
   },
   "output_hidden_states": false,
   "return_dict": true,
@@ -141,5 +139,5 @@
   "output_attentions": false,
   "ple_embedding_dtype": "nvfp4"
  },
- "max_position_embeddings": 1048576
+ "max_position_embeddings": 262144
 }

@@ -8,15 +8,15 @@
   "patches": [
     {
       "file": "0034-embedded-model-overrides.patch",
-      "sha256": "0c7ae5336c4a29ffd405fd58402b54c359c98b740ded9b09d6ce6d1d3b25908d",
+      "sha256": "1313f5c61f79556834b7eac223865e60abe693f9e472db462a39a92be03e4208",
       "files": {
         "python/sglang/srt/environ.py": {
           "before": "aa2cfbe7c61e27607ef443aaab7988e1fce58d995711e4b2f4f3ac9bb86583ca",
-          "after": "d505c09fb0c691f08d7b52915c02713420e62870e05b80e93aff519f149b3d08"
+          "after": "feb8641bd97bf84f342da819517f26cf77bd3b84dc17e1bafbf019160122b11a"
         },
         "python/sglang/srt/server_args.py": {
           "before": "e93b5c4e4ab083f4d7505c9e1ad6e988e9bdd248c9ae257a7ba79dfe8a9c3637",
-          "after": "a90d710d25fc21b795a921e7c4f86164656149ba31a0ef9fc17cbaffa49e44de"
+          "after": "d6a512adeb58ff5dc6698dafecb6fd5757990f852c51d178242371c0a7e910e8"
         }
       }
     }
@@ -24,12 +24,12 @@
   "files": {
     "python/sglang/srt/environ.py": {
       "before": "aa2cfbe7c61e27607ef443aaab7988e1fce58d995711e4b2f4f3ac9bb86583ca",
-      "after": "d505c09fb0c691f08d7b52915c02713420e62870e05b80e93aff519f149b3d08"
+      "after": "feb8641bd97bf84f342da819517f26cf77bd3b84dc17e1bafbf019160122b11a"
     },
     "python/sglang/srt/server_args.py": {
       "before": "e93b5c4e4ab083f4d7505c9e1ad6e988e9bdd248c9ae257a7ba79dfe8a9c3637",
-      "after": "a90d710d25fc21b795a921e7c4f86164656149ba31a0ef9fc17cbaffa49e44de"
+      "after": "d6a512adeb58ff5dc6698dafecb6fd5757990f852c51d178242371c0a7e910e8"
     }
   },
-  "result_inventory_sha256": "0ae94639c473f27d6ff2420be6e1e73c1162b44ae37932ad5a37778fe92bf761"
+  "result_inventory_sha256": "d5555441372d4453209e1aa2036fce732cd941547c76cabb32cac9288604d72f"
 }

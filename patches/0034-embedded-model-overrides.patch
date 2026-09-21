@@ -1,34 +1,35 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Kanadaj <kanadaj@royalroad.com>
-Date: Mon, 21 Sep 2026 19:30:00 +0100
-Subject: [PATCH] Merge image-embedded model config overrides into
- json_model_override_args
+Date: Mon, 21 Sep 2026 22:40:00 +0100
+Subject: [PATCH] Merge CLI model-config overrides onto an image-embedded
+ baseline
 
 SGLANG_EMBEDDED_MODEL_OVERRIDES points at a JSON file baked into the
-deployment image; its keys are deep-merged on top of the CLI
---json-model-override-args string (file wins) before any model-config
-resolution, so per-checkpoint YaRN/hybrid-MTP blobs do not have to be
-repeated verbatim in serving parameters. Missing file: warn and skip.
-Malformed file: fail loud.
+deployment image holding the checkpoint-static model config (full
+text_config). The CLI --json-model-override-args is deep-merged on top,
+CLI keys winning, so per-deployment knobs like the YaRN rope scaling
+factor stay small explicit arguments while the bulky static blob does
+not. Missing file: warn and skip. Malformed JSON: fail loud.
 
 diff --git a/python/sglang/srt/environ.py b/python/sglang/srt/environ.py
-index a3c682f..0e9686b 100644
+index a3c682f..6df2446 100644
 --- a/python/sglang/srt/environ.py
 +++ b/python/sglang/srt/environ.py
-@@ -1254,6 +1254,11 @@ class Envs:
+@@ -1254,6 +1254,12 @@ class Envs:
      # surface).
      SGLANG_GRPC_PORT = EnvInt(None)
      SGLANG_GRPC_WORKER_THREADS = EnvInt(4)
-+    # Qwen3.8 runtime: JSON file with model-config overrides to merge into
-+    # --json-model-override-args, so the bulky per-checkpoint YaRN/hybrid-MTP
-+    # config can be embedded in the deployment image instead of being repeated
-+    # in serving parameters. Keys from the file win over the CLI string.
++    # Qwen3.8 runtime: JSON file with the checkpoint-static model-config
++    # overrides (full text_config) to embed in the deployment image so serving
++    # parameters stay small. The CLI --json-model-override-args is deep-merged
++    # ON TOP (CLI keys win), keeping per-deployment knobs like the YaRN scaling
++    # factor expressible as a small argument.
 +    SGLANG_EMBEDDED_MODEL_OVERRIDES = EnvStr(None)
  
      # ===================================================================
      # NUMA and CPU affinity
 diff --git a/python/sglang/srt/server_args.py b/python/sglang/srt/server_args.py
-index b653373..3da2560 100644
+index b653373..73a9e46 100644
 --- a/python/sglang/srt/server_args.py
 +++ b/python/sglang/srt/server_args.py
 @@ -107,6 +107,22 @@ from sglang.utils import is_in_ci
@@ -54,19 +55,22 @@ index b653373..3da2560 100644
  # Define constants
  DEFAULT_UVICORN_ACCESS_LOG_EXCLUDE_PREFIXES = ()
  
-@@ -3596,6 +3612,37 @@ class ServerArgs:
+@@ -3596,6 +3612,40 @@ class ServerArgs:
          NS("observability"),
      ] = None
  
 +    def _apply_embedded_model_overrides(self) -> None:
-+        """Merge image-embedded model-config overrides into the CLI string.
++        """Merge the CLI model-config overrides onto the image-embedded file.
 +
-+        The deployment image may bake the bulky per-checkpoint config at
++        The deployment image may bake the bulky checkpoint-static config at
 +        SGLANG_EMBEDDED_MODEL_OVERRIDES so serving parameters (GPUStack
-+        backend_parameters, launch scripts) stay small. The file is deep-merged
-+        on top of whatever --json-model-override-args carried; file keys win.
-+        Malformed JSON fails loud: a broken image must not silently serve with
-+        checkpoint-native defaults.
++        backend_parameters, launch scripts) stay small. The CLI
++        --json-model-override-args string is deep-merged ON TOP of that file:
++        CLI keys win, so per-deployment knobs such as the YaRN scaling factor
++        remain ordinary arguments while everything not re-specified keeps the
++        baked value. Consumers that pass no CLI overrides get the baked
++        baseline unchanged. Malformed file or CLI JSON fails loud: a broken
++        image must not silently serve with wrong config.
 +        """
 +        path = envs.SGLANG_EMBEDDED_MODEL_OVERRIDES.get()
 +        if not path:
@@ -85,14 +89,14 @@ index b653373..3da2560 100644
 +                f"--json-model-override-args is not valid JSON and cannot be merged "
 +                f"with the embedded overrides at {path}: {e}"
 +            ) from e
-+        merged = _deep_merge_model_overrides(current, embedded)
++        merged = _deep_merge_model_overrides(embedded, current)
 +        self.json_model_override_args = json.dumps(merged)
-+        logger.info("Merged embedded model overrides from %s", path)
++        logger.info("Merged CLI model overrides onto embedded model config from %s", path)
 +
      def __post_init__(self):
          self._run_resolution_pipeline()
  
-@@ -3629,6 +3676,8 @@ class ServerArgs:
+@@ -3629,6 +3679,8 @@ class ServerArgs:
          # _handle_model_specific_adjustments never runs.
          self._resolved_overrides = []
  

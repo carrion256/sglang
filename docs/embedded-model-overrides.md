@@ -1,64 +1,60 @@
-# Embedded model-config overrides — 20260921-v1
+# Embedded model-config overrides — 20260921-v3
 
-Runtime image `kanadaj/sglang-qwen38fn-sm120-turbo:embedded-overrides-20260921-v1`
-(manifest list `sha256:f84a9ffac80f339696c79efe4739cf693500cfeedbc3cbd898d454a4be6f108b`),
+Runtime image `kanadaj/sglang-qwen38fn-sm120-turbo:embedded-overrides-20260921-v3`,
 built from `Dockerfile.embedded-model-overrides` on top of
 `interleave-shared-ple-20260918-35c83ff` (`@sha256:abe360049f6c…`).
 
-## What it changes
+## Design
 
 Patch `patches/0034-embedded-model-overrides.patch` adds
 `SGLANG_EMBEDDED_MODEL_OVERRIDES` (path to a JSON file). At ServerArgs
-resolution time the file is deep-merged **on top of** whatever
-`--json-model-override-args` carried (file keys win; CLI-only keys are kept).
-Dicts merge recursively; lists/scalars replace. Semantics:
+resolution time the CLI `--json-model-override-args` is deep-merged **on top
+of** the baked file — **CLI keys win**, so the image provides the bulky
+checkpoint-static baseline while every per-deployment knob stays an ordinary
+argument:
 
-- Env unset/empty → no-op, behavior identical to before.
-- Env set to a nonexistent path → warn and skip (lets a shared image serve
-  checkpoints that don't need overrides).
-- Malformed JSON → **fail loud** at launch (a broken image must never silently
-  serve with checkpoint-native defaults).
+- The baked file is the checkpoint's own `text_config` **verbatim** (63 keys —
+  `layer_types` pattern, indexer, mtp, ple, vocab) with the checkpoint-native
+  rope (`rope_type: default`, `max_position_embeddings: 262144`). It carries no
+  bespoke values.
+- Why the whole file is needed: HF config updates replace `text_config`
+  wholesale, so overriding one nested key (e.g. rope) forces re-passing every
+  field or they fall back to class defaults. Baking the full static list is
+  the right home for that; the operator's arg then only carries what varies.
+- YaRN stays configurable: pass
+  `--json-model-override-args '{"text_config":{"rope_parameters":{"rope_type":"yarn","factor":4.0,"original_max_position_embeddings":262144, ...}},"max_position_embeddings":1048576}'`
+  (~250 bytes) instead of the old 2.8 KB blob. Our fleet sets factor 4.0
+  (1M window); **consumers of the image get native 262144 by default**.
 
-The image bakes `deploy/embedded-model-overrides.json` at
-`/opt/qwen-runtime/model_overrides.json` and sets the ENV to it, so GPUStack
-serving parameters no longer need the 2.8 KB YaRN/hybrid-MTP blob. The baked
-file is byte-identical in content to the live production
-`--json-model-override-args` (canonical-sha `28c3cd8c…`/merged result verified
-against model 31 GET): 48-entry `layer_types`, YaRN factor 4.0,
-max_position_embeddings 1048576.
+Semantics: env unset → no-op (CLI behaves exactly as stock). Env set to a
+nonexistent path → warn and skip. Malformed baked file **or** malformed CLI
+JSON → **fail loud** at launch.
 
 ## Verification
 
 - Records + full-tree chain: `python3 scripts/verify_embedded_model_overrides.py
   --tree <extracted /sgl-workspace/sglang> --apply` →
   `clean_patch_apply: true, patch_chain_verified: true, source_files: 4394,
-  full_tree_verified: true`. Runs in-image at build time as the final gate.
-- Behavioral smoke (in-image): helper deep-merge correctness; method-level merge
-  preserves CLI-only keys; opt-out untouched; garbage file raises.
-- Deployment proof: trial container log shows
-  `Merged embedded model overrides from /opt/qwen-runtime/model_overrides.json`
-  and `server_args=` reports the fully merged `json_model_override_args`.
+  full_tree_verified: true`; runs in-image at build time as the final gate.
+- In-image behavioral smoke (5 cases): native default unchanged; small CLI
+  YaRN block wins with all 63 baked keys retained (vocab, ple_layer_ids,
+  layer_types, mtp verified present); partial rope dict merges recursively
+  (other rope keys survive); no-env leaves CLI untouched; malformed CLI JSON
+  raises.
 
-## GPUStack
+## GPUStack deployment
 
-Backend (id 2) version `qwen-embed-overrides-20260921-v1-custom` (copy of
-`qwen-interleave-mamba124-20260918-v1-custom` + the ENV, image pinned to the
-manifest digest). Trial model 48 `qwen38-embed-overrides-trial-20260921`,
-GPUs 0/1, same 41 serving parameters minus the override blob.
-Registration readback: `provenance` payloads under
-`~/qwen-embed-override-build/` (`backend-after.json`, `create-response.json`).
+Backend (id 2) version `qwen-embed-overrides-20260921-v3-custom` — copy of the
+v2 record with the v3 image digest. Model 48 carries the 250-byte YaRN
+`--json-model-override-args` in `backend_parameters` (factor 4.0); everything
+else static comes from the baked file. v1/v2 remain registered and are the
+rollback path (template PUT + instance DELETE, ~5 min per replica).
 
-## Rollback
+## Naming history
 
-`--json-model-override-args` keeps working unchanged; setting
-`SGLANG_EMBEDDED_MODEL_OVERRIDES=""` in model env restores old behavior even
-with the baked file present.
-
-## Related bug context
-
-This image is also the first production-qualified build carrying PR#13's
-`is_inside_tool_call` guards (from `35c83ff`), which the running
-`hicache-20260915-v2` image lacks — the confirmed cause of prose containing
-detector tag markers being swallowed into phantom tool calls (unit test:
-`~/sglang-tuning/stopbug/detector_unit.py`, 58 chars lost + 4 phantom calls on
-the old image, 0 on the new one).
+Earlier iterations baked the YaRN-1M config directly (v1/v2, file-wins
+precedence). v3 bakes the **native** config and flips precedence to
+CLI-wins, which is what makes the rope factor a per-deployment argument
+again. The intermediate `0046-embedded-yarn-factor-override` env-knob patch
+was withdrawn in favor of this design; 0040–0045 stay reserved for PR #19's
+hicache series renumber.
