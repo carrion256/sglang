@@ -50,6 +50,13 @@ v2 record with the v3 image digest. Model 48 carries the 250-byte YaRN
 else static comes from the baked file. v1/v2 remain registered and are the
 rollback path (template PUT + instance DELETE, ~5 min per replica).
 
+**Live production (2026-09-22)** moved to
+`qwen-hicache-pr19-embed-20260921-v1-custom`
+(`@sha256:6acf6306…`) — the same embedded-overrides v3 tree plus PR #19's
+HiCache checkpoint-preservation patches `0040`–`0045`. The embedded merge and
+the small YaRN CLI arg are unchanged; launch command in
+`docs/production-command.sh`, profile in `docs/hicache-wip.md`.
+
 ## Naming history
 
 Earlier iterations baked the YaRN-1M config directly (v1/v2, file-wins

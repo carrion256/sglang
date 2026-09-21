@@ -1,5 +1,53 @@
 # Qwen TP2 packed-PLE vision on SM120
 
+> ## 🚀 Quick start
+>
+> **Deploy the current image as a plain Docker container — one command, no clone,
+> no build, no 2.8 KB override blob.** The model config is embedded in the image;
+> extended-context YaRN and HiCache are opt-in flags on top.
+>
+> → **[docs/quickstart-docker.md](docs/quickstart-docker.md)**
+>
+> TL;DR (needs two free GPUs and a local `Qwen3.8-Flash-Next-NVFP4` checkpoint):
+>
+> ```bash
+> docker run --rm --gpus '"device=0,1"' --ipc=host -p 127.0.0.1:30000:30000 \
+>   -v /absolute/path/to/Qwen3.8-Flash-Next-NVFP4:/model:ro \
+>   -e SGLANG_SM120_ONLINE_MXFP8=false -e SGLANG_PLE_PACKED_NVFP4=1 \
+>   -e SGLANG_PLE_PACKED_FP8_REFERENCE=1 -e SGLANG_PRIVATE_DRAFT_NVFP4_A16=1 \
+>   docker.io/kanadaj/sglang-qwen38fn-sm120-turbo:hicache-pr19-embed-20260921-v1@sha256:6acf6306887726b31ad0003de9021fdf0147ffbb1a29a4e3147421bf5063d1e2 \
+>   --model-path /model --tp-size=2 --quantization=modelopt_mixed \
+>   --context-length=262144 --mem-fraction-static=0.93 \
+>   --reasoning-parser=auto --tool-call-parser=auto \
+>   --kv-cache-dtype=fp8_e4m3 --page-size=64 --chunked-prefill-size=4096 \
+>   --max-running-requests=16 \
+>   --linear-attn-prefill-backend=flashinfer --linear-attn-decode-backend=flashinfer \
+>   --mamba-radix-cache-strategy=extra_buffer --mamba-track-interval=128 \
+>   --mamba-ssm-dtype=bfloat16 --gdn-mtp-cache-mode=none --max-mamba-cache-size=124 \
+>   --cuda-graph-max-bs-decode=16 --moe-runner-backend=flashinfer_cutlass \
+>   --disable-custom-all-reduce --disable-prefill-cuda-graph --ple-offload-embedding \
+>   --speculative-algorithm=NEXTN --speculative-num-steps=3 --speculative-eagle-topk=1 \
+>   --speculative-num-draft-tokens=4 --speculative-draft-model-quantization=modelopt_mixed \
+>   --speculative-moe-runner-backend=flashinfer_cutlass \
+>   --model-loader-extra-config '{"enable_multithread_load":false,"num_threads":2}' \
+>   --startup-weight-load-mode=serial --mm-enable-dp-encoder \
+>   --enable-metrics --enable-cache-report --host 0.0.0.0 --port 30000
+> ```
+>
+> Serve lands at `http://127.0.0.1:30000/v1/chat/completions`. The full doc covers
+> the **YaRN 1M-context** and **HiCache** opt-ins and how to verify the embedded
+> merge fired.
+
+---
+
+**Current production image (2026-09-22):**
+[`hicache-pr19-embed-20260921-v1`](docs/embedded-model-overrides.md) at
+`docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:6acf6306887726b31ad0003de9021fdf0147ffbb1a29a4e3147421bf5063d1e2`
+— embedded model-config overrides (no 2.8 KB CLI blob), the
+[prefill/decode interleaving](docs/prefill-decode-interleaving.md) fixes, and
+PR #19's HiCache checkpoint-preservation series `0040`–`0045`. Live launch
+command with the exact YaRN and HiCache flags: **[docs/production-command.sh](docs/production-command.sh)**.
+
 **Published cumulative compatibility runtime:**
 [`production-cumulative-compat-20260914-v3`](docs/production-cumulative-compat-20260914.md)
 contains the ordered `0015` → `0016` → `0017` → `0018` → `0019` stack at
