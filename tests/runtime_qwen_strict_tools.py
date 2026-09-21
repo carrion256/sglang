@@ -1,75 +1,109 @@
-import asyncio,copy,unittest
-from unittest.mock import AsyncMock
-from runtime_chat_effort import ChatEffortTest
-from sglang.srt.entrypoints.openai.protocol import ChatCompletionRequest,ResponsesRequest
-from sglang.srt.entrypoints.openai.serving_responses import OpenAIServingResponses
-from sglang.srt.entrypoints.openai.responses_compat import ToolRegistry
-from sglang.srt.entrypoints.anthropic.protocol import AnthropicMessagesRequest
-from sglang.srt.entrypoints.anthropic.serving import AnthropicServing
-SCHEMA={'type':'object','properties':{'q':{'type':'string'}},'required':['q'],'additionalProperties':False}
-def function(flag='missing',name='search'):
- f={'name':name,'parameters':copy.deepcopy(SCHEMA)}
- if flag!='missing':f['strict']=flag
- return f
-class StrictTest(unittest.TestCase):
- setUpClass=classmethod(ChatEffortTest.setUpClass.__func__)
- def setUp(self):
-  ChatEffortTest.setUp(self)
-  self.chat.tokenizer_manager.model_config.hf_config.model_type='qwen3_8_flash_next'
-  self.chat.tool_call_parser='qwen3_coder'
-  self.responses=OpenAIServingResponses.__new__(OpenAIServingResponses)
-  self.responses.__dict__.update(self.chat.__dict__)
- def test_chat_conversion_constraints_and_immutable_opt_out(self):
-  for model in ('qwen3_8_flash_next','qwen3_8_flash_next_text','llama'):
-   self.chat.tokenizer_manager.model_config.hf_config.model_type=model
-   for flag in ('missing',False,True):
-    for choice in ('auto','none'):
-     with self.subTest(model=model,flag=flag,choice=choice):
-      req=ChatCompletionRequest(model='alias',messages=[{'role':'user','content':'Hi'}],tools=[{'type':'function','function':function(flag)}],tool_choice=choice)
-      before=req.model_dump();fields=set(req.tools[0].function.model_fields_set)
-      result=self.chat._process_messages(req,False)
-      expected=choice=='auto' and (flag is True or (flag=='missing' and model!='llama'))
-      self.assertEqual(result.tool_call_constraint is not None,expected)
-      if model != 'llama': self.assertEqual(req.model_dump(),before)
-      self.assertEqual(req.model_dump()['tools'],before['tools'])
-      self.assertEqual(req.tools[0].function.model_fields_set,fields)
- def test_message_local_tools(self):
-  for role in ('system','developer'):
-   req=ChatCompletionRequest(model='alias',messages=[{'role':role,'content':'Tools','tools':[{'type':'function','function':function()}]},{'role':'user','content':'Hi'}],tool_choice='auto')
-   # Pretokenized path tests grammar independently of template role support.
-   req.input_ids=[1,2,3]
-   before=req.model_dump();out=self.chat._default_qwen_tool_strictness(req)
-   self.assertTrue(out.messages[0].tools[0].function.strict)
-   self.assertIsNotNone(self.chat._process_messages(req,False).tool_call_constraint)
-   self.assertEqual(req.model_dump(),before)
- def test_responses_before_registry(self):
-  for model in ('qwen3_8_flash_next','llama'):
-   self.responses.tokenizer_manager.model_config.hf_config.model_type=model
-   for flag in ('missing',False,True):
-    for namespace in (False,True):
-     f={'type':'function',**function(flag)}
-     tools=[{'type':'namespace','name':'web','tools':[f]}] if namespace else [f]
-     req=ResponsesRequest(model='alias',input='Hi',tools=tools)
-     before=req.model_dump();out=self.responses._default_qwen_response_tool_strictness(req)
-     registry=ToolRegistry(out.tools)
-     self.assertEqual(registry.functions[0]['strict'],flag is True or(flag=='missing' and model!='llama'))
-     self.assertEqual(req.model_dump(),before)
- def test_responses_entrypoint_normalizes_before_dump(self):
-  from fastapi.responses import ORJSONResponse
-  self.responses._create_responses_internal=AsyncMock(return_value=ORJSONResponse({}))
-  req=ResponsesRequest(model='alias',input='Hi',tools=[{'type':'function',**function()}])
-  asyncio.run(self.responses.create_responses(req))
-  internal=self.responses._create_responses_internal.call_args.args[0]
-  self.assertTrue(internal.tools[0].strict)
-  self.assertNotIn('strict',req.tools[0].model_fields_set)
- def test_messages_uses_shared_normalization(self):
-  req=AnthropicMessagesRequest(model='alias',max_tokens=64,messages=[{'role':'user','content':'Hi'}],tools=[{'name':'search','input_schema':SCHEMA}])
-  chat=AnthropicServing(self.chat)._convert_to_chat_completion_request(req)
-  self.assertNotIn('strict',chat.tools[0].function.model_fields_set)
-  self.assertIsNotNone(self.chat._process_messages(chat,False).tool_call_constraint)
- def test_mixed_strictness_and_idempotence(self):
-  req=ChatCompletionRequest(model='alias',messages=[{'role':'user','content':'Hi'}],tools=[{'type':'function','function':function(flag,str(i))} for i,flag in enumerate(('missing',False,True))])
-  out=self.chat._default_qwen_tool_strictness(req)
-  self.assertEqual([t.function.strict for t in out.tools],[True,False,True])
-  self.assertEqual(out.model_dump(),self.chat._default_qwen_tool_strictness(out).model_dump())
-if __name__=='__main__':unittest.main(verbosity=2)
+import json
+from types import SimpleNamespace as NS
+from unittest.mock import Mock
+import pytest
+from sglang.srt.entrypoints.openai.protocol import ChatCompletionRequest, Tool, ToolChoice
+from sglang.srt.entrypoints.openai.serving_chat import OpenAIServingChat
+from sglang.srt.constrained.grammar_manager import GrammarManager
+from sglang.srt.function_call.function_call_parser import FunctionCallParser
+
+@pytest.mark.parametrize('strict',[None,True,False])
+@pytest.mark.parametrize('choice',['auto','required','named','none'])
+def test_tools_no_constraint_and_no_strict_rewrite(strict,choice):
+    function={'name':'probe','parameters':{'type':'object','properties':{'query':{'type':'string','pattern':'^[^-]'}},'required':['query']}}
+    if strict is not None:function['strict']=strict
+    t=Tool.model_validate({'type':'function','function':function})
+    request=ChatCompletionRequest(model='test',messages=[{'role':'user','content':'test'}],tools=[t],input_ids=[1,2],tool_choice=ToolChoice(function={'name':'probe'}) if choice=='named' else choice)
+    serving=OpenAIServingChat.__new__(OpenAIServingChat)
+    serving.tokenizer_manager=NS(server_args=NS(grammar_backend='none'),tokenizer=None,model_config=NS(hf_config=NS(model_type='qwen3_8_flash_next')))
+    serving.default_chat_template_kwargs={};serving.is_gpt_oss=False;serving.is_gemma4=False
+    serving.reasoning_parser=None;serving.tool_call_parser='qwen3_coder';serving.chat_encoding_spec=None
+    serving._patch_reasoning_skip_special_tokens=Mock();serving._get_reasoning_from_request=Mock(return_value=False)
+    before=t.model_dump();fields=t.function.model_fields_set.copy()
+    result=serving._process_messages(request,False)
+    assert result.tool_call_constraint is None
+    assert t.model_dump()==before and t.function.model_fields_set==fields
+    assert not hasattr(serving,'_default_qwen_tool_strictness')
+    assert result.prompt_ids==[1,2]
+
+@pytest.mark.parametrize('field',['json_schema','regex','ebnf','structural_tag',None])
+def test_disabled_accepts_without_queue_compile_or_abort(field):
+    manager=GrammarManager.__new__(GrammarManager)
+    manager.server_args=NS(grammar_backend='none');manager.grammar_queue=[]
+    manager.grammar_backend=Mock();manager._enable_strict_thinking=False
+    params=dict(json_schema=None,regex=None,ebnf=None,structural_tag=None)
+    if field:params[field]='synthetic constraint'
+    req=NS(sampling_params=NS(**params),grammar=None,set_finish_with_abort=Mock())
+    assert manager.process_req_with_grammar(req) is False
+    assert manager.grammar_queue==[] and req.grammar is None
+    req.set_finish_with_abort.assert_not_called();manager.grammar_backend.get_cached_or_future_value.assert_not_called()
+
+
+def test_enabled_still_compiles():
+    manager=GrammarManager.__new__(GrammarManager)
+    manager.server_args=NS(grammar_backend='xgrammar');manager.grammar_queue=[]
+    manager.grammar_backend=Mock();manager.grammar_backend.get_cached_or_future_value.return_value=(None,False)
+    manager._enable_strict_thinking=False
+    req=NS(sampling_params=NS(json_schema='{}',regex=None,ebnf=None,structural_tag=None),grammar=None,require_reasoning=False,set_finish_with_abort=Mock())
+    assert manager.process_req_with_grammar(req) is True
+    assert manager.grammar_queue==[req]
+    manager.grammar_backend.get_cached_or_future_value.assert_called_once_with(('json','{}'),False)
+
+
+def test_implicit_backend_failure_still_aborts():
+    manager=GrammarManager.__new__(GrammarManager);manager.server_args=NS(grammar_backend='xgrammar')
+    manager.grammar_backend=None;manager.grammar_queue=[];manager._enable_strict_thinking=False
+    req=NS(sampling_params=NS(json_schema='{}',regex=None,ebnf=None,structural_tag=None),set_finish_with_abort=Mock())
+    assert manager.process_req_with_grammar(req) is False
+    req.set_finish_with_abort.assert_called_once()
+
+
+def test_parser_still_runs():
+    t=Tool.model_validate({'type':'function','function':{'name':'probe','parameters':{'type':'object','properties':{'query':{'type':'string'}}}}})
+    raw='<tool_call>\n<function=probe>\n<parameter=query>nginx</parameter>\n</function>\n</tool_call>'
+    parser=FunctionCallParser([t],'qwen3_coder');normal,calls=parser.parse_non_stream(raw)
+    assert normal=='' and calls[0].name=='probe' and json.loads(calls[0].parameters)=={'query':'nginx'}
+    parser=FunctionCallParser([t],'qwen3_coder');name=None;arguments=''
+    for char in raw:
+        text,events=parser.parse_stream_chunk(char)
+        assert not text.strip()
+        for event in events:
+            name=event.name or name;arguments+=event.parameters or ''
+    assert name=='probe' and json.loads(arguments)=={'query':'nginx'}
+
+@pytest.mark.parametrize('strict',[None,False,True])
+@pytest.mark.parametrize('namespace',[False,True])
+def test_responses_preserves_client_strictness(strict,namespace):
+    import asyncio
+    from unittest.mock import AsyncMock
+    from fastapi.responses import ORJSONResponse
+    from sglang.srt.entrypoints.openai.protocol import ResponsesRequest
+    from sglang.srt.entrypoints.openai.serving_responses import OpenAIServingResponses
+    from sglang.srt.entrypoints.openai.responses_compat import ToolRegistry
+    tool={'type':'function','name':'probe','parameters':{'type':'object','properties':{}}}
+    if strict is not None:tool['strict']=strict
+    tools=[{'type':'namespace','name':'testing','tools':[tool]}] if namespace else [tool]
+    req=ResponsesRequest(model='test',input='Hi',tools=tools)
+    before=req.model_dump()
+    serving=OpenAIServingResponses.__new__(OpenAIServingResponses)
+    serving._create_responses_internal=AsyncMock(return_value=ORJSONResponse({}))
+    asyncio.run(serving.create_responses(req))
+    internal=serving._create_responses_internal.call_args.args[0]
+    assert ToolRegistry(internal.tools).functions[0]['strict'] is (strict is True)
+    assert req.model_dump()==before
+    assert not hasattr(serving,'_default_qwen_response_tool_strictness')
+
+
+def test_real_template_keeps_tools_without_grammar():
+    from runtime_chat_effort import ChatEffortTest
+    ChatEffortTest.setUpClass()
+    fixture=ChatEffortTest();fixture.setUp()
+    chat=fixture.chat
+    chat.tokenizer_manager.server_args.grammar_backend='none'
+    chat.tokenizer_manager.model_config.hf_config.model_type='qwen3_8_flash_next'
+    chat.tool_call_parser='qwen3_coder'
+    req=ChatCompletionRequest(model='test',messages=[{'role':'user','content':'Search nginx'}],tools=[{'type':'function','function':{'name':'probe','strict':True,'parameters':{'type':'object','properties':{'query':{'type':'string'}}}}}])
+    result=chat._process_messages(req,False)
+    assert result.tool_call_constraint is None
+    rendered=chat.tokenizer_manager.tokenizer.decode(result.prompt_ids)
+    assert 'probe' in rendered and 'query' in rendered and 'nginx' in rendered

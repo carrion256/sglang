@@ -348,6 +348,20 @@
           "after": "898b86ceb4ab827c870d3f3b008a8d3f5a04d08e046651b6e74ce69fcf26a26d"
         }
       }
+    },
+    {
+      "file": "0046-qwen-disable-tool-grammar.patch",
+      "sha256": "1a6019935553f790c06698a3a390e9a092ef48f7328f8ce482fae144873bbc38",
+      "files": {
+        "python/sglang/srt/entrypoints/openai/serving_chat.py": {
+          "before": "e36c887507fe94aa13cd2fc97930f253fd129339959cd846d3ec7ad4274b2824",
+          "after": "f3b13fcf7a3553bc6e4c972b0b323d25659c5ac736e6baa788ebe427c324c4ff"
+        },
+        "python/sglang/srt/constrained/grammar_manager.py": {
+          "before": "dc4c94674191877a689c671713c739ab4693675f4fd26f68331a4751ecbc1903",
+          "after": "447427f83aeeb96adf12a0ab293760ed6877ef23e10561cd5ceedf3606d9c0bc"
+        }
+      }
     }
   ],
   "files": {
@@ -474,9 +488,17 @@
     "python/sglang/srt/mem_cache/base_prefix_cache.py": {
       "before": "d61f7ec0793661731f6150cdbbbb861428740e5697675beb7bcc67766df68791",
       "after": "7ac821975a13b9b2a75f9b4f8f3dbfb71bce27f486b6619b4c9b6ac5181ad6f9"
+    },
+    "python/sglang/srt/entrypoints/openai/serving_chat.py": {
+      "before": "e36c887507fe94aa13cd2fc97930f253fd129339959cd846d3ec7ad4274b2824",
+      "after": "f3b13fcf7a3553bc6e4c972b0b323d25659c5ac736e6baa788ebe427c324c4ff"
+    },
+    "python/sglang/srt/constrained/grammar_manager.py": {
+      "before": "dc4c94674191877a689c671713c739ab4693675f4fd26f68331a4751ecbc1903",
+      "after": "447427f83aeeb96adf12a0ab293760ed6877ef23e10561cd5ceedf3606d9c0bc"
     }
   },
-  "result_inventory_sha256": "bf0840d77b9cca043148d5b645f473e27a061586bb23628fb26a6cc1a3ba4855",
+  "result_inventory_sha256": "bcdd692f8acafbe06b1488627aa759cc110d1206e39819854158162000628a72",
   "retained_validation": {
     "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
     "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",

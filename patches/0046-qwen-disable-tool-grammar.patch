@@ -1,0 +1,49 @@
+--- a/python/sglang/srt/entrypoints/openai/serving_chat.py
++++ b/python/sglang/srt/entrypoints/openai/serving_chat.py
+@@ -1116,6 +1116,7 @@
+         # tags must describe only the post-reasoning tool-call suffix.
+         xgrammar_reasoning = thinking_mode and (self.reasoning_parser is None)
+         tool_call_constraint = None
++        grammar_enabled = self.tokenizer_manager.server_args.grammar_backend != "none"
+ 
+         # Apply chat template and its stop strings
+         tools = None
+@@ -1138,16 +1139,18 @@
+                     self.tool_call_parser,
+                     tokenizer=self.tokenizer_manager.tokenizer,
+                 )
+-                tool_call_constraint = parser.get_structure_constraint(
+-                    request.tool_choice,
+-                    parallel_tool_calls=request.parallel_tool_calls,
+-                    thinking_mode=xgrammar_reasoning,
+-                )
++                if grammar_enabled:
++                    tool_call_constraint = parser.get_structure_constraint(
++                        request.tool_choice,
++                        parallel_tool_calls=request.parallel_tool_calls,
++                        thinking_mode=xgrammar_reasoning,
++                    )
+                 required_parsed_natively = parser.detector.parses_required_natively()
+                 if self.chat_encoding_spec == "kimi_k3":
+                     tool_call_stop = parser.detector.eot_token
+             if (
+-                tool_call_constraint is None
++                grammar_enabled
++                and tool_call_constraint is None
+                 and not required_parsed_natively
+                 and not (
+                     self.chat_encoding_spec == "kimi_k3"
+--- a/python/sglang/srt/constrained/grammar_manager.py
++++ b/python/sglang/srt/constrained/grammar_manager.py
+@@ -129,6 +129,11 @@
+             req.grammar.max_think_tokens = thinking_budget
+ 
+     def process_req_with_grammar(self, req: Req) -> bool:
++        # Explicit unconstrained mode accepts schemas without compiling or masking.
++        if self.server_args.grammar_backend == "none":
++            req.grammar = None
++            return False
++
+         # Init grammar cache for this request
+         add_to_grammar_queue = False
+         if (

@@ -1,5 +1,5 @@
 {
-  "status": "Qwen selective strict tools: validation recorded in docs/qwen-strict-tools.md",
+  "status": "Qwen unconstrained profile; see docs/qwen-strict-tools.md for behavior and validation",
   "base_image": "docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:f2859d1ccf824a5295088cf578eba89b0f3eeefff6ae7679c3f5d64af0689458",
   "base_inventory": "provenance/invalid-token-failure-runtime-files.json",
   "base_inventory_sha256": "f7293cc004161bcad39bc3772939fd868f8fc9d6f09d2cdb7b7ffd5a23333e1d",
@@ -21,33 +21,37 @@
       }
     },
     {
-      "file": "0032-qwen-default-strict-tools.patch",
-      "sha256": "85e9784cdaa6d243845ff642cd662d5903a2217b7fa33acc45e21a20d204fce9",
+      "file": "0046-qwen-disable-tool-grammar.patch",
+      "sha256": "1a6019935553f790c06698a3a390e9a092ef48f7328f8ce482fae144873bbc38",
       "files": {
         "python/sglang/srt/entrypoints/openai/serving_chat.py": {
           "before": "e36c887507fe94aa13cd2fc97930f253fd129339959cd846d3ec7ad4274b2824",
-          "after": "7ae4971c0e3b16c6afe01cda092d67995bac50a70a501b2e8c5d5ab4b3253158"
+          "after": "f3b13fcf7a3553bc6e4c972b0b323d25659c5ac736e6baa788ebe427c324c4ff"
         },
-        "python/sglang/srt/entrypoints/openai/serving_responses.py": {
-          "before": "5a9548221f08fa37fdd557dd8414c2dfc65931454f48f07eb277a9f42b079797",
-          "after": "9c780b2f915fed4147b90d37e78b52b9620e80301be8484a3e6f40b86c0b2791"
+        "python/sglang/srt/constrained/grammar_manager.py": {
+          "before": "dc4c94674191877a689c671713c739ab4693675f4fd26f68331a4751ecbc1903",
+          "after": "447427f83aeeb96adf12a0ab293760ed6877ef23e10561cd5ceedf3606d9c0bc"
         }
       }
     }
   ],
   "files": {
+    "python/sglang/srt/constrained/grammar_manager.py": {
+      "before": "dc4c94674191877a689c671713c739ab4693675f4fd26f68331a4751ecbc1903",
+      "after": "447427f83aeeb96adf12a0ab293760ed6877ef23e10561cd5ceedf3606d9c0bc"
+    },
+    "python/sglang/srt/entrypoints/openai/serving_chat.py": {
+      "before": "e36c887507fe94aa13cd2fc97930f253fd129339959cd846d3ec7ad4274b2824",
+      "after": "f3b13fcf7a3553bc6e4c972b0b323d25659c5ac736e6baa788ebe427c324c4ff"
+    },
     "python/sglang/srt/entrypoints/openai/serving_responses.py": {
       "before": "b971172798d974217a43127f3a831d28974bbad6c36f2dc8754ca940edf6e4d2",
-      "after": "9c780b2f915fed4147b90d37e78b52b9620e80301be8484a3e6f40b86c0b2791"
+      "after": "5a9548221f08fa37fdd557dd8414c2dfc65931454f48f07eb277a9f42b079797"
     },
     "python/sglang/srt/function_call/qwen3_coder_detector.py": {
       "before": "4cea43b633e46ca164492ebd3a26892dbc602e29856024eaa05be65551ce4541",
       "after": "aa75cf087210d62dd6ea2560a8ab342077266ed552e8bb08f315a5a7e620494f"
-    },
-    "python/sglang/srt/entrypoints/openai/serving_chat.py": {
-      "before": "e36c887507fe94aa13cd2fc97930f253fd129339959cd846d3ec7ad4274b2824",
-      "after": "7ae4971c0e3b16c6afe01cda092d67995bac50a70a501b2e8c5d5ab4b3253158"
     }
   },
-  "result_inventory_sha256": "5904affdb94a2cf7afd924025fe6b3f9684524764dc49d6b9c53b474dcc16f16"
+  "result_inventory_sha256": "a08d2a27d478aa478bb313094f9e71eaed3271c76f940df5208241d0cffad02e"
 }
