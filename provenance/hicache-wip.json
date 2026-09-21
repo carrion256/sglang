@@ -330,6 +330,24 @@
           "after": "1a7f4b546a8df61570b40a469440f1bda59ec8c6079f03e179ba9160b58de818"
         }
       }
+    },
+    {
+      "file": "0039-hicache-sparse-host-refill.patch",
+      "sha256": "0b0590124b751b96df288c2271849bfcf45d964b03b2253594110f1d092c3213",
+      "files": {
+        "python/sglang/srt/mem_cache/base_prefix_cache.py": {
+          "before": "d61f7ec0793661731f6150cdbbbb861428740e5697675beb7bcc67766df68791",
+          "after": "7ac821975a13b9b2a75f9b4f8f3dbfb71bce27f486b6619b4c9b6ac5181ad6f9"
+        },
+        "python/sglang/srt/mem_cache/unified_cache/unified_tree_core.py": {
+          "before": "06c38d57145b111364a2b3a39a0d818f2d6b7c0a2e4fe1d8779c9e73872f9d93",
+          "after": "3126d572780f22289c4dc90ba85146573902a358f9f310ab7e76eb5978b91d23"
+        },
+        "python/sglang/srt/mem_cache/unified_radix_cache.py": {
+          "before": "8e08de7e94c74b6efcbeb28c1fe27e0c52600999873c7c54c865dffe62a45731",
+          "after": "898b86ceb4ab827c870d3f3b008a8d3f5a04d08e046651b6e74ce69fcf26a26d"
+        }
+      }
     }
   ],
   "files": {
@@ -399,7 +417,7 @@
     },
     "python/sglang/srt/mem_cache/unified_radix_cache.py": {
       "before": "6e29ffa01adb96c9d400331850fe60b054cd83c980f033d36552e369a5d5c6ce",
-      "after": "8e08de7e94c74b6efcbeb28c1fe27e0c52600999873c7c54c865dffe62a45731"
+      "after": "898b86ceb4ab827c870d3f3b008a8d3f5a04d08e046651b6e74ce69fcf26a26d"
     },
     "python/sglang/srt/mem_cache/cache_diagnostics.py": {
       "before": null,
@@ -419,7 +437,7 @@
     },
     "python/sglang/srt/mem_cache/unified_cache/unified_tree_core.py": {
       "before": "2b66bd6c8105c12d8b57b5d6c1abd3a87136bfaf0524fd9606c7746c81327aed",
-      "after": "06c38d57145b111364a2b3a39a0d818f2d6b7c0a2e4fe1d8779c9e73872f9d93"
+      "after": "3126d572780f22289c4dc90ba85146573902a358f9f310ab7e76eb5978b91d23"
     },
     "python/sglang/srt/mem_cache/unified_cache/components/mamba_component.py": {
       "before": "9bfcb7a20af48c2fce8cb63537db54cb4231456d9c04896370e290611e0ba799",
@@ -452,9 +470,13 @@
     "python/sglang/srt/mem_cache/prefetch_retry.py": {
       "before": null,
       "after": "1a7f4b546a8df61570b40a469440f1bda59ec8c6079f03e179ba9160b58de818"
+    },
+    "python/sglang/srt/mem_cache/base_prefix_cache.py": {
+      "before": "d61f7ec0793661731f6150cdbbbb861428740e5697675beb7bcc67766df68791",
+      "after": "7ac821975a13b9b2a75f9b4f8f3dbfb71bce27f486b6619b4c9b6ac5181ad6f9"
     }
   },
-  "result_inventory_sha256": "efdcf341c17ad7243c74b7ea075ce5c860456dc5a0a4926ef75bb1a554fb05b6",
+  "result_inventory_sha256": "bf0840d77b9cca043148d5b645f473e27a061586bb23628fb26a6cc1a3ba4855",
   "retained_validation": {
     "cpu_unique_tests": "55 passed in the packaged PLE, file, and QSA fixture suite",
     "gpu_ple": "24 per-card kernel-transfer cases plus one combined asynchronous target/draft/recurrent checkpoint case passed; 6 direct-copy cases were excluded after matching parent failures",

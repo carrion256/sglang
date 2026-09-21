@@ -124,7 +124,7 @@ HICACHE_WIP_IMAGE=qwen-hicache:wip bash scripts/test_hicache_wip.sh
 
 The runner uses no network or GPUs. It executes the CPU suites from
 `validation/hicache/` and `validation/prefill/` inside the candidate image;
-the current checkpoint/admission/retry profile passes 265 cases. The three GPU files are retained
+the current checkpoint/admission/retry/refill profile passes 292 cases. The three GPU files are retained
 for review and require an explicitly isolated GPU environment; the runner does
 not claim or acquire an available GPU.
 
@@ -378,3 +378,31 @@ Chat/Responses normal/streaming smoke checks. Those operational tests are separa
 from this upstream source reconstruction. Neither establishes that the original
 historical idle-session miss is recovered. No new public image, GPU qualification,
 cache reset or service restart is performed by this upstream amendment.
+
+
+## Sparse host refill repair (2026-09-21)
+
+Patch0039 repairs completed disk-prefetch data being discarded over an existing
+structural path whose host KV and required Mamba checkpoint have been reclaimed.
+For unified write-back with exactly FULL+Mamba components, insertion now adopts
+missing host spans and releases only actual incoming duplicates. Structural
+prefix_len remains unchanged; explicit retained-token and duplicate-span fields
+control buffer ownership. Existing RAM spans keep their allocations, and the
+covered endpoint receives its compatible Mamba checkpoint. A companion-only repair
+can report zero newly retained KV while restoring useful state.
+
+KV-derived QSA data follows the adopted host indices without extra payload copies.
+Ownership plans agree across attention ranks before adoption; disagreement releases
+incoming completed resources and anchor pins without changing the tree. Existing
+compatibility, namespace, unread-tail and split handling remain. Write-through,
+SWA and mixed-component stacks retain the legacy path.
+
+Validation: the unchanged runtime fails the missing-host real CPU disk-restore
+regression; the repaired source passes. The expanded profile passes292 CPU cases
+and five packaging checks; a clean19-patch replay verifies4,396source files. Added
+coverage includes sparse spans/splits, companion-only restore, repeated duplicate
+release with exact allocator counts, cancellation pins and real two-rank Gloo
+agreement. GPU DMA in the fixture is simulated. QSA index preservation and existing
+QSA regressions do not establish full-model numerical equivalence. Historical
+production-request recovery remains unproven. No cache format or serving flag
+change, default-profile change or public container publication is implied.

@@ -170,3 +170,13 @@ Prior publication success is not a current disk-residency guarantee.
 Recipe flags, storage format and default build profiles are unchanged. See
 [retry validation and limits](hicache-wip.md#bounded-prefetch-retry-and-repeat-publication-diagnostics-2026-09-20).
 Source inclusion does not publish a container or update a running service.
+
+
+### Sparse host refill update (2026-09-21)
+
+Patch0039 repairs restored KV/Mamba state discarded over structurally matching
+but unusable cache paths. The repair is gated to this recipe's write-back
+FULL+Mamba/QSA layout. Existing flags, cache format and other layouts are unchanged.
+See [refill validation and limits](hicache-wip.md#sparse-host-refill-repair-2026-09-21).
+Build and qualify the intended image explicitly; source inclusion does not update
+a running deployment.

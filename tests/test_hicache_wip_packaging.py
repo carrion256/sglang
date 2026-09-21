@@ -41,6 +41,7 @@ class HiCacheWipPackagingTest(unittest.TestCase):
                 "0036-hicache-writeback-admission.patch",
                 "0037-hicache-repeat-publication-diagnostics.patch",
                 "0038-hicache-advanced-prefix-retry.patch",
+                "0039-hicache-sparse-host-refill.patch",
             ],
         )
 
