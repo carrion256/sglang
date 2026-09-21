@@ -1,25 +1,48 @@
-# Example only: do not run on occupied GPUs/ports. Public runtime; no build required.
-# Requires a complete local checkpoint; see production-image-20260911.md.
-docker run --rm --gpus '"device=0,1"' --ipc=host -p 127.0.0.1:30000:30000 \
-  -v /absolute/path/to/local-checkpoint:/model:ro \
+# Production launch — LIVE reference (verified against GPUStack model 48, 2026-09-22)
+# Image: hicache-pr19-embed = cumulative 0015-0019 + 0020-0033 + 0034-embedded-model-overrides
+#        + 0046-yarn-factor + PR#19 hicache checkpoint patches 0040-0045.
+# Example only: do not run on occupied GPUs/ports. Requires a complete local checkpoint.
+#
+# KEY CHANGE vs older revisions of this file: the ~2.8 KB --json-model-override-args
+# blob (vocab/layers/layer_types/MTP/PLE/ngram/indexer fields) is EMBEDDED in the
+# image at /opt/qwen-runtime/model_overrides.json and merged automatically at
+# startup (log: "Merged CLI model overrides onto embedded model config ...").
+# Only the YaRN extension stays explicit — here as a small CLI override (equivalent
+# alternative: -e SGLANG_YARN_ROPE_SCALING_FACTOR=4.0 with context-length, no CLI arg;
+# see docs/embedded-model-overrides.md).
+#
+# GPUStack env for this deployment (beyond embedded overrides):
+#   HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 OMP_NUM_THREADS=1
+#   PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True SAFETENSORS_FAST_GPU=1
+#   SGLANG_ENABLE_HEALTH_ENDPOINT_GENERATION=1
+#   SGLANG_SM120_ONLINE_MXFP8=false SGLANG_PLE_PACKED_NVFP4=1
+#   SGLANG_PLE_PACKED_FP8_REFERENCE=1 SGLANG_PRIVATE_DRAFT_NVFP4_A16=1
+#   SGLANG_PLE_SHARED_DIR=/var/lib/gpustack/ple-shared
+#   SGLANG_HICACHE_FILE_BACKEND_STORAGE_DIR=/var/lib/gpustack/hicache
+#   SGLANG_HICACHE_FILE_BACKEND_MAX_SIZE=24G
+#   SGLANG_EMBEDDED_MODEL_OVERRIDES=/opt/qwen-runtime/model_overrides.json
+docker run --rm --gpus '"device=2,3"' --ipc=host -p 127.0.0.1:30000:30000 \
+  -v /absolute/path/to/Qwen3.8-Flash-Next-NVFP4:/model:ro \
   -e SGLANG_ENABLE_HEALTH_ENDPOINT_GENERATION=1 \
   -e SGLANG_SM120_ONLINE_MXFP8=false \
   -e SGLANG_PLE_PACKED_NVFP4=1 \
   -e SGLANG_PLE_PACKED_FP8_REFERENCE=1 \
   -e SGLANG_PRIVATE_DRAFT_NVFP4_A16=1 \
-  --entrypoint python3 docker.io/kanadaj/sglang-qwen38fn-sm120-turbo:production-private-draft-20260911-5413729@sha256:baf8d37cd0e6c95d6184ba6a609b410141bc3fca43db9c1c77dff1c4ba3b9421 -m sglang.launch_server \
-  --model-path \
-  /model \
+  -e SGLANG_HICACHE_FILE_BACKEND_STORAGE_DIR=/var/lib/gpustack/hicache \
+  -e SGLANG_HICACHE_FILE_BACKEND_MAX_SIZE=24G \
+  -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
+  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -e SAFETENSORS_FAST_GPU=1 -e OMP_NUM_THREADS=1 \
+  docker.io/kanadaj/sglang-qwen38fn-sm120-turbo:hicache-pr19-embed-20260921-v1@sha256:6acf6306887726b31ad0003de9021fdf0147ffbb1a29a4e3147421bf5063d1e2 \
+  --model-path /model \
   --enable-metrics \
-  --uvicorn-access-log-exclude-prefixes \
-  /metrics \
+  --uvicorn-access-log-exclude-prefixes /metrics \
   --reasoning-parser=auto \
   --tool-call-parser=auto \
-  --default-chat-template-kwargs \
-  '{"reasoning_effort":"medium"}' \
+  --default-chat-template-kwargs '{"reasoning_effort":"medium"}' \
   --linear-attn-prefill-backend=flashinfer \
   --linear-attn-decode-backend=flashinfer \
-  --max-mamba-cache-size=512 \
+  --max-mamba-cache-size=124 \
   --mamba-radix-cache-strategy=extra_buffer \
   --mamba-track-interval=128 \
   --mamba-ssm-dtype=bfloat16 \
@@ -27,19 +50,19 @@ docker run --rm --gpus '"device=0,1"' --ipc=host -p 127.0.0.1:30000:30000 \
   --tp-size=2 \
   --quantization=modelopt_mixed \
   --kv-cache-dtype=fp8_e4m3 \
-  --context-length=524288 \
+  --context-length=1048576 \
   --mem-fraction-static=0.93 \
   --page-size=64 \
   --chunked-prefill-size=4096 \
-  --max-running-requests=16 \
-  --enable-metrics \
+  --max-running-requests=24 \
+  --mamba-max-states-per-path=4 \
+  --prefill-batches-before-decode=0.5 \
   --enable-cache-report \
   --cuda-graph-max-bs-decode=16 \
   --moe-runner-backend=flashinfer_cutlass \
   --disable-custom-all-reduce \
   --disable-prefill-cuda-graph \
-  --json-model-override-args \
-  '{"text_config":{"vocab_size":248320,"hidden_size":2560,"intermediate_size":12288,"num_hidden_layers":48,"num_attention_heads":24,"num_key_value_heads":2,"hidden_act":"silu","max_position_embeddings":524288,"initializer_range":0.02,"rms_norm_eps":1e-06,"use_cache":true,"head_dim":256,"attention_bias":false,"attention_dropout":0.0,"linear_conv_kernel_dim":4,"linear_key_head_dim":128,"linear_value_head_dim":128,"linear_num_key_heads":16,"linear_num_value_heads":48,"layer_types":["linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention","linear_attention","linear_attention","linear_attention","full_attention"],"moe_intermediate_size":640,"shared_expert_intermediate_size":640,"num_experts_per_tok":10,"num_experts":512,"output_router_logits":false,"router_aux_loss_coef":0.001,"hc_count":4,"hc_lowrank":320,"ple_layer_ids":[2],"ple_embed_dim":2560,"ple_conv_kernel_size":4,"ngram_size":3,"heads_per_ngram":8,"ngram_vocab_size_base":20000000,"make_ngram_vocab_size_divisible_by":128,"split_ngram_parts":128,"output_gate_type":"sigmoid","indexer_n_heads":4,"indexer_kv_heads":1,"indexer_head_dim":128,"indexer_budget":2048,"indexer_compress_ratio":4,"rope_parameters":{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":262144,"rope_theta":10000000,"mrope_interleaved":true,"mrope_section":[11,11,10],"partial_rotary_factor":0.25},"output_hidden_states":false,"return_dict":true,"dtype":"bfloat16","chunk_size_feed_forward":0,"is_encoder_decoder":false,"id2label":{"0":"LABEL_0","1":"LABEL_1"},"label2id":{"LABEL_0":0,"LABEL_1":1},"problem_type":null,"_name_or_path":"","pad_token_id":null,"bos_token_id":248044,"eos_token_id":248044,"tie_word_embeddings":false,"mamba_ssm_dtype":"float32","mtp":{"hybrid":true,"layer_types":["full_attention"],"mtp_use_hidden_state_from_layer":null,"num_hidden_layers":1,"rope_theta":10000000},"mtp_num_hidden_layers":1,"mtp_use_dedicated_embeddings":false,"model_type":"qwen3_8_flash_next_text","output_attentions":false,"ple_embedding_dtype":"nvfp4"},"max_position_embeddings":524288}' \
+  --json-model-override-args '{"text_config": {"rope_parameters": {"rope_type": "yarn", "factor": 4.0, "original_max_position_embeddings": 262144, "rope_theta": 10000000, "mrope_interleaved": true, "mrope_section": [11, 11, 10], "partial_rotary_factor": 0.25}, "max_position_embeddings": 1048576}, "max_position_embeddings": 1048576}' \
   --ple-offload-embedding \
   --speculative-algorithm=NEXTN \
   --speculative-num-steps=3 \
@@ -47,11 +70,13 @@ docker run --rm --gpus '"device=0,1"' --ipc=host -p 127.0.0.1:30000:30000 \
   --speculative-num-draft-tokens=4 \
   --speculative-draft-model-quantization=modelopt_mixed \
   --speculative-moe-runner-backend=flashinfer_cutlass \
-  --model-loader-extra-config \
-  '{"enable_multithread_load":false,"num_threads":2}' \
+  --model-loader-extra-config '{"enable_multithread_load":false,"num_threads":2}' \
   --startup-weight-load-mode=serial \
   --mm-enable-dp-encoder \
-  --host \
-  0.0.0.0 \
-  --port \
-  30000
+  --enable-hierarchical-cache \
+  --hicache-write-policy=write_back \
+  --hicache-size=16 \
+  --hicache-storage-backend=file \
+  --hicache-storage-prefetch-policy=wait_complete \
+  --host 0.0.0.0 \
+  --port 30000
