@@ -1,0 +1,9 @@
+# Combined runtime: embedded model-config overrides (v3) + PR#19 hicache
+# checkpoint recovery patches (0040-0045). Opt-in profile.
+FROM docker.io/kanadaj/sglang-qwen38fn-sm120-turbo@sha256:1fc81b583c3c775bdf4a903ebdb327069f75b3a27bc05ed840b81737abf2e6c8
+COPY patches/0040-hicache-checkpoint-preservation.patch patches/0041-hicache-prefetch-namespace.patch patches/0042-hicache-writeback-admission.patch patches/0043-hicache-repeat-publication-diagnostics.patch patches/0044-hicache-advanced-prefix-retry.patch patches/0045-hicache-sparse-host-refill.patch patches/series.hicache-pr19-embed /opt/hicache-pr19-embed/patches/
+COPY provenance/hicache-pr19-embed-runtime-files.json provenance/hicache-pr19-embed.json /opt/hicache-pr19-embed/provenance/
+COPY scripts/verify_hicache_pr19_embed.py /opt/hicache-pr19-embed/scripts/verify_hicache_pr19_embed.py
+RUN python3 -B /opt/hicache-pr19-embed/scripts/verify_hicache_pr19_embed.py --tree /sgl-workspace/sglang --apply
+ENTRYPOINT ["python3", "-m", "sglang.launch_server"]
+CMD ["--help"]
