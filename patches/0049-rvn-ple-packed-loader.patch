@@ -1,0 +1,442 @@
+diff --git a/python/sglang/srt/models/rvn_ple_storage.py b/python/sglang/srt/models/rvn_ple_storage.py
+new file mode 100644
+--- /dev/null
++++ b/python/sglang/srt/models/rvn_ple_storage.py
+@@ -0,0 +1,408 @@
++"""Manifest-driven packed-NVFP4 PLE host tables (``ple_storage.json``).
++
++Consumes the frozen WP2 storage contract in ``docs/rvn-ple-storage-schema.md``
++(format_version 1) and routes the PLE table into the fork's existing packed
++host storage (``models.packed_ple.PackedPLEStorage``), one part at a time.
++Recognition is manifest-first and independent of any generic linear-quant
++``*ple*`` exclusion: without a manifest this module does nothing and the
++original load path stays byte-identically untouched. A present but invalid
++manifest raises; there is never a fallback BF16 expansion and no BF16 table
++is materialised at any point.
++"""
++import hashlib
++import json
++import math
++import os
++import struct
++
++import torch
++
++MANIFEST_NAME = "ple_storage.json"
++FORMAT_VERSION = 1
++REQUIRED_LOADER_FEATURE = "ple-packed-nvfp4-v1"
++WEIGHT_DTYPE = "e2m1-packed-u8-low-first"
++SCALE_DTYPE = "float8_e4m3fn"
++GROUP_SIZE = 16
++SCALE_LAYOUT = "row-major"
++RECONSTRUCTIONS = ("bf16_direct", "fp8_roundtrip")
++# Schema §1: nibble bits are sign 0x8 plus magnitude code 0..7.
++E2M1_LEVELS = (0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
++E2M1_SIGN = 0x8
++E4M3_MAX = 448.0
++
++_TOP_KEYS = frozenset((
++    "format_version", "encoder_version", "required_loader_feature", "source",
++    "table", "encoding", "parts", "retained_rewrites",
++))
++_SOURCE_KEYS = frozenset((
++    "repo", "revision", "source_table_sha256", "source_dtype", "amax",
++))
++_TABLE_KEYS = frozenset(("logical_rows", "cols", "partitioning"))
++_PARTITION_KEYS = frozenset((
++    "part", "source_shard", "source_tensor", "row_offset", "rows",
++))
++_ENCODING_KEYS = frozenset((
++    "weight_dtype", "scale_dtype", "group_size", "scale_layout",
++    "global_scale_bits", "reconstruction",
++))
++_PART_KEYS = frozenset((
++    "file", "weight_tensor", "scale_tensor", "row_offset", "rows",
++    "sha256_weights", "sha256_scales", "first_source_tensor",
++    "last_source_tensor",
++))
++
++
++def _fail(message):
++    raise ValueError(f"ple_storage manifest: {message}")
++
++
++def _check(condition, message):
++    if not condition:
++        _fail(message)
++
++
++def _is_int(value):
++    return isinstance(value, int) and not isinstance(value, bool)
++
++
++def _is_number(value):
++    return isinstance(value, (int, float)) and not isinstance(value, bool)
++
++
++def _hex_digest(value, what):
++    _check(isinstance(value, str) and len(value) == 64
++           and all(c in "0123456789abcdefABCDEF" for c in value),
++           f"{what} must be a 64-hex sha256, got {value!r}")
++    return value.lower()
++
++
++def _f32(value):
++    return struct.unpack("<f", struct.pack("<f", value))[0]
++
++
++def global_scale_from_bits(bits):
++    """Decode ``encoding.global_scale_bits`` (schema §2).
++
++    The field is ``struct.pack('<f', g)`` reinterpreted as uint32; loaders
++    reject non-finite or non-positive ``g``.
++    """
++    _check(_is_int(bits) and 0 <= bits < 1 << 32,
++           f"encoding.global_scale_bits must be a uint32, got {bits!r}")
++    g = struct.unpack("<f", struct.pack("<I", bits))[0]
++    _check(math.isfinite(g) and g > 0,
++           f"encoding.global_scale_bits {bits:#010x} decodes to a non-finite "
++           f"or non-positive global scale")
++    return g
++
++
++def expected_global_scale_bits(amax):
++    """Bits of the schema §1 scale for ``amax``: ``g = amax / (6 * 448)``.
++
++    The division is frozen to float32 before encoding; an all-zero table is
++    defined to the neutral ``g = 1.0``.
++    """
++    _check(_is_number(amax) and math.isfinite(amax) and amax >= 0,
++           f"source.amax must be finite and non-negative, got {amax!r}")
++    g = 1.0 if amax == 0.0 else _f32(amax / (6.0 * E4M3_MAX))
++    return struct.unpack("<I", struct.pack("<f", g))[0]
++
++
++class RvnPleManifest:
++    """Validated ``ple_storage.json`` (schema §2) plus its checkpoint root."""
++
++    def __init__(self, root, encoder_version, source, logical_rows, cols,
++                 partitioning, encoding, global_scale, reconstruction, parts,
++                 retained_rewrites):
++        self.root = root
++        self.encoder_version = encoder_version
++        self.source = source
++        self.logical_rows = logical_rows
++        self.cols = cols
++        self.partitioning = partitioning
++        self.encoding = encoding
++        self.global_scale = global_scale
++        self.reconstruction = reconstruction
++        self.parts = parts
++        self.retained_rewrites = retained_rewrites
++
++    @property
++    def fp8_reference(self):
++        """Selectable legacy ``fp8_roundtrip`` gather mode (schema §1)."""
++        return self.reconstruction == "fp8_roundtrip"
++
++
++def _cover_check(ranges, logical_rows, what):
++    cursor = 0
++    for index, (offset, count) in enumerate(ranges):
++        _check(_is_int(offset) and offset >= 0,
++               f"{what}[{index}].row_offset must be a non-negative integer, "
++               f"got {offset!r}")
++        _check(_is_int(count) and count > 0,
++               f"{what}[{index}].rows must be a positive integer, got {count!r}")
++        _check(offset == cursor,
++               f"{what}: row coverage hole or overlap at entry {index} "
++               f"(row_offset {offset}, expected {cursor})")
++        cursor += count
++    _check(cursor == logical_rows,
++           f"{what}: covers {cursor} rows, logical_rows is {logical_rows}")
++
++
++def _string(value, what):
++    _check(isinstance(value, str) and value,
++           f"{what} must be a non-empty string, got {value!r}")
++
++
++def parse_manifest(raw, root=None):
++    """Validate a raw manifest dict strictly per schema §2; fail closed."""
++    _check(isinstance(raw, dict), "manifest must be a JSON object")
++    _check(set(raw) == _TOP_KEYS,
++           "top-level keys must be exactly "
++           f"{sorted(_TOP_KEYS)}; mismatched: {sorted(set(raw) ^ _TOP_KEYS)}")
++    _check(_is_int(raw["format_version"]) and raw["format_version"] == FORMAT_VERSION,
++           f"unsupported format_version {raw['format_version']!r}; "
++           f"this loader implements {FORMAT_VERSION}")
++    feature = raw["required_loader_feature"]
++    _check(feature == REQUIRED_LOADER_FEATURE,
++           f"required_loader_feature {feature!r} is not supported; "
++           f"this loader implements {REQUIRED_LOADER_FEATURE!r} and does "
++           "not fall back")
++    encoder_version = raw["encoder_version"]
++    _string(encoder_version, "encoder_version")
++
++    source = raw["source"]
++    _check(isinstance(source, dict) and set(source) == _SOURCE_KEYS,
++           f"source keys must be exactly {sorted(_SOURCE_KEYS)}")
++    _string(source["repo"], "source.repo")
++    _string(source["revision"], "source.revision")
++    _hex_digest(source["source_table_sha256"], "source.source_table_sha256")
++    _check(source["source_dtype"] == "bfloat16",
++           f"source.source_dtype must be 'bfloat16', got {source['source_dtype']!r}")
++    amax = source["amax"]
++    _check(_is_number(amax) and math.isfinite(amax) and amax >= 0,
++           f"source.amax must be finite and non-negative, got {amax!r}")
++
++    table = raw["table"]
++    _check(isinstance(table, dict) and set(table) == _TABLE_KEYS,
++           f"table keys must be exactly {sorted(_TABLE_KEYS)}")
++    logical_rows = table["logical_rows"]
++    cols = table["cols"]
++    _check(_is_int(logical_rows) and logical_rows > 0,
++           f"table.logical_rows must be a positive integer, got {logical_rows!r}")
++    _check(_is_int(cols) and cols > 0 and cols % GROUP_SIZE == 0,
++           f"table.cols must be a positive multiple of {GROUP_SIZE}, got {cols!r}")
++    partitioning = table["partitioning"]
++    _check(isinstance(partitioning, list) and partitioning,
++           "table.partitioning must be a non-empty list")
++    for index, entry in enumerate(partitioning):
++        _check(isinstance(entry, dict) and set(entry) == _PARTITION_KEYS,
++               f"table.partitioning[{index}] keys must be exactly "
++               f"{sorted(_PARTITION_KEYS)}")
++        _check(_is_int(entry["part"]) and entry["part"] == index,
++               f"table.partitioning[{index}].part must be {index} "
++               f"(numeric source ordering), got {entry['part']!r}")
++        _string(entry["source_shard"], f"table.partitioning[{index}].source_shard")
++        _string(entry["source_tensor"], f"table.partitioning[{index}].source_tensor")
++    _cover_check([(e["row_offset"], e["rows"]) for e in partitioning],
++                 logical_rows, "table.partitioning")
++
++    encoding = raw["encoding"]
++    _check(isinstance(encoding, dict) and set(encoding) == _ENCODING_KEYS,
++           f"encoding keys must be exactly {sorted(_ENCODING_KEYS)}")
++    _check(encoding["weight_dtype"] == WEIGHT_DTYPE,
++           f"encoding.weight_dtype must be {WEIGHT_DTYPE!r}, "
++           f"got {encoding['weight_dtype']!r}")
++    _check(encoding["scale_dtype"] == SCALE_DTYPE,
++           f"encoding.scale_dtype must be {SCALE_DTYPE!r}, "
++           f"got {encoding['scale_dtype']!r}")
++    _check(_is_int(encoding["group_size"]) and encoding["group_size"] == GROUP_SIZE,
++           f"encoding.group_size must be {GROUP_SIZE}, got {encoding['group_size']!r}")
++    _check(encoding["scale_layout"] == SCALE_LAYOUT,
++           f"encoding.scale_layout must be {SCALE_LAYOUT!r}, "
++           f"got {encoding['scale_layout']!r}")
++    reconstruction = encoding["reconstruction"]
++    _check(reconstruction in RECONSTRUCTIONS,
++           f"encoding.reconstruction must be one of {RECONSTRUCTIONS}, "
++           f"got {reconstruction!r}")
++    global_scale = global_scale_from_bits(encoding["global_scale_bits"])
++    expected_bits = expected_global_scale_bits(amax)
++    _check(encoding["global_scale_bits"] == expected_bits,
++           f"conflicting global scale bits: encoding.global_scale_bits "
++           f"{encoding['global_scale_bits']:#010x} does not match source.amax "
++           f"(expected {expected_bits:#010x})")
++
++    parts = raw["parts"]
++    _check(isinstance(parts, list) and parts, "parts must be a non-empty list")
++    for index, entry in enumerate(parts):
++        _check(isinstance(entry, dict) and set(entry) == _PART_KEYS,
++               f"parts[{index}] keys must be exactly {sorted(_PART_KEYS)}")
++        file = entry["file"]
++        _string(file, f"parts[{index}].file")
++        segments = file.replace("\\", "/").split("/")
++        _check(not os.path.isabs(file) and "\\" not in file
++               and ".." not in segments and "." not in segments,
++               f"parts[{index}].file must be a plain relative path inside "
++               f"the checkpoint, got {file!r}")
++        _string(entry["weight_tensor"], f"parts[{index}].weight_tensor")
++        _string(entry["scale_tensor"], f"parts[{index}].scale_tensor")
++        _check(entry["weight_tensor"] != entry["scale_tensor"],
++               f"parts[{index}] weight and scale tensor names must differ")
++        _hex_digest(entry["sha256_weights"], f"parts[{index}].sha256_weights")
++        _hex_digest(entry["sha256_scales"], f"parts[{index}].sha256_scales")
++        _string(entry["first_source_tensor"], f"parts[{index}].first_source_tensor")
++        _string(entry["last_source_tensor"], f"parts[{index}].last_source_tensor")
++    _cover_check([(e["row_offset"], e["rows"]) for e in parts],
++                 logical_rows, "parts")
++
++    retained_rewrites = raw["retained_rewrites"]
++    _check(isinstance(retained_rewrites, dict)
++           and all(isinstance(key, str) and key
++                   and isinstance(names, list)
++                   and all(isinstance(name, str) and name for name in names)
++                   for key, names in retained_rewrites.items()),
++           "retained_rewrites must map shard file names to tensor-name lists")
++
++    return RvnPleManifest(root, encoder_version, source, logical_rows, cols,
++                          partitioning, encoding, global_scale, reconstruction,
++                          parts, retained_rewrites)
++
++
++def load_manifest(root):
++    """Return the validated manifest at ``root/ple_storage.json``, or ``None``.
++
++    ``None`` means the checkpoint is not manifest-driven and the original
++    (LIL) load path must run untouched. A present but unreadable or invalid
++    manifest raises: there is no fallback.
++    """
++    path = os.path.join(root, MANIFEST_NAME)
++    if not os.path.isfile(path):
++        return None
++    with open(path, "r", encoding="utf-8") as handle:
++        try:
++            raw = json.load(handle)
++        except ValueError as exc:
++            raise ValueError(
++                f"ple_storage manifest: unreadable JSON in {path}: {exc}"
++            ) from exc
++    return parse_manifest(raw, root=root)
++
++
++def _payload_sha256(tensor):
++    """Schema §4: sha256 over the raw contiguous little-endian payload bytes."""
++    data = tensor.contiguous().view(torch.uint8).numpy().tobytes()
++    return hashlib.sha256(data).hexdigest()
++
++
++def _read_part(root, entry, cols):
++    """Read and verify one part; only packed uint8 codes and e4m3 scales."""
++    path = os.path.join(root, entry["file"])
++    if not os.path.isfile(path):
++        raise FileNotFoundError(
++            f"ple_storage manifest part missing: {entry['file']!r} under "
++            f"{root!r} (manifest present: hard error, never a BF16 fallback)"
++        )
++    from safetensors import safe_open
++
++    with safe_open(path, framework="pt", device="cpu") as handle:
++        names = set(handle.keys())
++        expected_names = {entry["weight_tensor"], entry["scale_tensor"]}
++        _check(names == expected_names,
++               f"{entry['file']!r} must contain exactly "
++               f"{sorted(expected_names)}, got {sorted(names)}")
++        packed = handle.get_tensor(entry["weight_tensor"])
++        scales = handle.get_tensor(entry["scale_tensor"])
++    rows = entry["rows"]
++    _check(packed.dtype == torch.uint8
++           and tuple(packed.shape) == (rows, cols // 2),
++           f"{entry['file']!r} weight must be uint8 (rows, cols//2) = "
++           f"({rows}, {cols // 2}), got {packed.dtype} {tuple(packed.shape)}")
++    _check(scales.dtype == torch.float8_e4m3fn
++           and tuple(scales.shape) == (rows, cols // GROUP_SIZE),
++           f"{entry['file']!r} scales must be float8_e4m3fn "
++           f"(rows, cols//{GROUP_SIZE}) = ({rows}, {cols // GROUP_SIZE}), "
++           f"got {scales.dtype} {tuple(scales.shape)}")
++    # Schema §1: block scales are finite and non-negative on read.
++    scale_bits = scales.contiguous().view(torch.uint8)
++    _check(not bool((scale_bits & 0x80).any()) and not bool((scale_bits == 0x7F).any()),
++           f"{entry['file']!r} scales must be finite and non-negative on read")
++    _check(_payload_sha256(packed) == entry["sha256_weights"].lower(),
++           f"{entry['file']!r} weight payload sha256 mismatch "
++           "(checkpoint corrupted or tampered)")
++    _check(_payload_sha256(scales) == entry["sha256_scales"].lower(),
++           f"{entry['file']!r} scale payload sha256 mismatch "
++           "(checkpoint corrupted or tampered)")
++    return packed, scales
++
++
++def assemble_host_storage(manifest, root, *, storage=None, tp_start=0,
++                          tp_end=None, pin_memory=True):
++    """Fill packed host storage from the manifest parts, bounded per part.
++
++    ``storage`` may be the model's own
++    ``models.packed_ple.PackedPLEStorage`` (e.g. the pinned-host PLE
++    embedding's); one is constructed when omitted. Each part is copied
++    piecewise into the host buffers and released before the next: no BF16
++    table is materialised, on host or device, at any point.
++    """
++    logical_rows = manifest.logical_rows
++    if tp_end is None:
++        tp_end = logical_rows
++    _check(_is_int(tp_start) and _is_int(tp_end)
++           and 0 <= tp_start < tp_end <= logical_rows,
++           f"invalid TP window [{tp_start}, {tp_end}) for {logical_rows} rows")
++    if storage is None:
++        from sglang.srt.models.packed_ple import PackedPLEStorage
++
++        storage = PackedPLEStorage(tp_end - tp_start, manifest.cols,
++                                   pin_memory=pin_memory)
++    for entry in manifest.parts:
++        packed, scales = _read_part(root, entry, manifest.cols)
++        storage.load(packed, scales, entry["row_offset"],
++                     tp_start, tp_end, manifest.global_scale)
++        del packed, scales
++    storage.finalize(tp_start, tp_end)
++    return storage
++
++
++def load_for_checkpoint(root, **assemble_kwargs):
++    """Manifest-first entry: assemble the packed host table, or ``None``.
++
++    Returns ``None`` when ``root`` carries no ``ple_storage.json``, leaving
++    the original load path untouched; otherwise validates fail-closed and
++    assembles. Never falls back to a BF16 expansion.
++    """
++    manifest = load_manifest(root)
++    if manifest is None:
++        return None
++    return assemble_host_storage(manifest, root, **assemble_kwargs)
++
++
++def dequant_reference(packed, scales, global_scale, *, fp8_reference=False):
++    """CPU reference for ``models.packed_ple.gather_packed_kernel`` (schema §1).
++
++    ``out = bfloat16(E2M1(code) * e4m3_to_f32(scale) * g)`` computed in
++    float32 and rounded to BF16 once (low nibble first). ``fp8_reference``
++    selects the legacy ``fp8_roundtrip`` mode, which must remain selectable.
++    """
++    if packed.dtype != torch.uint8 or packed.ndim != 2:
++        raise ValueError("dequant_reference expects uint8 [rows, cols//2]")
++    if (scales.dtype != torch.float8_e4m3fn
++            or tuple(scales.shape) != (packed.shape[0], packed.shape[1] // 8)):
++        raise ValueError(
++            f"dequant_reference scale shape {tuple(scales.shape)} does not "
++            f"fit packed {tuple(packed.shape)}"
++        )
++    if not _is_number(global_scale) or not math.isfinite(global_scale) \
++            or global_scale <= 0:
++        raise ValueError(f"invalid global scale: {global_scale!r}")
++    codes = torch.stack((packed & 0xF, packed >> 4), dim=-1).reshape(
++        packed.shape[0], packed.shape[1] * 2)
++    levels = torch.tensor(E2M1_LEVELS, dtype=torch.float32,
++                          device=packed.device)
++    magnitude = levels[(codes & 0x7).long()]
++    values = torch.where((codes & E2M1_SIGN).bool(), -magnitude, magnitude)
++    values = values * scales.float().repeat_interleave(GROUP_SIZE, dim=1) \
++        * global_scale
++    if fp8_reference:
++        # Legacy LIL mode: one E4M3 round-trip before the BF16 store.
++        values = values.to(torch.float8_e4m3fn).to(torch.float32)
++    return values.to(torch.bfloat16)
+--- a/python/sglang/srt/model_loader/weight_utils.py
++++ b/python/sglang/srt/model_loader/weight_utils.py
+@@ -487,6 +487,26 @@
+         )
+ 
+ 
++def rvn_ple_storage_for_checkpoint(
++    model_name_or_path: str, hf_folder: Optional[str] = None
++):
++    """Manifest-first packed PLE host tables (``ple_storage.json``, schema v1).
++
++    Recognition is manifest-first and precedes any quant-config decision:
++    the generic linear-quant ``*ple*`` exclusion must not prevent this
++    table loader. Returns the assembled packed host storage when the
++    checkpoint root carries ``ple_storage.json`` — validated fail-closed,
++    copied piecewise, never a BF16 expansion — or ``None`` when it does
++    not, leaving the original (LIL) load path byte-identically untouched.
++    A present but invalid manifest raises; there is no fallback.
++    """
++    from sglang.srt.models.rvn_ple_storage import load_for_checkpoint
++
++    return load_for_checkpoint(
++        hf_folder if hf_folder is not None else model_name_or_path
++    )
++
++
+ def _check_index_files_exist(snapshot_dir: str) -> Tuple[bool, Optional[str]]:
+     """
+     Check if all files listed in safetensors index files actually exist on disk.
