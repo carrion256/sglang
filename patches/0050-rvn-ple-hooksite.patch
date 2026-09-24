@@ -1,0 +1,193 @@
+--- a/python/sglang/srt/models/qwen4_exp.py
++++ b/python/sglang/srt/models/qwen4_exp.py
+@@ -69,6 +69,7 @@
+ from sglang.srt.models.qwen3_vl import Qwen3VLForConditionalGeneration
+ from sglang.srt.models.qwen4_exp_text_adapter import (
+     PLE_SHARD_RE,
++    _PLE_TABLE_MARK,
+     assert_rvn_text_config,
+     map_text_weight_prefix,
+     ple_global_scale_ckpt_key,
+@@ -2493,6 +2494,126 @@
+         resolve_algo = getattr(quant_cfg, "_resolve_quant_algo", None)
+         modules_by_name = dict(self.named_modules())
+ 
++        # WP2: manifest-driven packed PLE host tables (ple_storage.json).
++        # Only the RVN text entry is manifest-driven: the multimodal (LIL) path
++        # never reads the manifest nor consults the packed-PLE loader hook, so
++        # its load stays byte-identical. Without a manifest nothing below is
++        # set and the legacy shard path runs untouched; with one, the packed
++        # parts fill the embedding's own PackedPLEStorage through the 0049
++        # weight_utils hook and the manifest-covered PLE table source tensors
++        # are accounted as loaded instead of expanded to BF16. Recognition is
++        # manifest-first and precedes any quant decision (the RVN linear-quant
++        # *ple* exclusion must not gate this table loader).
++        ple_manifest_sources: dict = {}
++        if text_only:
++            ple_ckpt_root = getattr(self.config, "_name_or_path", "")
++            if not os.path.isdir(ple_ckpt_root):
++                # Same fallback as _ple_resolve_global_scale: the config path is
++                # unreliable across config rebuilds, while the server args carry
++                # the canonical checkpoint directory the iterator was opened
++                # against.
++                from sglang.srt.server_args import get_global_server_args
++
++                ple_ckpt_root = get_global_server_args().model_path
++            if os.path.isdir(ple_ckpt_root):
++                from sglang.srt.model_loader.weight_utils import (
++                    rvn_ple_storage_for_checkpoint,
++                )
++                from sglang.srt.models.packed_ple import PackedPLEStorage
++                from sglang.srt.models.rvn_ple_storage import load_manifest
++
++                # A present but invalid manifest raises here: no BF16 fallback.
++                ple_manifest = load_manifest(ple_ckpt_root)
++                if ple_manifest is not None:
++                    ple_manifest_targets = {}
++                    for entry in ple_manifest.partitioning:
++                        source = map_text_weight_prefix(entry["source_tensor"])
++                        if ".ngram_embedding" not in source:
++                            raise ValueError(
++                                f"ple_storage manifest source tensor "
++                                f"{entry['source_tensor']!r} is not a PLE "
++                                "n-gram table tensor"
++                            )
++                        mod_prefix = source[: source.index(".ngram_embedding")]
++                        ple_mod = ple_modules.get(mod_prefix)
++                        if ple_mod is None:
++                            raise ValueError(
++                                "ple_storage manifest coverage hole: source "
++                                f"tensor {entry['source_tensor']!r} names PLE "
++                                f"module {mod_prefix!r}, which this model does "
++                                "not have"
++                            )
++                        ple_manifest_sources[source] = mod_prefix
++                        ple_manifest_targets[mod_prefix] = ple_mod
++                    for mod_prefix, ple_mod in sorted(ple_manifest_targets.items()):
++                        emb = ple_mod.ngram_embedding
++                        if not isinstance(emb, Qwen4ExpPinnedHostEmbedding):
++                            raise ValueError(
++                                f"ple_storage manifest needs the packed host "
++                                f"PLE embedding for {mod_prefix}; serve the "
++                                "checkpoint with ple_offload_embedding and "
++                                "SGLANG_PLE_PACKED_NVFP4"
++                            )
++                        storage = emb._packed_storage
++                        if storage is None:
++                            # Mirror Qwen4ExpPinnedHostEmbedding.__init__: the
++                            # manifest path never allocates a BF16 host table.
++                            storage = PackedPLEStorage(
++                                emb.weight.data.shape[0],
++                                emb.embedding_dim,
++                                pin_memory=torch.cuda.is_available(),
++                            )
++                            if getattr(emb, "tp_size", 1) == 2:
++                                storage.validate_tp2_partition(emb)
++                            emb._packed_storage = storage
++                        # The hook validates the manifest fail-closed and copies
++                        # each part piecewise into this rank's window through
++                        # assemble_host_storage, finalizing with the plain
++                        # (tp_start, tp_end) bounds: the ceil-equal-shard
++                        # derivation would spuriously reject ragged manifest
++                        # parts. Pending pairing and _ple_resolve_global_scale
++                        # are bypassed; the manifest carries the global scale.
++                        rvn_ple_storage_for_checkpoint(
++                            ple_ckpt_root,
++                            storage=storage,
++                            tp_start=emb.shard_indices.org_vocab_start_index,
++                            tp_end=emb.shard_indices.org_vocab_end_index,
++                        )
++                        emb._rvn_ple_manifest_loaded = True
++                        # Account the packed-replaced table tensor exactly like
++                        # the packed shard path books its table param.
++                        loaded_shard_params.add(
++                            f"{mod_prefix}.ngram_embedding.weight"
++                        )
++                        logger.info(
++                            "[rvn-ple] PLE table %s loaded from "
++                            "ple_storage.json: %d rows x %d cols, %.4f GiB "
++                            "pinned host bytes",
++                            mod_prefix,
++                            ple_manifest.logical_rows,
++                            ple_manifest.cols,
++                            storage.nbytes / 2**30,
++                        )
++
++        def claim_rvn_ple_manifest_source(name: str) -> bool:
++            # A manifest-covered PLE table tensor is consumed from the packed
++            # storage: never copied into the host embedding, never BF16-expanded.
++            if name in ple_manifest_sources:
++                loaded_params.add(name)
++                return True
++            if _PLE_TABLE_MARK in name and (
++                name.endswith(".ngram_embedding.weight")
++                or ple_shard_is_canonical(PLE_SHARD_RE.search(name))
++            ):
++                # Strict accounting: a PLE table tensor the manifest does not
++                # cover still fails loudly instead of being expanded to BF16.
++                raise ValueError(
++                    f"ple_storage manifest coverage: PLE table tensor {name!r} "
++                    "is not covered by ple_storage.json; refusing to expand an "
++                    "unaccounted table to BF16"
++                )
++            return False
++
+         for name, loaded_weight in weights:
+             if "rotary_emb.inv_freq" in name:
+                 continue
+@@ -2515,6 +2636,9 @@
+             elif name.endswith(".v_proj.v_scale"):
+                 name = name.replace(".v_proj.v_scale", ".attn.v_scale")
+ 
++            if ple_manifest_sources and claim_rvn_ple_manifest_source(name):
++                continue
++
+             if _absorb_gdn_ba_component(name, loaded_weight):
+                 continue
+             if load_qwen4_exp_ple_shard(name, loaded_weight):
+@@ -2743,7 +2867,12 @@
+         for ple_mod in ple_modules.values():
+             emb = ple_mod.ngram_embedding
+             storage = getattr(emb, "_packed_storage", None)
+-            if storage is not None:
++            # A manifest-filled table was already finalized by the loader at the
++            # rank window; re-finalizing with the ceil-equal-shard derivation
++            # would spuriously reject ragged manifest parts.
++            if storage is not None and not getattr(
++                emb, "_rvn_ple_manifest_loaded", False
++            ):
+                 storage.finalize(emb.shard_indices.org_vocab_start_index,
+                                  emb.shard_indices.org_vocab_end_index,
+                                  expected_global_shards=ple_num_sync_shards,
+--- a/python/sglang/srt/model_loader/weight_utils.py
++++ b/python/sglang/srt/model_loader/weight_utils.py
+@@ -488,7 +488,9 @@
+ 
+ 
+ def rvn_ple_storage_for_checkpoint(
+-    model_name_or_path: str, hf_folder: Optional[str] = None
++    model_name_or_path: str,
++    hf_folder: Optional[str] = None,
++    **assemble_kwargs,
+ ):
+     """Manifest-first packed PLE host tables (``ple_storage.json``, schema v1).
+ 
+@@ -499,11 +501,17 @@
+     copied piecewise, never a BF16 expansion — or ``None`` when it does
+     not, leaving the original (LIL) load path byte-identically untouched.
+     A present but invalid manifest raises; there is no fallback.
++
++    ``**assemble_kwargs`` forwards to ``assemble_host_storage`` (e.g.
++    ``storage=``, ``tp_start=``, ``tp_end=``) so a model can fill its own
++    pinned host table over this rank's TP window; recognition stays
++    manifest-first and the no-manifest result stays ``None`` either way.
+     """
+     from sglang.srt.models.rvn_ple_storage import load_for_checkpoint
+ 
+     return load_for_checkpoint(
+-        hf_folder if hf_folder is not None else model_name_or_path
++        hf_folder if hf_folder is not None else model_name_or_path,
++        **assemble_kwargs,
+     )
+ 
+ 
