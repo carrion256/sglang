@@ -60,6 +60,14 @@ def _tree():
         assert (root / _STORAGE_REL).is_file(), (
             f"RVN_PLE_TREE={tree} lacks {_STORAGE_REL}: apply "
             "patches/0047..0050 to that tree root with -p1")
+        if not (root / _ADAPTER_REL).is_file():
+            # A 0049-only (or older) tree is a valid RVN_PLE_TREE for the
+            # loader suite but predates this seam: skip loudly instead of
+            # erroring at collection (PleLoader2 mixed-tree battery).
+            pytest.skip(
+                f"RVN_PLE_TREE={tree} predates patch 0047 "
+                f"({_ADAPTER_REL} missing); 0050 wiring requires the "
+                "0047+0048+0049+0050 stack", allow_module_level=True)
         return root
     if (REPO / "runtime" / _STORAGE_REL).is_file():
         return REPO / "runtime"
@@ -322,8 +330,9 @@ def test_rvn_text_load_with_manifest_calls_hook_and_fills_packed_storage(tmp_pat
             real_hook = weight_utils.rvn_ple_storage_for_checkpoint
 
             def spy(*args, **kwargs):
-                calls.append((args, kwargs))
-                return real_hook(*args, **kwargs)
+                result = real_hook(*args, **kwargs)
+                calls.append((args, kwargs, result))
+                return result
 
             weight_utils.rvn_ple_storage_for_checkpoint = spy
             loaded = model.load_qwen4_exp_weights(
@@ -340,10 +349,12 @@ def test_rvn_text_load_with_manifest_calls_hook_and_fills_packed_storage(tmp_pat
     # The hook was consulted exactly once, filling the embedding's own slot
     # over this rank's window (no second storage, no BF16 table).
     assert len(calls) == 1
-    (args, kwargs) = calls[0]
+    (args, kwargs, returned) = calls[0]
     assert args == (str(root),)
-    assert kwargs["storage"] is storage
+    assert kwargs["storage"] is storage and returned is storage
     assert kwargs["tp_start"] == 0 and kwargs["tp_end"] == ROWS
+    # The slot holds exactly the object the hook returned.
+    assert emb._packed_storage is returned
     assert emb._rvn_ple_manifest_loaded is True
     assert storage.global_scale == FIX._f32(FIX.AMAX_TIE / (6.0 * FIX.E4M3_MAX))
     assert torch.equal(storage.weight, packed)

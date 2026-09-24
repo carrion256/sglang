@@ -8,7 +8,7 @@
      assert_rvn_text_config,
      map_text_weight_prefix,
      ple_global_scale_ckpt_key,
-@@ -2493,6 +2494,126 @@
+@@ -2493,6 +2494,135 @@
          resolve_algo = getattr(quant_cfg, "_resolve_quant_algo", None)
          modules_by_name = dict(self.named_modules())
  
@@ -91,12 +91,21 @@
 +                        # derivation would spuriously reject ragged manifest
 +                        # parts. Pending pairing and _ple_resolve_global_scale
 +                        # are bypassed; the manifest carries the global scale.
-+                        rvn_ple_storage_for_checkpoint(
++                        ple_manifest_storage = rvn_ple_storage_for_checkpoint(
 +                            ple_ckpt_root,
 +                            storage=storage,
 +                            tp_start=emb.shard_indices.org_vocab_start_index,
 +                            tp_end=emb.shard_indices.org_vocab_end_index,
 +                        )
++                        if ple_manifest_storage is None:
++                            raise ValueError(
++                                "ple_storage manifest vanished mid-load: "
++                                f"{ple_ckpt_root!r}"
++                            )
++                        # Attach the storage the loader returned (the very
++                        # object it filled for this rank's window).
++                        emb._packed_storage = ple_manifest_storage
++                        storage = ple_manifest_storage
 +                        emb._rvn_ple_manifest_loaded = True
 +                        # Account the packed-replaced table tensor exactly like
 +                        # the packed shard path books its table param.
@@ -135,7 +144,7 @@
          for name, loaded_weight in weights:
              if "rotary_emb.inv_freq" in name:
                  continue
-@@ -2515,6 +2636,9 @@
+@@ -2515,6 +2645,9 @@
              elif name.endswith(".v_proj.v_scale"):
                  name = name.replace(".v_proj.v_scale", ".attn.v_scale")
  
@@ -145,7 +154,7 @@
              if _absorb_gdn_ba_component(name, loaded_weight):
                  continue
              if load_qwen4_exp_ple_shard(name, loaded_weight):
-@@ -2743,7 +2867,12 @@
+@@ -2743,7 +2876,12 @@
          for ple_mod in ple_modules.values():
              emb = ple_mod.ngram_embedding
              storage = getattr(emb, "_packed_storage", None)
