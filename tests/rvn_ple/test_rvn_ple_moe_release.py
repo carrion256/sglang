@@ -218,7 +218,6 @@ def test_marlin_repack_peak_and_release_loader_format_storage():
     assert tuple(w13.shape) == (NUM_EXPERTS, HIDDEN // 16, 2 * INTERMEDIATE * 16 // 8)
     assert tuple(w2.shape) == (NUM_EXPERTS, INTERMEDIATE // 16, HIDDEN * 16 // 8)
 
-
     # The loader-format swizzle placeholders are dead on the marlin path: the
     # apply path reads w*_weight_scale, never the swizzled copies.
     for layer, _ in built:

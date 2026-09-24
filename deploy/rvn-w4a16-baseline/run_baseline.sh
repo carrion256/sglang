@@ -5,11 +5,15 @@
 #   Usage: run_baseline.sh <gpu-index> [--dry-run] [--ple-offload[=GIB]] [--image IMG]
 #
 #   <gpu-index>       host GPU the single TP1 worker may use (required)
-#   --dry-run         print the exact `docker run` command and exit; NO side effects
+#   --dry-run         print the exact `docker run` command and exit; NO side
+#                     effects, so the two real-run gates (host-RAM floor, image
+#                     profile) are only announced, never enforced
 #   --ple-offload[=G] HOST-RAM BUDGET GUARD for the pinned BF16 PLE table
 #                     (default floor 100 GiB). It is NOT a memory mitigation:
 #                     see MEMORY BOUND below.
-#   --image IMG       override the pinned image (default below)
+#   --image IMG       override the pinned profile image (default rvn-w4a16:sim,
+#                     the patched Dockerfile.rvn-w4a16 build). A real run aborts
+#                     unless that image passes the PROFILE GATE below.
 #
 # This is an EXPERIMENT. It never touches the production workers
 # (lilith-vllm / lilith-vllm-b): distinct container name, model name, port and
@@ -38,8 +42,24 @@ set -euo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ENV_FILE="$SCRIPT_DIR/env.rvn-w4a16-baseline"
 
-# Pinned deployment image (same fork build the production workers run).
-IMAGE=${IMAGE:-localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284}
+# Patched PROFILE image — what `docker build -f Dockerfile.rvn-w4a16
+# -t rvn-w4a16:sim .` produces (docs/rvn-w4a16.md "Build and run"). This is
+# deliberately NOT the base image the production workers run
+# (localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284 = Dockerfile.rvn-w4a16:4),
+# because that base lacks the three patches this profile's flags require:
+# 0047 adds the Qwen4ExpForCausalLM entry the RVN config declares, 0048 routes
+# a quantized_layers-less W4A16_NVFP4 checkpoint through uniform ModelOpt FP4
+# (without it --quantization=modelopt_mixed below fails mixed-precision
+# validation), and 0051 makes Qwen4ExpForCausalLM eligible for
+# --ple-offload-embedding. Every flag below is otherwise unreachable on the base.
+# Like deploy/run.py's --image default this is an explicit pinned reference; the
+# pin is by tag only because the profile image is built locally and never pushed
+# (docs/rvn-w4a16.md: "This base is local-only"), so no registry digest exists
+# to pin. For a reproducible real run, pin by image Id
+# (--image "$(docker image inspect -f '{{.Id}}' rvn-w4a16:sim)") or pass a
+# freshly built tag. The mutable tag is made safe by the PROFILE GATE below,
+# which hashes the image's source tree instead of trusting the tag.
+IMAGE=${IMAGE:-rvn-w4a16:sim}
 # Baseline-owned host cache root. NEVER reuse the production namespaces
 # /var/cache/sglang/qwen38-flash-next-kanadaj-a6d5284-tp1-gpu0[-b] or
 # the shared /data/hicache/qwen38-flash-next-kanadaj-a6d5284.
@@ -70,7 +90,7 @@ while [[ $# -gt 0 ]]; do
     --ple-offload) shift ;;
     --ple-offload=*) PLE_MIN_FREE_GIB=${1#*=}; shift ;;
     --image) IMAGE=$2; shift 2 ;;
-    -h|--help) sed -n '2,14p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "${BASH_SOURCE[0]}"; exit 0 ;;
     -*) echo "unknown option: $1" >&2; exit 2 ;;
     *) [[ -n $GPU ]] && { echo "usage: $0 <gpu-index> [options]" >&2; exit 2; }
        GPU=$1; shift ;;
@@ -112,6 +132,45 @@ else
          "for the ~95 GiB pinned BF16 PLE table." >&2
     echo "ERROR: free host RAM or raise the floor deliberately with" \
          "--ple-offload=<gib>; nothing was started." >&2
+    exit 1
+  fi
+fi
+
+# PROFILE GATE — unconditional for every real run, and it runs BEFORE `docker
+# run` / before any host directory is created: the launch flags below need
+# patches 0047 + 0048 + 0051, and on an image without them the failure surfaces
+# only deep inside the server — after this profile has already pinned ~95 GiB of
+# host RAM — so a wrong image must be caught here, not at model load.
+# The check is the verifier that Dockerfile.rvn-w4a16:8 bakes into every profile
+# image, run WITHOUT --apply: it hashes the image's own python/sglang tree
+# against the post-patch inventory in provenance/rvn-w4a16.json, i.e. it proves
+# all 8 changed files byte-for-byte. Rejected alternatives: `docker image
+# inspect` labels, because the base and the patched image carry byte-identical
+# label sets (measured 2026-09-25: Dockerfile.rvn-w4a16 adds no LABEL), so a
+# label probe would reject even a correct image; and a
+# `python3 -c "import sglang.srt.models.qwen4_exp_text_adapter"` probe, because
+# importing it drags in torch/CUDA (seconds slower) and proves only patch 0047
+# while the dispatch and offload-eligibility patches stay unchecked. This probe
+# costs ~1.4 s in a `--rm`, GPU-less, `--network none` container, and
+# `--pull never` keeps it from fetching a same-named image from a registry
+# instead of using the local one. It is fail-closed: an absent verifier (the
+# base image) exits 2, and any tree drift exits non-zero.
+if (( DRY_RUN )); then
+  echo "NOTE: real run also aborts unless $IMAGE passes the in-image rvn-w4a16" \
+       "profile gate (see PROFILE GATE below)." >&2
+else
+  if gate=$(docker run --rm --pull never --network none \
+              --entrypoint python3 "$IMAGE" -B \
+              /opt/rvn-w4a16/scripts/verify_rvn_w4a16.py \
+              --tree /sgl-workspace/sglang 2>&1); then
+    echo "profile gate OK: $gate" >&2
+  else
+    echo "ERROR: image $IMAGE is not a verified rvn-w4a16 profile image; nothing" \
+         "was started (no container, no cache dir, no pinned host RAM)." >&2
+    echo "ERROR: build it with" >&2
+    echo "         docker build -f Dockerfile.rvn-w4a16 -t rvn-w4a16:sim ." >&2
+    echo "       or select another image with --image IMG / IMAGE=<ref>." >&2
+    sed 's/^/       /' <<<"$gate" >&2
     exit 1
   fi
 fi
@@ -178,6 +237,15 @@ INNER+=" --startup-weight-load-mode=serial"
 # --hicache-* flags, --enable-cache-report, --disable-custom-all-reduce (the
 # live TP1 workers do not pass it either), and all vision/mm flags (text-only).
 
+# --entrypoint /bin/bash is REQUIRED, not cosmetic: Dockerfile.rvn-w4a16:10 sets
+# ENTRYPOINT to ["python3","-m","sglang.launch_server"], so without the override
+# `docker run … $IMAGE /bin/bash -lc …` executes
+# `python3 -m sglang.launch_server /bin/bash -lc …` and argparse dies on the
+# positional "/bin/bash" before the server ever starts. deploy/run.py:28 passes
+# `--entrypoint sglang` and docs/rvn-w4a16.md:69 passes `--entrypoint python3`
+# for the same reason; here the wrapper shell is what the quoted
+# --model-loader-extra-config in INNER needs, so the entrypoint becomes bash and
+# the launch line stays an argument to it.
 cmd=(
   docker run --rm
   --name "$NAME_PREFIX-$GPU"
@@ -187,8 +255,9 @@ cmd=(
   --ulimit memlock=-1:-1 --ulimit nofile=1048576:1048576 --ulimit stack=67108864:67108864
   "${env_args[@]}"
   "${mounts[@]}"
+  --entrypoint /bin/bash
   "$IMAGE"
-  /bin/bash -lc "$INNER"
+  -lc "$INNER"
 )
 
 if (( DRY_RUN )); then

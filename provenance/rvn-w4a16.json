@@ -1,5 +1,5 @@
 {
-  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0052; includes PLE host-offload eligibility for the text arch and the marlin MoE repack release fix); opt-in profile on the local-only deployed hicache base image",
+  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0053; includes PLE host-offload eligibility for the text arch, the marlin MoE repack release fix, and never allocating dead swizzle placeholders under the marlin pin); opt-in profile on the local-only deployed hicache base image",
   "base_image": "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284",
   "base_image_id": "sha256:91cee840799be19916e1ba17ed10a517923f4fc70d54f5abd0247f700d01d77a",
   "base_inventory": "provenance/rvn-w4a16-runtime-files.json",
@@ -82,6 +82,16 @@
           "after": "1ec24885b97ea6aeb47cd0088b172e6292d37edf6f8c5b01921f719d09585048"
         }
       }
+    },
+    {
+      "file": "0053-rvn-marlin-skip-blockscale-swizzle.patch",
+      "sha256": "26f16b3f7b70a243733159e95ae96b8e98ae9826505a27b91adbf39c70f7788d",
+      "files": {
+        "python/sglang/srt/layers/quantization/modelopt_quant.py": {
+          "before": "1d1e32c593feb610693433b2e8c3f40f08bbc5478058487a8357a712f6b68506",
+          "after": "18cab804ab31f2e0faac7fb09fca0a8389a08bcef323c058ef3cffdaf2b50a1a"
+        }
+      }
     }
   ],
   "files": {
@@ -99,7 +109,7 @@
     },
     "python/sglang/srt/layers/quantization/modelopt_quant.py": {
       "before": "b05ed81bef0443781c79c7a6daf05204b8d6c50903cd84dae87ef3303c93d311",
-      "after": "1d1e32c593feb610693433b2e8c3f40f08bbc5478058487a8357a712f6b68506"
+      "after": "18cab804ab31f2e0faac7fb09fca0a8389a08bcef323c058ef3cffdaf2b50a1a"
     },
     "python/sglang/srt/models/rvn_ple_storage.py": {
       "before": null,
@@ -118,5 +128,5 @@
       "after": "1ec24885b97ea6aeb47cd0088b172e6292d37edf6f8c5b01921f719d09585048"
     }
   },
-  "result_inventory_sha256": "4b536fe5cbfaa49ba3107fe0efdb479a546a3f9d5836af74e6556a99ab9e50c5"
+  "result_inventory_sha256": "ca637e633aea8c3cfa2fef39ad260fd2b1f35721b934ab279c120df07b57e850"
 }

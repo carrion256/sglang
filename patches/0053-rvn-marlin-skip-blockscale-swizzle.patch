@@ -1,0 +1,66 @@
+[rvn-ple] Never allocate the dead swizzle placeholders under the marlin pin
+
+0052 made prepare_moe_nvfp4_layer_for_marlin drop w13_blockscale_swizzled /
+w2_blockscale_swizzled just before repacking each layer. That bought the repack
+~2.5x more headroom but the launch still OOMed inside it, because the release is
+one layer too late: create_weights allocates those two parameters at model
+construction, so all 48 MoE layers hold them through the whole weight load
+(2 x scale bytes per layer; the RVN checkpoint stores 7.031 GiB of expert
+scales as float8_e4m3fn, so 7.03 GiB of duplicates model-wide), and only the
+current layer's 0.1465 GiB is free by the time that layer's repack asks for
+800 MiB with 572 MiB to spare.
+
+Nothing on the marlin path can ever read them. apply() resolves its tensors
+through get_marlin_quant_info and returns early (modelopt_quant.py:2871-2872),
+and the only in-tree readers -- the eager getattr defaults at
+modelopt_quant.py:2944-2948 and the list literal at 2973-2977 -- sit behind the
+cutedsl / flashinfer backend predicates that a marlin backend cannot satisfy.
+So stop allocating them for that backend rather than sweeping them at load
+entry: no extra pass over the modules, and the bytes are free before the first
+shard is read instead of one layer at a time.
+
+The predicate extends the guard the trtllm branch in this same block already
+uses for the same reason, and keeps its convention of assigning None (the
+class's "backend does not use this" marker, modelopt_quant.py:2371/2391), which
+degrades to a None value instead of an AttributeError if a future path ever
+reads the attribute. LIL and every cutlass / trtllm run stay byte-identical:
+is_marlin() is False for their backends, so the allocation they get is
+unchanged, and the getattr keeps the pre-existing defensive idiom used at
+modelopt_quant.py:2477 and 2862 for backends where 0048's pin never fires.
+
+--- a/python/sglang/srt/layers/quantization/modelopt_quant.py
++++ b/python/sglang/srt/layers/quantization/modelopt_quant.py
+@@ -2367,7 +2367,18 @@
+         # TRTLLM replaces blockscale_swizzled with an alias to weight_scale
+         # during process_weights_after_loading, so skip the expensive
+         # swizzle+allocate here to avoid GPU memory fragmentation
+-        if self.enable_flashinfer_trtllm_moe:
++        # Marlin never reads them either: apply() resolves its tensors through
++        # get_marlin_quant_info, and the cutedsl readers that use them as
++        # getattr defaults are unreachable under a marlin backend. 0048 pins
++        # marlin for W4A16_NVFP4, so allocating them would keep 2 x scale bytes
++        # per MoE layer live for the whole process (7.03 GiB across the
++        # 48-layer RVN checkpoint) and that is what squeezed the first repack.
++        if (
++            self.enable_flashinfer_trtllm_moe
++            or getattr(
++                self, "_moe_runner_backend", get_moe_runner_backend()
++            ).is_marlin()
++        ):
+             layer.w13_blockscale_swizzled = None
+         else:
+             layer.w13_blockscale_swizzled = Parameter(
+@@ -2387,7 +2398,12 @@
+         )
+         layer.register_parameter("w2_weight_scale", w2_weight_scale)
+ 
+-        if self.enable_flashinfer_trtllm_moe:
++        if (
++            self.enable_flashinfer_trtllm_moe
++            or getattr(
++                self, "_moe_runner_backend", get_moe_runner_backend()
++            ).is_marlin()
++        ):
+             layer.w2_blockscale_swizzled = None
+         else:
+             layer.w2_blockscale_swizzled = Parameter(

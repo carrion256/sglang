@@ -21,6 +21,7 @@ RVN_PATCHES = [
     "0050-rvn-ple-hooksite.patch",
     "0051-rvn-ple-offload-eligibility.patch",
     "0052-rvn-marlin-moe-release.patch",
+    "0053-rvn-marlin-skip-blockscale-swizzle.patch",
 ]
 BASE_IMAGE = "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284"
 BASE_IMAGE_ID = (

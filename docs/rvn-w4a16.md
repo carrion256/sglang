@@ -19,6 +19,7 @@ The PLE storage format this profile consumes is frozen in
 | 4 | `0050-rvn-ple-hooksite.patch` | Wires the packed-PLE manifest call site into the RVN text load path (multimodal path stays byte-identical) |
 | 5 | `0051-rvn-ple-offload-eligibility.patch` | Extends `--ple-offload-embedding` host/pinned eligibility to `Qwen4ExpForCausalLM` so the text arch can build with the PLE table in pinned host RAM |
 | 6 | `0052-rvn-marlin-moe-release.patch` | Frees loader-format MoE storage during the marlin repack (dead swizzle placeholders, per-expert repack buffer, originals dropped as replacements bind) so load peak fits one 96 GB card |
+| 7 | `0053-rvn-marlin-skip-blockscale-swizzle.patch` | Never allocates the dead `w*_blockscale_swizzled` placeholders when the backend resolves to Marlin — the 7 GiB is freed at construction, not per-layer |
 
 ## Base image
 
