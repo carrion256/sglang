@@ -28,6 +28,9 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 PATCH_PATH = ROOT / "patches" / "0048-rvn-w4a16-dispatch.patch"
+PREIMAGE_SHA256 = (
+    "b05ed81bef0443781c79c7a6daf05204b8d6c50903cd84dae87ef3303c93d311"
+)
 
 _PREIMAGE_LAYOUTS = [
     (pathlib.Path("/sgl-workspace/sglang"), pathlib.Path("python/sglang")),
@@ -127,6 +130,23 @@ LIL_MIXED_BLOB = {
             "group_size": 16,
         },
         "mtp.layers.0.mlp.experts": {"quant_algo": "W4A16_NVFP4", "group_size": 16},
+    },
+}
+
+# LIL qwen38-flash-next config.json:quantization_config (real shape:
+# quant_method "modelopt", quant_algo "MIXED_PRECISION", quantized_layers).
+LIL_MIXED_BLOB_REAL = {
+    "quant_method": "modelopt",
+    "producer": {"name": "modelopt", "version": "0.0"},
+    "quant_algo": "MIXED_PRECISION",
+    "group_size": 16,
+    "quantized_layers": {
+        "model.language_model.layers.0.mlp.experts": {
+            "quant_algo": "NVFP4",
+            "group_size": 16,
+        },
+        "mtp.layers.0.mlp.experts": {"quant_algo": "W4A16_NVFP4", "group_size": 16},
+        "mtp.layers.48.mlp.experts": {"quant_algo": "W4A16_NVFP4", "group_size": 16},
     },
 }
 
@@ -733,11 +753,19 @@ class TestPatchIntegrity(unittest.TestCase):
         patched_bytes = PATCHED_MODELFILE.read_bytes()
         self.assertNotEqual(preimage_bytes, patched_bytes)
 
+    def test_preimage_sha_matches_attested_export(self):
+        if PREIMAGE_MODELFILE is None:
+            self.skipTest("deployed preimage tree not available")
+        self.assertEqual(_sha256(PREIMAGE_MODELFILE), PREIMAGE_SHA256)
+
 
 class TestW4A16Recognition(unittest.TestCase):
     def setUp(self):
         if PREIMAGE_MODELFILE is None:
             self.skipTest("deployed preimage tree not available")
+        _install_stubs()
+        STUB_BACKEND.blackwell = True
+        STUB_BACKEND.backend = sys.modules["sglang.srt.layers.moe"].MoeRunnerBackend.AUTO
         self.mod = load_patched()
 
     def test_rvn_blob_routes_to_modelopt_fp4(self):
@@ -794,12 +822,117 @@ class TestW4A16Recognition(unittest.TestCase):
         self.assertTrue(cfg.expert_global_scale_down_independent)
         self.assertEqual(cfg.activation_dtype, torch.bfloat16)
         self.assertFalse(cfg.input_scale_calibrated)
+        self.assertEqual(cfg.reconstruction, "bf16_direct")
 
+
+    def test_preimage_rejects_rvn_uniform_dicts(self):
+        # Pin the pre-fix rejection the RVN baseline hit (WP1 failure mode).
+        pre = load_preimage()
+        for shape, cfg_dict in (
+            ("nested", {**RVN_BLOB, "packed_modules_mapping": None}),
+            ("flat", dict(RVN_FLAT)),
+        ):
+            with self.subTest(shape=shape):
+                with self.assertRaises(ValueError):
+                    pre.ModelOptFp4Config.from_config(cfg_dict)
+
+    def test_reroute_gate_requires_uniform_checkpoint(self):
+        # A quantized_layers map must never be hijacked out of the mixed
+        # path, even when a layer entry is W4A16_NVFP4 (LIL mtp experts).
+        mixed_shaped = {
+            "quant_method": "modelopt",
+            "producer": {"name": "modelopt", "version": "1"},
+            "quantization": {"quant_algo": "W4A16_NVFP4", "group_size": 16},
+            "quantized_layers": {
+                "mtp.layers.0.mlp.experts": {
+                    "quant_algo": "W4A16_NVFP4",
+                    "group_size": 16,
+                }
+            },
+        }
+        for name, cfg_dict in (
+            ("mixed_shaped", mixed_shaped),
+            ("lil_real", dict(LIL_MIXED_BLOB_REAL)),
+        ):
+            for module in (load_preimage(), self.mod):
+                with self.subTest(dict=name, module=module.__name__):
+                    self.assertIsNone(
+                        module.ModelOptMixedPrecisionConfig.override_quantization_method(
+                            dict(cfg_dict), "modelopt_mixed"
+                        )
+                    )
+        self.assertIsNone(
+            load_preimage().ModelOptMixedPrecisionConfig.override_quantization_method(
+                dict(RVN_BLOB), "modelopt_mixed"
+            )
+        )
+        self.assertEqual(
+            self.mod.ModelOptMixedPrecisionConfig.override_quantization_method(
+                dict(RVN_BLOB), "modelopt_mixed"
+            ),
+            "modelopt_fp4",
+        )
+
+    def test_rvn_exclusions_resolve_to_unquantized(self):
+        # RVN export receipt: excluded linears fall back to unquantized and
+        # non-excluded modules take the W4A16 dispatch. down_proj is the
+        # positive control (no RVN glob covers it, so the A16 method must
+        # fire); the embed row pins the embed branch's no-quant-method
+        # resolution (embeddings are unquantized regardless of the glob),
+        # and the excluded-FusedMoE row pins the None fallback.
+        cfg = self.mod.ModelOptFp4Config.from_config(
+            {**RVN_BLOB, "packed_modules_mapping": None}
+        )
+        linear_stub = sys.modules["sglang.srt.layers.linear"].LinearBase
+        moe_stub = sys.modules["sglang.srt.layers.moe.fused_moe_triton"].FusedMoE
+        embed_stub = sys.modules[
+            "sglang.srt.layers.vocab_parallel_embedding"
+        ].VocabParallelEmbedding
+
+        class _Linear(linear_stub):
+            pass
+
+        class _MoE(moe_stub):
+            pass
+
+        class _Embed(embed_stub):
+            pass
+
+        unquantized = self.mod.UnquantizedLinearMethod
+        cases = [
+            ("model.layers.0.mlp.ple_table", _Linear(), unquantized),
+            ("lm_head", _Linear(), unquantized),
+            ("model.layers.0.self_attn.q_proj", _Linear(), unquantized),
+            ("model.embed_tokens", _Embed(), None),
+            ("model.layers.0.mlp.shared_expert.gate_proj", _Linear(), unquantized),
+            ("model.layers.0.mlp.gate", _Linear(), unquantized),
+            (
+                "model.layers.0.mlp.experts",
+                _MoE(),
+                self.mod.ModelOptNvFp4FusedMoEMethod,
+            ),
+            (
+                "model.layers.0.mlp.down_proj",
+                _Linear(),
+                self.mod.ModelOptNvFp4A16LinearMethod,
+            ),
+            ("model.layers.0.mlp.gate_up_proj.experts", _MoE(), None),
+        ]
+        for prefix, layer, expected in cases:
+            with self.subTest(prefix=prefix):
+                method = cfg.get_quant_method(layer, prefix)
+                if expected is None:
+                    self.assertIsNone(method)
+                else:
+                    self.assertIs(type(method), expected)
 
 class TestW4A16MarlinDispatch(unittest.TestCase):
     def setUp(self):
         if PREIMAGE_MODELFILE is None:
             self.skipTest("deployed preimage tree not available")
+        _install_stubs()
+        STUB_BACKEND.blackwell = True
+        STUB_BACKEND.backend = sys.modules["sglang.srt.layers.moe"].MoeRunnerBackend.AUTO
         self.mod = load_patched()
         self.pre = load_preimage()
         import torch
@@ -841,6 +974,27 @@ class TestW4A16MarlinDispatch(unittest.TestCase):
             moe_runner_selection(self.pre, pre_cfg, "AUTO"),
             ("ok", "FLASHINFER_TRTLLM"),
         )
+
+    def test_marlin_pin_is_cross_site_consistent(self):
+        # Partial override is the bug class: every consumer of the backend
+        # (create_weights / process_weights_after_loading / apply read
+        # getattr(self, "_moe_runner_backend", get_moe_runner_backend()))
+        # must see the same pinned Marlin value, starting at __init__.
+        MOE = sys.modules["sglang.srt.layers.moe"]
+        cfg = self._w4a16_config(self.mod)
+        method = self.mod.ModelOptNvFp4FusedMoEMethod(cfg)
+        self.assertEqual(
+            getattr(method, "_moe_runner_backend", "MISSING").name, "MARLIN"
+        )
+        self.assertFalse(method.enable_flashinfer_trtllm_moe)
+        self.assertFalse(method.enable_flashinfer_cutlass_moe)
+        self.assertFalse(method.enable_flashinfer_cutedsl_moe)
+        layer = types.SimpleNamespace(
+            moe_runner_config=types.SimpleNamespace(is_gated=True)
+        )
+        method.create_moe_runner(layer, MOE.MoeRunnerConfig(activation="silu"))
+        self.assertEqual(method._moe_runner_backend.name, "MARLIN")
+        self.assertEqual(method.runner.args[0].name, "MARLIN")
 
     def test_w4a16_rejects_conflicting_w4a4_runner_selection(self):
         STUB_BACKEND.blackwell = True
@@ -1013,6 +1167,9 @@ class TestLegacyResolutionUnchanged(unittest.TestCase):
     def setUp(self):
         if PREIMAGE_MODELFILE is None:
             self.skipTest("deployed preimage tree not available")
+        _install_stubs()
+        STUB_BACKEND.blackwell = True
+        STUB_BACKEND.backend = sys.modules["sglang.srt.layers.moe"].MoeRunnerBackend.AUTO
         self.pre = load_preimage()
         self.post = load_patched()
 

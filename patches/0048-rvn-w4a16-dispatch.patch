@@ -1,6 +1,6 @@
 --- a/python/sglang/srt/layers/quantization/modelopt_quant.py
 +++ b/python/sglang/srt/layers/quantization/modelopt_quant.py
-@@ -753,6 +753,17 @@
+@@ -753,6 +753,23 @@
              return None
          if hf_quant_config.get("quant_method", "") == "modelopt_mixed":
              return "modelopt_mixed"
@@ -13,12 +13,18 @@
 +                or hf_quant_config.get("quant_algo")
 +                or ""
 +            ).upper()
-+            if quant_algo == "W4A16_NVFP4":
++            if (
++                quant_algo == "W4A16_NVFP4"
++                and not hf_quant_config.get("quantized_layers")
++                and not (hf_quant_config.get("quantization") or {}).get(
++                    "quantized_layers"
++                )
++            ):
 +                return "modelopt_fp4"
          return None
  
      @classmethod
-@@ -1375,6 +1386,7 @@
+@@ -1375,6 +1392,7 @@
          packed_modules_mapping: Optional[Dict[str, List[str]]] = None,
          use_per_token_activation: Optional[bool] = None,
          is_awq: bool = False,
@@ -26,7 +32,7 @@
      ) -> None:
          super().__init__(kv_cache_quant_algo, exclude_modules, packed_modules_mapping)
          self.is_checkpoint_nvfp4_serialized = is_checkpoint_nvfp4_serialized
-@@ -1400,6 +1412,26 @@
+@@ -1400,6 +1418,29 @@
                  else use_per_token_activation
              )
  
@@ -49,11 +55,14 @@
 +            self.expert_global_scale_down_independent = True
 +            self.activation_dtype = torch.bfloat16
 +            self.input_scale_calibrated = False
++            # docs/rvn-ple-storage-schema.md §1: packed E2M1 payload is
++            # reconstructed bf16-direct (bf16(e2m1 * e4m3_scale * g)).
++            self.reconstruction = "bf16_direct"
 +
      @classmethod
      def override_quantization_method(cls, hf_quant_config, user_quant):
          """Override quantization method based on the model's config."""
-@@ -1521,7 +1553,9 @@
+@@ -1521,7 +1562,9 @@
              if group_size is None and quant_method and "NVFP4" in quant_method:
                  group_size = 16
  
@@ -64,7 +73,7 @@
          else:
              # Fall back to nested format (hf_quant_config.json - legacy format)
              try:
-@@ -1538,10 +1572,10 @@
+@@ -1538,10 +1581,10 @@
                      "Expected either flat format (config.json) or nested format (hf_quant_config.json)."
                  )
  
@@ -78,7 +87,7 @@
                  "quantization config for your model's configuration."
              )
          is_checkpoint_nvfp4_serialized = "NVFP4" in quant_method
-@@ -1563,6 +1597,7 @@
+@@ -1563,6 +1606,7 @@
              exclude_modules,
              config.get("packed_modules_mapping"),
              is_awq="AWQ" in quant_method,
@@ -86,7 +95,7 @@
          )
  
      def get_quant_method(self, layer: torch.nn.Module, prefix: str):
-@@ -1583,7 +1618,9 @@
+@@ -1583,7 +1627,9 @@
          return self._get_quant_method(
              layer,
              prefix,
@@ -97,7 +106,7 @@
              Moe=ModelOptNvFp4FusedMoEMethod,
          )
  
-@@ -2158,7 +2195,9 @@
+@@ -2158,7 +2204,9 @@
  
      def __init__(self, quant_config: ModelOptFp4Config):
          self.quant_config = quant_config
@@ -108,7 +117,7 @@
          if moe_runner_backend.is_auto() and is_cuda():
              capability = get_device_capability()
              use_marlin_fallback = (8, 0) <= capability < (10, 0)
-@@ -2176,6 +2215,25 @@
+@@ -2176,6 +2224,29 @@
          )
          self._cache_permute_indices = {}
  
@@ -129,12 +138,16 @@
 +                "a conflicting W4A4 path. Use --moe-runner-backend marlin "
 +                "(or auto)."
 +            )
++        # Pin the backend on the instance so create_weights,
++        # process_weights_after_loading and apply all see Marlin via
++        # getattr(self, "_moe_runner_backend", ...), never the global default.
++        self._moe_runner_backend = MoeRunnerBackend.MARLIN
 +        return MoeRunnerBackend.MARLIN
 +
      @property
      def enable_flashinfer_cutlass_moe(self) -> bool:
          from sglang.srt.layers.moe import get_moe_runner_backend
-@@ -2718,7 +2776,9 @@
+@@ -2718,7 +2789,9 @@
          self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
      ):
          self.moe_runner_config = moe_runner_config

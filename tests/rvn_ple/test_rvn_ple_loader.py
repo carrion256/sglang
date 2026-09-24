@@ -40,13 +40,18 @@ AMAX_TIE = 3134.25  # G_TIE * 6 * 448, exactly representable
 
 def _tree():
     tree = os.environ.get("RVN_PLE_TREE")
-    candidates = ([Path(tree)] if tree else []) + [REPO / "runtime"]
-    for root in candidates:
-        if (root / _MODULE_REL).is_file():
-            return root
-    raise AssertionError(
-        "rvn_ple_storage.py not found: apply patches/0049-rvn-ple-packed-loader"
-        ".patch to a tree and set RVN_PLE_TREE to that tree root")
+    if tree:
+        root = Path(tree)
+        assert (root / _MODULE_REL).is_file(), (
+            f"RVN_PLE_TREE={tree} lacks {_MODULE_REL}: apply "
+            "patches/0049-rvn-ple-packed-loader.patch to that tree root")
+        return root
+    if (REPO / "runtime" / _MODULE_REL).is_file():
+        return REPO / "runtime"
+    pytest.skip(
+        "rvn_ple_storage.py ships only inside "
+        "patches/0049-rvn-ple-packed-loader.patch; set RVN_PLE_TREE to the "
+        "tree the patch was applied to", allow_module_level=True)
 
 
 TREE = _tree()
