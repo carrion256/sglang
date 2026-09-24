@@ -382,31 +382,74 @@ def _numel(shape):
     return n
 
 
+def _same_shard_content(src, dst):
+    """True iff dst is byte-identical to src: same inode, else bounded streaming
+    compare (size first, then _HASH_BLOCK chunks)."""
+    ss, ds = src.stat(), dst.stat()
+    if (ss.st_dev, ss.st_ino) == (ds.st_dev, ds.st_ino):
+        return True
+    if ss.st_size != ds.st_size:
+        return False
+    with open(src, "rb") as a, open(dst, "rb") as b:
+        while True:
+            ca = a.read(_HASH_BLOCK)
+            if not ca:
+                return True
+            if ca != b.read(_HASH_BLOCK):
+                return False
+
+
 def _assemble(spec, state, src_dir, dst_dir, g_bits):
     parts = spec["partitioning"]
     ple_names = {p["source_tensor"] for p in parts}
+    packed_names = {f"rvn_ple.packed.w{p['part']}" for p in parts}
+    packed_names |= {f"rvn_ple.packed.s{p['part']}" for p in parts}
     plan = {}
+    rewritten = set()
     for path in sorted(src_dir.glob("*.safetensors")):
         names, _ = _st_header(path)
         retained = [n for n in names if n not in ple_names]
         if retained:
             plan[path.name] = retained
+            if len(retained) != len(names):
+                rewritten.add(path.name)  # mixed shard: PLE tensors dropped -> rewritten
     decl = spec["retained_rewrites"]
     retained_all = {n for names in plan.values() for n in names}
-    for fname, names in plan.items():
-        for n in names:
+    # Only rewritten (mixed) shards require a retained_rewrites declaration;
+    # fully-unchanged shards are hardlinked by value below and need none.
+    for fname in sorted(rewritten):
+        for n in plan[fname]:
             if n not in decl.get(fname, []):
                 raise ValueError(
                     f"refuse: retained tensor {n!r} in output shard {fname} is not declared "
                     "in tensors-file retained_rewrites")
-    # Collision guard: dst-tree may only carry retained names inside declared rewrite shards.
+    # Guard: the dst tree may only carry (a) shards byte-identical to their source
+    # shard (unchanged pass-through hardlinks/copies) or (b) declared retained
+    # rewrites. Foreign or tampered files are refused.
     for path in sorted(dst_dir.glob("*.safetensors")):
         names, _ = _st_header(path)
         for n in names:
-            if n in retained_all and n not in decl.get(path.name, []):
+            if n in ple_names or n in packed_names:
+                raise ValueError(
+                    f"refuse: dst tensor name collision {n!r} in {path.name} "
+                    "collides with a PLE output tensor")
+        src = src_dir / path.name
+        if src.exists() and _same_shard_content(src, path):
+            continue  # unchanged pass-through (hardlink or byte copy)
+        if path.name in decl and all(n not in retained_all or n in decl[path.name]
+                                    for n in names):
+            continue  # declared retained rewrite
+        if src.exists():
+            raise ValueError(
+                f"refuse: dst shard {path.name} is not byte-identical to its source shard "
+                "and is not a declared retained rewrite (tampered)")
+        for n in names:
+            if n in retained_all:
                 raise ValueError(
                     f"refuse: dst tensor name collision {n!r} in {path.name} "
                     "is not a declared retained rewrite")
+        raise ValueError(
+            f"refuse: foreign shard {path.name} in dst has no source counterpart")
 
     for fname, names in plan.items():
         src = src_dir / fname

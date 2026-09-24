@@ -382,6 +382,67 @@ def test_undeclared_dst_name_collision_refuses(tmp_path, mixed_src):
         _run(mixed_src, dst, spec)
 
 
+@pytest.fixture()
+def unchanged_multi_src(tmp_path):
+    """Live-scenario shape: one fully-unchanged MULTI-TENSOR shard plus one
+    pure-PLE shard, so no mixed shard exists and retained_rewrites stays {}."""
+    src = tmp_path / "src"
+    _shard(src, "model-00001.safetensors", {
+        "lm_head.weight": torch.randn(8, 16, dtype=torch.bfloat16),
+        "model.layers.0.mlp.gate_proj.weight": torch.randn(8, 8, dtype=torch.bfloat16),
+    })
+    _shard(src, "model-00002.safetensors", {PLE: _grid(32, 16, seed=9)})
+    return src
+
+
+def _unchanged_spec(tmp):
+    return _spec_file(tmp, [_part(0, "model-00002.safetensors", PLE, 0, 32)], 16, 32)
+
+
+def test_unchanged_multi_tensor_shard_hardlinks_with_empty_declarations(tmp_path,
+                                                                        unchanged_multi_src):
+    """Regression (live failure): retained_rewrites={} is legal when every
+    retained shard is fully unchanged and gets hardlinked into dst."""
+    spec = _unchanged_spec(tmp_path)  # retained_rewrites stays {}
+    dst = tmp_path / "out"
+    man = _run(unchanged_multi_src, dst, spec)
+    src1 = unchanged_multi_src / "model-00001.safetensors"
+    dst1 = dst / "model-00001.safetensors"
+    assert (src1.stat().st_dev, src1.stat().st_ino) == \
+           (dst1.stat().st_dev, dst1.stat().st_ino)  # same inode: hardlinked
+    assert dst1.read_bytes() == src1.read_bytes()
+    assert set(_raw_payloads(dst1)) == \
+        {"lm_head.weight", "model.layers.0.mlp.gate_proj.weight"}
+    assert man["encoding"]["global_scale_bits"] != 0
+
+
+def test_tampered_hardlinked_shard_refuses(tmp_path, unchanged_multi_src):
+    spec = _unchanged_spec(tmp_path)
+    dst = tmp_path / "out"
+    _run(unchanged_multi_src, dst, spec)
+    victim = dst / "model-00001.safetensors"
+    data = bytearray(victim.read_bytes())
+    victim.unlink()  # copy-up: break the hardlink before mutating anything
+    n = struct.unpack("<Q", data[:8])[0]
+    header = json.loads(bytes(data[8:8 + n]))
+    off = header["lm_head.weight"]["data_offsets"][0]
+    data[8 + n + off] ^= 0xFF  # modify one byte of a retained tensor payload
+    victim.write_bytes(data)
+    # The source shard must be untouched: the copy-up broke the hardlink.
+    assert (unchanged_multi_src / "model-00001.safetensors").read_bytes() != bytes(data)
+    with pytest.raises(ValueError, match="not byte-identical"):
+        _run(unchanged_multi_src, dst, spec, resume=True)
+
+
+def test_foreign_dst_shard_refuses(tmp_path, unchanged_multi_src):
+    spec = _unchanged_spec(tmp_path)
+    dst = tmp_path / "out"
+    _shard(dst, "rogue.safetensors",
+           {"totally.novel.weight": torch.zeros(2, 2, dtype=torch.bfloat16)})
+    with pytest.raises(ValueError, match="foreign"):
+        _run(unchanged_multi_src, dst, spec)
+
+
 def test_source_table_sha256_is_raw_source_payload_concat(tmp_path, mixed_src):
     spec = _mixed_spec(tmp_path)
     dst = tmp_path / "out"
