@@ -1,0 +1,147 @@
+--- a/python/sglang/srt/layers/quantization/modelopt_quant.py
++++ b/python/sglang/srt/layers/quantization/modelopt_quant.py
+@@ -753,6 +753,17 @@
+             return None
+         if hf_quant_config.get("quant_method", "") == "modelopt_mixed":
+             return "modelopt_mixed"
++        if user_quant == "modelopt_mixed":
++            # Uniform W4A16_NVFP4 checkpoints (e.g. RVN) carry no
++            # quantized_layers map; resolve them through the uniform ModelOpt
++            # FP4 config instead of failing MIXED_PRECISION validation.
++            quant_algo = (
++                (hf_quant_config.get("quantization") or {}).get("quant_algo")
++                or hf_quant_config.get("quant_algo")
++                or ""
++            ).upper()
++            if quant_algo == "W4A16_NVFP4":
++                return "modelopt_fp4"
+         return None
+ 
+     @classmethod
+@@ -1375,6 +1386,7 @@
+         packed_modules_mapping: Optional[Dict[str, List[str]]] = None,
+         use_per_token_activation: Optional[bool] = None,
+         is_awq: bool = False,
++        quant_format: Optional[str] = None,
+     ) -> None:
+         super().__init__(kv_cache_quant_algo, exclude_modules, packed_modules_mapping)
+         self.is_checkpoint_nvfp4_serialized = is_checkpoint_nvfp4_serialized
+@@ -1400,6 +1412,26 @@
+                 else use_per_token_activation
+             )
+ 
++        # W4A16_NVFP4 dispatch keys on this explicit format string, never on
++        # use_per_token_activation=False (static W4A4 shares that metadata).
++        self.quant_format = quant_format
++        self.is_w4a16_nvfp4 = quant_format == "W4A16_NVFP4"
++        if self.is_w4a16_nvfp4:
++            if self.use_per_token_activation:
++                raise ValueError(
++                    "W4A16_NVFP4 runs BF16 activations through Marlin and "
++                    "conflicts with W4A4 per-token activation scales. Use "
++                    "use_per_token_activation=False and unset "
++                    "SGLANG_FLASHINFER_NVFP4_PER_TOKEN_ACTIVATION."
++                )
++            # RVN export-receipt expert scale conventions.
++            self.weight_scale_dtype = torch.float8_e4m3fn
++            self.expert_global_scale_dtype = torch.float32
++            self.expert_global_scale_shared_gate_up = True
++            self.expert_global_scale_down_independent = True
++            self.activation_dtype = torch.bfloat16
++            self.input_scale_calibrated = False
++
+     @classmethod
+     def override_quantization_method(cls, hf_quant_config, user_quant):
+         """Override quantization method based on the model's config."""
+@@ -1521,7 +1553,9 @@
+             if group_size is None and quant_method and "NVFP4" in quant_method:
+                 group_size = 16
+ 
+-            exclude_modules = config.get("ignore", [])
++            exclude_modules = config.get(
++                "ignore", config.get("exclude_modules", [])
++            )
+         else:
+             # Fall back to nested format (hf_quant_config.json - legacy format)
+             try:
+@@ -1538,10 +1572,10 @@
+                     "Expected either flat format (config.json) or nested format (hf_quant_config.json)."
+                 )
+ 
+-        if quant_method not in ["FP8", "NVFP4", "NVFP4_AWQ"]:
++        if quant_method not in ["FP8", "NVFP4", "NVFP4_AWQ", "W4A16_NVFP4"]:
+             raise ValueError(
+-                "ModelOpt currently only supports: FP8, NVFP4, NVFP4_AWQ "
+-                "quantizations in sglang. Please check the "
++                "ModelOpt currently only supports: FP8, NVFP4, NVFP4_AWQ, "
++                "W4A16_NVFP4 quantizations in sglang. Please check the "
+                 "quantization config for your model's configuration."
+             )
+         is_checkpoint_nvfp4_serialized = "NVFP4" in quant_method
+@@ -1563,6 +1597,7 @@
+             exclude_modules,
+             config.get("packed_modules_mapping"),
+             is_awq="AWQ" in quant_method,
++            quant_format=quant_method,
+         )
+ 
+     def get_quant_method(self, layer: torch.nn.Module, prefix: str):
+@@ -1583,7 +1618,9 @@
+         return self._get_quant_method(
+             layer,
+             prefix,
+-            Linear=ModelOptFp4LinearMethod,
++            Linear=ModelOptNvFp4A16LinearMethod
++            if getattr(self, "is_w4a16_nvfp4", False)
++            else ModelOptFp4LinearMethod,
+             Moe=ModelOptNvFp4FusedMoEMethod,
+         )
+ 
+@@ -2158,7 +2195,9 @@
+ 
+     def __init__(self, quant_config: ModelOptFp4Config):
+         self.quant_config = quant_config
+-        moe_runner_backend = get_moe_runner_backend()
++        moe_runner_backend = self._resolve_moe_runner_backend(
++            get_moe_runner_backend()
++        )
+         if moe_runner_backend.is_auto() and is_cuda():
+             capability = get_device_capability()
+             use_marlin_fallback = (8, 0) <= capability < (10, 0)
+@@ -2176,6 +2215,25 @@
+         )
+         self._cache_permute_indices = {}
+ 
++    def _resolve_moe_runner_backend(self, moe_runner_backend):
++        """W4A16_NVFP4 dispatches on the explicit format string to Marlin.
++
++        use_per_token_activation=False alone must not select W4A16 (static
++        W4A4 shares that metadata). Any explicitly selected non-Marlin
++        runner (e.g. the W4A4 FP4 backends) conflicts with W4A16_NVFP4 and
++        raises instead of silently proceeding.
++        """
++        if not getattr(self.quant_config, "is_w4a16_nvfp4", False):
++            return moe_runner_backend
++        if not (moe_runner_backend.is_auto() or moe_runner_backend.is_marlin()):
++            raise ValueError(
++                f"W4A16_NVFP4 quantization requires the Marlin MoE runner, "
++                f"but moe_runner_backend={moe_runner_backend.value!r} selects "
++                "a conflicting W4A4 path. Use --moe-runner-backend marlin "
++                "(or auto)."
++            )
++        return MoeRunnerBackend.MARLIN
++
+     @property
+     def enable_flashinfer_cutlass_moe(self) -> bool:
+         from sglang.srt.layers.moe import get_moe_runner_backend
+@@ -2718,7 +2776,9 @@
+         self, layer: torch.nn.Module, moe_runner_config: MoeRunnerConfig
+     ):
+         self.moe_runner_config = moe_runner_config
+-        moe_runner_backend = get_moe_runner_backend()
++        moe_runner_backend = self._resolve_moe_runner_backend(
++            get_moe_runner_backend()
++        )
+ 
+         if moe_runner_backend.is_auto():
+             if is_cuda() and (8, 0) <= get_device_capability() < (10, 0):
