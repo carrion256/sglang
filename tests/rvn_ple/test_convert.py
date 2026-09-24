@@ -475,3 +475,52 @@ def test_cli_end_to_end(tmp_path, small_src):
     assert r.returncode == 0, r.stderr
     assert (dst / "ple_storage.json").exists()
     assert (dst / "rvn_ple_parts" / "part-00000.safetensors").exists()
+
+
+def test_metadata_copied_and_config_stamped(tmp_path, unchanged_multi_src):
+    spec = _unchanged_spec(tmp_path)
+    (unchanged_multi_src / "config.json").write_text(json.dumps(
+        {"architectures": ["Qwen4ExpForCausalLM"],
+         "model_type": "qwen4_exp_text"}, indent=2) + "\n")
+    (unchanged_multi_src / "tokenizer.json").write_text('{"tok": 1}')
+    (unchanged_multi_src / "README.md").write_text("hi\n")
+    (unchanged_multi_src / "measurements").mkdir()
+    (unchanged_multi_src / "measurements" / "x.json").write_text("{}")
+    (unchanged_multi_src / ".cache").mkdir()
+    (unchanged_multi_src / ".cache" / "y").write_text("z")
+    dst = tmp_path / "out"
+    st = dst / ".state.json"
+    _run(unchanged_multi_src, dst, spec, state=str(st))
+    cfg = json.loads((dst / "config.json").read_text())
+    assert cfg["ple_embedding_dtype"] == "nvfp4"
+    assert cfg["model_type"] == "qwen4_exp_text"
+    assert (dst / "tokenizer.json").read_text() == '{"tok": 1}'
+    assert (dst / "README.md").read_text() == "hi\n"
+    assert not (dst / "measurements").exists()
+    assert not (dst / ".cache").exists()
+    # second run: stamped config is accepted and everything stays identical
+    before = _tree_digests(dst)
+    _run(unchanged_multi_src, dst, spec, resume=True, state=str(st))
+    assert _tree_digests(dst) == before
+
+
+def test_tampered_dst_metadata_config_refuses(tmp_path, unchanged_multi_src):
+    spec = _unchanged_spec(tmp_path)
+    (unchanged_multi_src / "config.json").write_text('{"model_type": "qwen4_exp_text"}')
+    dst = tmp_path / "out"
+    st = dst / ".state.json"
+    _run(unchanged_multi_src, dst, spec, state=str(st))
+    (dst / "config.json").write_text('{"model_type": "evil"}')
+    with pytest.raises(ValueError, match="config.json"):
+        _run(unchanged_multi_src, dst, spec, resume=True, state=str(st))
+
+
+def test_foreign_metadata_conflict_refuses(tmp_path, unchanged_multi_src):
+    spec = _unchanged_spec(tmp_path)
+    dst = tmp_path / "out"
+    st = dst / ".state.json"
+    _run(unchanged_multi_src, dst, spec, state=str(st))
+    (dst / "stray.json").write_text('{"junk": true}')
+    (unchanged_multi_src / "stray.json").write_text('{"different": true}')
+    with pytest.raises(ValueError, match="stray.json"):
+        _run(unchanged_multi_src, dst, spec, resume=True, state=str(st))

@@ -1,5 +1,5 @@
 {
-  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0050); opt-in profile on the local-only deployed hicache base image",
+  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0051; includes PLE host-offload eligibility for the text arch); opt-in profile on the local-only deployed hicache base image",
   "base_image": "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284",
   "base_image_id": "sha256:91cee840799be19916e1ba17ed10a517923f4fc70d54f5abd0247f700d01d77a",
   "base_inventory": "provenance/rvn-w4a16-runtime-files.json",
@@ -62,6 +62,16 @@
           "after": "6cf49c5db0892cdd5cda355bc25a66daa410c0fcb6586c04c3f4c9ac10dc25ae"
         }
       }
+    },
+    {
+      "file": "0051-rvn-ple-offload-eligibility.patch",
+      "sha256": "b6b28cca25550b8c0a8a31c2f9407d08bfbe95731feb5d88d090ba795799b8a2",
+      "files": {
+        "python/sglang/srt/model_executor/model_runner_components/load_model_utils.py": {
+          "before": "c864d5fa51311a9653a609bf23a70f21d2d6ea5c1556c5287adbdbb1b3c4ad4f",
+          "after": "ba51fdca0dd02bb9caf95011f90f21a5313abe35aebd1224f540fdda020150a2"
+        }
+      }
     }
   ],
   "files": {
@@ -88,7 +98,11 @@
     "python/sglang/srt/model_loader/weight_utils.py": {
       "before": "1759d4feb63dc1e41f509f16c4d46d2f00a175fec6f5efda1fb5a7501394588a",
       "after": "6cf49c5db0892cdd5cda355bc25a66daa410c0fcb6586c04c3f4c9ac10dc25ae"
+    },
+    "python/sglang/srt/model_executor/model_runner_components/load_model_utils.py": {
+      "before": "c864d5fa51311a9653a609bf23a70f21d2d6ea5c1556c5287adbdbb1b3c4ad4f",
+      "after": "ba51fdca0dd02bb9caf95011f90f21a5313abe35aebd1224f540fdda020150a2"
     }
   },
-  "result_inventory_sha256": "ebea1b883c2fec7c2959cab9ed1fd3c32b86154ce2dca1c4e26932195ee61518"
+  "result_inventory_sha256": "6a87e104fcb5de2691d1559da84a6466884e6065d1187d32cf308e679af6df65"
 }

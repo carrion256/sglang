@@ -399,6 +399,38 @@ def _same_shard_content(src, dst):
                 return False
 
 
+def _copy_metadata_files(src_dir, dst_dir):
+    """Copy top-level non-weight files so the candidate is a self-contained
+    checkpoint (config/tokenizer/template), and stamp the copied config.json
+    with ple_embedding_dtype="nvfp4" since the PLE table tensors this tool
+    wrote are packed E2M1+E4M3. A dst copy that differs from the source (or
+    from the stamped source config) is refused: fail-closed like the shard
+    guard."""
+    for f in sorted(src_dir.iterdir()):
+        if not f.is_file() or f.suffix == ".safetensors":
+            continue
+        if f.name in (INDEX_NAME, MANIFEST_NAME) or f.name.startswith("."):
+            continue
+        dst = dst_dir / f.name
+        if f.name == "config.json":
+            src_cfg = json.loads(f.read_text())
+            want = dict(src_cfg, ple_embedding_dtype="nvfp4")
+            if dst.exists():
+                if json.loads(dst.read_text()) != want:
+                    raise ValueError(
+                        "refuse: dst config.json differs from the source "
+                        "config with the packed-PLE stamp applied")
+            else:
+                _atomic_write_json(dst, want)
+            continue
+        if dst.exists():
+            if _same_shard_content(f, dst):
+                continue
+            raise ValueError(
+                f"refuse: dst metadata {f.name} is not byte-identical to source")
+        shutil.copyfile(f, dst)
+
+
 def _assemble(spec, state, src_dir, dst_dir, g_bits):
     parts = spec["partitioning"]
     ple_names = {p["source_tensor"] for p in parts}
@@ -465,6 +497,7 @@ def _assemble(spec, state, src_dir, dst_dir, g_bits):
         else:
             _rewrite_shard(src, dst, names)
 
+    _copy_metadata_files(src_dir, dst_dir)
     weight_map = {}
     total = 0
     for fname, names in plan.items():

@@ -1,0 +1,22 @@
+diff --git a/python/sglang/srt/model_executor/model_runner_components/load_model_utils.py b/python/sglang/srt/model_executor/model_runner_components/load_model_utils.py
+--- a/python/sglang/srt/model_executor/model_runner_components/load_model_utils.py
++++ b/python/sglang/srt/model_executor/model_runner_components/load_model_utils.py
+@@ -280,11 +280,16 @@
+ 
+     if not is_draft_worker:
+         architectures = model_config.hf_config.architectures or []
+-        is_qwen4_exp = "Qwen4ExpForConditionalGeneration" in architectures
++        # patch 0047's RVN text adapter shares the Qwen4Exp PLE semantics, so
++        # the host-offload eligibility covers both family entry points.
++        is_qwen4_exp = (
++            "Qwen4ExpForConditionalGeneration" in architectures
++            or "Qwen4ExpForCausalLM" in architectures
++        )
+         if server_args.ple_offload_embedding and not is_qwen4_exp:
+             raise ValueError(
+                 "--ple-offload-embedding only supports "
+-                "Qwen4ExpForConditionalGeneration"
++                "Qwen4ExpForConditionalGeneration/Qwen4ExpForCausalLM"
+             )
+         if is_qwen4_exp:
+             model_config.hf_text_config.ple_offload_embedding = (
