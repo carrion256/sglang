@@ -29,6 +29,7 @@ sampled rows are read for the dequant check.
 from __future__ import annotations
 
 import argparse
+import bisect
 import hashlib
 import json
 import math
@@ -45,6 +46,10 @@ INDEX_NAME = "model.safetensors.index.json"
 
 FORMAT_VERSION = 1
 REQUIRED_LOADER_FEATURE = "ple-packed-nvfp4-v1"
+
+# Schema §2 freezes the encoder version string; anything else is a different
+# encoder and must not be blessed by this gate (the loader fails closed too).
+ENCODER_VERSION = "rvn-ple-nvfp4-r1"
 WEIGHT_DTYPE = "e2m1-packed-u8-low-first"
 SCALE_DTYPE = "float8_e4m3fn"
 SCALE_LAYOUT = "row-major"
@@ -56,6 +61,16 @@ _STORE_DTYPE = {"bfloat16": "BF16", "float32": "F32", "float16": "F16"}
 # safetensors store codes for the packed tensors of contract §1.
 WEIGHT_STORE_DTYPE = "U8"
 SCALE_STORE_DTYPE = "F8_E4M3"
+# Bytes per element for every safetensors store code the verifier accepts
+# (schema §4 makes dtype+shape part of the digest input, so a declared payload
+# range must be exactly ``itemsize * prod(shape)``). Unknown codes fail closed:
+# a range whose element width is unknown cannot be anchored.
+_STORE_ITEMSIZE = {
+    "BOOL": 1, "U8": 1, "I8": 1, "F8_E4M3": 1, "F8_E5M2": 1, "F8_E8M0": 1,
+    "U16": 2, "I16": 2, "F16": 2, "BF16": 2,
+    "U32": 4, "I32": 4, "F32": 4,
+    "U64": 8, "I64": 8, "F64": 8,
+}
 
 CHUNK = 1 << 20
 DEFAULT_DEQUANT_SAMPLE = 8
@@ -121,6 +136,8 @@ def _read_shard_header(path: Path):
     _require(isinstance(meta, dict), f"unreadable shard (bad header): {path}")
 
     tensors = {}
+    ranges = []
+    file_size = path.stat().st_size
     for name, entry in meta.items():
         if name == "__metadata__":
             continue
@@ -131,6 +148,15 @@ def _read_shard_header(path: Path):
             and all(isinstance(dim, int) and dim >= 0 for dim in entry["shape"]),
             f"unreadable shard (bad tensor entry {name!r}): {path}",
         )
+        itemsize = _STORE_ITEMSIZE.get(entry["dtype"])
+        _require(
+            itemsize is not None,
+            f"unreadable shard (unsupported dtype {entry['dtype']!r} for "
+            f"{name!r}): {path}",
+        )
+        numel = 1
+        for dim in entry["shape"]:
+            numel *= dim
         offsets = entry.get("data_offsets")
         _require(
             isinstance(offsets, list)
@@ -139,11 +165,32 @@ def _read_shard_header(path: Path):
             and offsets[0] <= offsets[1],
             f"unreadable shard (bad data_offsets for {name!r}): {path}",
         )
+        # Schema §4 fixes the digest over the raw payload of THIS dtype+shape,
+        # so the declared range must be exactly the tensor the header describes:
+        # exact extent, inside the file, and not shared with another tensor.
+        _require(
+            offsets[1] - offsets[0] == itemsize * numel,
+            f"shard {path} tensor {name!r} is {entry['dtype']} {entry['shape']} "
+            f"= {itemsize * numel} bytes, but data_offsets span "
+            f"{offsets[1] - offsets[0]} bytes",
+        )
+        _require(
+            payload_base + offsets[1] <= file_size,
+            f"shard {path} tensor {name!r} payload ends at byte "
+            f"{payload_base + offsets[1]}, past the {file_size}-byte file",
+        )
+        if offsets[1] > offsets[0]:  # zero-length tensors may share an offset
+            ranges.append((offsets[0], offsets[1], name))
         tensors[name] = {
             "dtype": entry["dtype"],
             "shape": list(entry["shape"]),
             "data_offsets": [offsets[0] + payload_base, offsets[1] + payload_base],
         }
+    for (_, previous_end, previous), (start, _, name) in zip(ranges, ranges[1:]):
+        _require(
+            start >= previous_end,
+            f"shard {path}: payload of {name!r} overlaps that of {previous!r}",
+        )
     return tensors
 
 
@@ -172,8 +219,14 @@ def _resolve_shard(shards, rel_name, *, where):
     return matches[0]
 
 
-def _hash_payload(digest, path: Path, start, end):
-    """Feed ``[start, end)`` of a shard's stored payload into ``digest``."""
+def _hash_payload(digest, path: Path, start, end, watch=None):
+    """Feed ``[start, end)`` of a shard's stored payload into ``digest``.
+
+    ``watch`` (optional) sees every raw block through ``watch.feed(block)``, so
+    the value-domain rules the loader enforces over ALL bytes -- the schema §1
+    scale domain and the source amax -- are checked in this same streaming pass
+    rather than only on the rows the dequant check samples.
+    """
     _require(end >= start, f"bad payload range {start}..{end} in {path}")
     remaining = end - start
     with open(path, "rb") as handle:
@@ -185,13 +238,67 @@ def _hash_payload(digest, path: Path, start, end):
                     f"truncated payload: {path} ends before byte {end}"
                 )
             digest.update(block)
+            if watch is not None:
+                watch.feed(block)
             remaining -= len(block)
 
 
-def _sha256_payload(path: Path, start, end) -> str:
+def _sha256_payload(path: Path, start, end, watch=None) -> str:
     digest = hashlib.sha256()
-    _hash_payload(digest, path, start, end)
+    _hash_payload(digest, path, start, end, watch=watch)
     return digest.hexdigest()
+
+
+# Schema §1: block scales are finite and non-negative on read, i.e. no sign bit
+# (any byte >= 0x80) and no NaN encoding (0x7F). The loader rejects a whole part
+# on any such byte, so the gate has to see every scale byte, not sampled rows.
+_BAD_SCALE_BYTE = re.compile(rb"[\x7f\x80-\xff]")
+
+
+class _ScaleDomain:
+    """Watch remembering the first scale byte outside the schema §1 domain."""
+
+    def __init__(self):
+        self.bad = None
+
+    def feed(self, block):
+        if self.bad is None:
+            found = _BAD_SCALE_BYTE.search(block)
+            if found is not None:
+                self.bad = found.group()[0]
+
+
+class _SourceAmax:
+    """Watch recomputing ``amax`` over streamed BF16 source payload bytes.
+
+    This is the same quantity the converter scans and the loader's
+    ``g = amax / (6 * 448)`` is frozen against: float32 of the stored BF16
+    bits, maximum absolute value, NaN reported rather than skipped.
+    """
+
+    def __init__(self):
+        self.value = 0.0
+        self._odd = b""
+
+    def feed(self, block):
+        import torch
+
+        if self._odd:
+            block = self._odd + block
+            self._odd = b""
+        if len(block) % 2:
+            self._odd, block = block[-1:], block[:-1]
+        if not block:
+            return
+        current = float(
+            torch.frombuffer(bytearray(block), dtype=torch.uint16)
+            .view(torch.bfloat16)
+            .to(torch.float32)
+            .abs()
+            .max()
+        )
+        if math.isnan(current) or current > self.value:
+            self.value = current
 
 
 def _read_payload(path: Path, start, end) -> bytes:
@@ -260,8 +367,13 @@ def _validate_source(source):
         f"source.source_dtype must be {SOURCE_DTYPE!r}",
     )
     _require(
-        _is_num(source.get("amax")) and math.isfinite(source["amax"]),
-        "source.amax must be a finite number",
+        # The loader rejects a negative amax (patches/0049 parse_manifest), so a
+        # gate that accepted one would report PASSED for a checkpoint that then
+        # hard-errors at boot.
+        _is_num(source.get("amax"))
+        and math.isfinite(source["amax"])
+        and source["amax"] >= 0,
+        "source.amax must be a finite non-negative number",
     )
 
 
@@ -351,8 +463,9 @@ def _validate_manifest(meta):
         f"format_version must be the integer {FORMAT_VERSION}",
     )
     _require(
-        isinstance(meta.get("encoder_version"), str) and meta["encoder_version"] != "",
-        "encoder_version must be a non-empty string",
+        meta.get("encoder_version") == ENCODER_VERSION,
+        f"encoder_version must be {ENCODER_VERSION!r} (schema §2), got "
+        f"{meta.get('encoder_version')!r}",
     )
     _require(
         meta.get("required_loader_feature") == REQUIRED_LOADER_FEATURE,
@@ -385,6 +498,30 @@ def _decode_global_scale(meta):
     return struct.unpack("<f", struct.pack("<I", bits))[0]
 
 
+def _expected_global_scale_bits(amax):
+    """Schema §1 bits of ``g = amax / (6 * 448)``; all-zero table -> ``g = 1.0``.
+
+    Deliberately a copy of the loader's ``expected_global_scale_bits``
+    (patches/0049-rvn-ple-packed-loader.patch), because the loader is what this
+    gate exists to pre-empt: a manifest whose bits are not this function of its
+    amax rescales every decoded PLE value.
+    """
+    _require(
+        _is_num(amax) and math.isfinite(amax) and amax >= 0,
+        f"source.amax must be finite and non-negative, got {amax!r}",
+    )
+    g = 1.0 if amax == 0.0 else _f32(amax / (6.0 * 448.0))
+    return struct.unpack("<I", struct.pack("<f", g))[0]
+
+
+def _natural_key(name):
+    """Numeric-aware sort key: digit runs compare as integers (2 < 10)."""
+    return tuple(
+        (1, int(part)) if part.isdigit() else (0, part)
+        for part in re.split(r"(\d+)", name)
+    )
+
+
 class _Ctx:
     """Lazy shared state for the checks; bad input always raises VerifyError."""
 
@@ -395,6 +532,7 @@ class _Ctx:
         self._manifest = None
         self._src_shards = None
         self._dst_shards = None
+        self._source_scan = None
 
     def manifest(self):
         if self._manifest is None:
@@ -443,6 +581,17 @@ class _Ctx:
         )
         return self.shard_path(self.dst_dir, pure.as_posix())
 
+    def source_scan(self):
+        """One streaming pass over the source slices: ``(§4 digest, count, amax)``.
+
+        Cached, so the global-scale check and ``source_table_sha256`` share the
+        same read: the amax is recomputed from the very bytes the digest covers,
+        which is what stops ``source.amax`` from being self-attested.
+        """
+        if self._source_scan is None:
+            self._source_scan = _source_table_scan(self, self.manifest())
+        return self._source_scan
+
 
 def _check_manifest_schema(ctx):
     ctx.manifest()
@@ -450,12 +599,38 @@ def _check_manifest_schema(ctx):
 
 
 def _check_global_scale_bits(ctx):
-    global_scale = _decode_global_scale(ctx.manifest())
+    meta = ctx.manifest()
+    bits = meta["encoding"]["global_scale_bits"]
+    global_scale = _decode_global_scale(meta)
     if not math.isfinite(global_scale):
         return False, f"global_scale_bits decodes to non-finite {global_scale!r}"
     if global_scale <= 0.0:
         return False, f"global_scale_bits decodes to non-positive {global_scale!r}"
-    return True, f"global_scale_bits decodes to {global_scale!r}"
+    amax = meta["source"]["amax"]
+    expected = _expected_global_scale_bits(amax)
+    if bits != expected:
+        return False, (
+            f"conflicting global scale bits: encoding.global_scale_bits "
+            f"{bits:#010x} is not source.amax {amax!r} / (6 * 448) (expected "
+            f"{expected:#010x}); the loader rejects this manifest, and every "
+            "decoded PLE value would carry the wrong scale"
+        )
+    _, count, scanned = ctx.source_scan()
+    if not math.isfinite(scanned):
+        return False, (
+            f"source amax recomputed over {count} partition slices is "
+            f"{scanned!r}: the source table holds a non-finite value"
+        )
+    if scanned != float(amax):
+        return False, (
+            f"source.amax is self-attested: the manifest declares {amax!r} but "
+            f"the {count} streamed source slices hold {scanned!r}, so global "
+            f"scale {global_scale!r} rescales every decoded PLE value"
+        )
+    return True, (
+        f"global_scale_bits {bits:#010x} = amax/(6*448) for the recomputed "
+        f"source amax {scanned!r} over {count} partition slices"
+    )
 
 
 def _check_partitioning(ctx):
@@ -469,6 +644,28 @@ def _check_partitioning(ctx):
             "partitioning is not numeric-ordered (contract §2 forbids "
             f"lexicographic order): part sequence {part_ids}"
         )
+    # Contract §2: partitioning follows NUMERIC SOURCE order. Sorted part ids
+    # are self-attested, so a converter or tamper that orders partitions
+    # lexicographically by shard/tensor name and then renumbers part = 0..n-1
+    # with contiguous row_offsets would pass every other check while shipping a
+    # table whose rows are in layer-10-before-layer-2 order. Derive the order
+    # from the source itself: shard position, then numeric tensor name.
+    order = [
+        (_natural_key(entry["source_shard"]), _natural_key(entry["source_tensor"]))
+        for entry in entries
+    ]
+    for index in range(1, len(order)):
+        if order[index] < order[index - 1]:
+            before, after = entries[index - 1], entries[index]
+            return False, (
+                "partitioning is not in numeric source order (contract §2 "
+                "forbids lexicographic order): part "
+                f"{after['part']} of {after['source_shard']}/"
+                f"{after['source_tensor']} sits at rows "
+                f"{after['row_offset']}..{after['row_offset'] + after['rows'] - 1} "
+                f"before part {before['part']} of {before['source_shard']}/"
+                f"{before['source_tensor']}, which is later in the source"
+            )
     cursor = 0
     for entry in entries:
         if entry["rows"] <= 0:
@@ -490,6 +687,22 @@ def _check_partitioning(ctx):
     )
 
 
+def _partition_at(partitions, starts, row):
+    """The partitioning entry covering ``row``, or ``None`` when none does.
+
+    ``partitions`` is sorted by ``row_offset`` and ``starts`` its offsets; the
+    table can hold tens of millions of rows, so this is a lookup, never a
+    per-row map.
+    """
+    index = bisect.bisect_right(starts, row) - 1
+    if index < 0:
+        return None
+    entry = partitions[index]
+    if row >= entry["row_offset"] + entry["rows"]:
+        return None
+    return entry
+
+
 def _check_parts_integrity(ctx):
     meta = ctx.manifest()
     cols = meta["table"]["cols"]
@@ -498,19 +711,38 @@ def _check_parts_integrity(ctx):
         "weight_tensor": (WEIGHT_STORE_DTYPE, (0, cols // 2)),
         "scale_tensor": (SCALE_STORE_DTYPE, (0, cols // GROUP_SIZE)),
     }
+    partitions = sorted(
+        meta["table"]["partitioning"], key=lambda entry: entry["row_offset"]
+    )
+    starts = [entry["row_offset"] for entry in partitions]
     spans = []
+    declared_parts = set()
     for part in meta["parts"]:
         path = ctx.part_path(part["file"])
         _require(path.is_file(), f"part file missing: {part['file']}")
+        if part["rows"] <= 0:
+            return False, f"part {part['file']} has rows <= 0"
+        identity = (part["file"], part["weight_tensor"], part["scale_tensor"])
+        if identity in declared_parts:
+            return False, (
+                f"parts[] repeats {part['file']} with tensor pair "
+                f"{part['weight_tensor']!r}/{part['scale_tensor']!r} at another "
+                "row_offset: the loader would write those PLE rows twice"
+            )
+        declared_parts.add(identity)
         header = _read_shard_header(path)
+        expected_names = {part["weight_tensor"], part["scale_tensor"]}
+        if set(header) != expected_names:
+            return False, (
+                f"part {part['file']} must hold exactly "
+                f"{sorted(expected_names)} (contract §1 pair); its header names "
+                f"{sorted(header)}"
+            )
         for key, sha_key in (
             ("weight_tensor", "sha256_weights"),
             ("scale_tensor", "sha256_scales"),
         ):
             name = part[key]
-            _require(
-                name in header, f"part {part['file']} lacks tensor {name!r}"
-            )
             entry = header[name]
             want_dtype, (_, want_cols) = wanted[key]
             want_shape = (part["rows"], want_cols)
@@ -521,12 +753,40 @@ def _check_parts_integrity(ctx):
                     f"{want_dtype} {list(want_shape)}"
                 )
             start, end = entry["data_offsets"]
-            digest = _sha256_payload(path, start, end)
+            # The scale payload is hashed anyway, so the loader's whole-part
+            # scale-domain rule is enforced here over every byte, not only the
+            # rows the dequant check samples.
+            watch = _ScaleDomain() if key == "scale_tensor" else None
+            digest = _sha256_payload(path, start, end, watch=watch)
             if digest != part[sha_key]:
                 return False, (
                     f"sha256 {sha_key} mismatch for {part['file']}:{name}: "
                     f"manifest {part[sha_key][:16]}..., stored payload "
                     f"{digest[:16]}..."
+                )
+            if watch is not None and watch.bad is not None:
+                return False, (
+                    f"part {part['file']} scale byte 0x{watch.bad:02X} is outside "
+                    "the schema §1 domain (scales must be finite and "
+                    "non-negative); the loader rejects this whole part"
+                )
+        for key, row in (
+            ("first_source_tensor", part["row_offset"]),
+            ("last_source_tensor", part["row_offset"] + part["rows"] - 1),
+        ):
+            entry = _partition_at(partitions, starts, row)
+            if entry is None:
+                return False, (
+                    f"part {part['file']} declares {key} for row {row}, which no "
+                    "partitioning entry assigns to a source tensor"
+                )
+            if part[key] != entry["source_tensor"]:
+                return False, (
+                    f"part {part['file']} declares {key} {part[key]!r}, but "
+                    f"partitioning assigns row {row} to "
+                    f"{entry['source_shard']}/{entry['source_tensor']}: these "
+                    "packed bytes are not bound to the rows the loader writes "
+                    "them into"
                 )
         spans.append((part["row_offset"], part["rows"]))
     spans.sort()
@@ -545,7 +805,8 @@ def _check_parts_integrity(ctx):
         )
     return True, (
         f"{len(spans)} parts cover rows 0..{total - 1} with matching stored "
-        "payload digests"
+        "payload digests, exact two-tensor headers, in-domain scale bytes and "
+        "source tensors bound to their row ranges"
     )
 
 

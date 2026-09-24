@@ -143,10 +143,12 @@ fi
 # host RAM — so a wrong image must be caught here, not at model load.
 # The check is the verifier that Dockerfile.rvn-w4a16:8 bakes into every profile
 # image, run WITHOUT --apply: it hashes the image's own python/sglang tree
-# against the post-patch inventory in provenance/rvn-w4a16.json, i.e. it proves
-# all 8 changed files byte-for-byte. Rejected alternatives: `docker image
-# inspect` labels, because the base and the patched image carry byte-identical
-# label sets (measured 2026-09-25: Dockerfile.rvn-w4a16 adds no LABEL), so a
+# against the post-patch inventory baked next to it in provenance/rvn-w4a16.json,
+# i.e. every file in that inventory is checked byte-for-byte (never hardcode the
+# file count here: the baked profile range grew 0047-0052 → 0047-0053 mid-review
+# when the mutable tag was rebuilt, which is exactly why the tag is not trusted).
+# Rejected alternatives: `docker image inspect` labels — measured 2026-09-25, the
+# base and the patched image carry byte-identical label sets (no LABEL added), so a
 # label probe would reject even a correct image; and a
 # `python3 -c "import sglang.srt.models.qwen4_exp_text_adapter"` probe, because
 # importing it drags in torch/CUDA (seconds slower) and proves only patch 0047
@@ -157,7 +159,7 @@ fi
 # base image) exits 2, and any tree drift exits non-zero.
 if (( DRY_RUN )); then
   echo "NOTE: real run also aborts unless $IMAGE passes the in-image rvn-w4a16" \
-       "profile gate (see PROFILE GATE below)." >&2
+       "profile gate (see the PROFILE GATE block in this script)." >&2
 else
   if gate=$(docker run --rm --pull never --network none \
               --entrypoint python3 "$IMAGE" -B \
@@ -167,6 +169,24 @@ else
   else
     echo "ERROR: image $IMAGE is not a verified rvn-w4a16 profile image; nothing" \
          "was started (no container, no cache dir, no pinned host RAM)." >&2
+    # Name the cause rather than leaving a raw tool error to be interpreted: these
+    # ways of failing mean different operator actions. Only positive evidence claims
+    # a patch verdict — a bare docker daemon error must not read as "your tree is
+    # corrupt". Every branch still aborts; only the explanation differs.
+    if [[ $gate == *"can't open file '/opt/rvn-w4a16/scripts/verify_rvn_w4a16.py'"* ]]; then
+      echo "ERROR: cause = the image has no /opt/rvn-w4a16 profile layer at all, so" \
+           "it is the un-patched base (or a build without Dockerfile.rvn-w4a16, which" \
+           "this gate rejects by design) — not a stale build." >&2
+    elif [[ $gate == *"No such image"* ]]; then
+      echo "ERROR: cause = $IMAGE is not present locally, and --pull never forbids" \
+           "fetching it: no registry was contacted." >&2
+    elif [[ $gate == *"Traceback (most recent call last)"* ]]; then
+      echo "ERROR: cause = the profile verifier ran inside the image and rejected its" \
+           "python/sglang tree: stale, partial or drifted patch set (traceback below)." >&2
+    else
+      echo "ERROR: cause = the probe itself failed (docker/image access, not a patch" \
+           "verdict) — the indented output below says why." >&2
+    fi
     echo "ERROR: build it with" >&2
     echo "         docker build -f Dockerfile.rvn-w4a16 -t rvn-w4a16:sim ." >&2
     echo "       or select another image with --image IMG / IMAGE=<ref>." >&2

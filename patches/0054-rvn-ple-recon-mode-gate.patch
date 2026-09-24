@@ -1,0 +1,52 @@
+--- a/python/sglang/srt/models/qwen4_exp.py
++++ b/python/sglang/srt/models/qwen4_exp.py
+@@ -2554,6 +2554,35 @@
+                                 "checkpoint with ple_offload_embedding and "
+                                 "SGLANG_PLE_PACKED_NVFP4"
+                             )
++                        # The manifest's encoding.reconstruction is BINDING at
++                        # serve time: schema section 1 scopes RVN v1 to
++                        # bf16_direct and keeps the legacy E4M3 round-trip only
++                        # selectable, yet the gather kernel mode is the
++                        # embedding's own flag -- Qwen4ExpPinnedHostEmbedding
++                        # .gather hands it straight to gather_packed_kernel. So
++                        # a server that inherits the LIL
++                        # SGLANG_PLE_PACKED_FP8_REFERENCE=1 would decode every
++                        # PLE lookup of a bf16_direct checkpoint through the
++                        # out-of-scope round-trip with no warning at all. Fail
++                        # closed before a single part byte is read.
++                        kernel_fp8 = emb._packed_fp8_reference
++                        if kernel_fp8 != ple_manifest.fp8_reference:
++                            fp8_env = os.environ.get(
++                                "SGLANG_PLE_PACKED_FP8_REFERENCE")
++                            raise ValueError(
++                                f"ple_storage manifest reconstruction mismatch "
++                                f"for {mod_prefix}: ple_storage.json declares "
++                                f"encoding.reconstruction="
++                                f"{ple_manifest.reconstruction!r} (manifest "
++                                f"fp8_reference={ple_manifest.fp8_reference}) "
++                                "but this process would run the packed PLE "
++                                "gather kernel with "
++                                "SGLANG_PLE_PACKED_FP8_REFERENCE="
++                                f"{fp8_env!r} (kernel fp8_reference="
++                                f"{kernel_fp8}); the manifest mode is binding: "
++                                "unset the flag for bf16_direct, or serve a "
++                                "manifest that declares fp8_roundtrip"
++                            )
+                         storage = emb._packed_storage
+                         if storage is None:
+                             # Mirror Qwen4ExpPinnedHostEmbedding.__init__: the
+@@ -2597,11 +2626,12 @@
+                         logger.info(
+                             "[rvn-ple] PLE table %s loaded from "
+                             "ple_storage.json: %d rows x %d cols, %.4f GiB "
+-                            "pinned host bytes",
++                            "pinned host bytes, reconstruction=%s",
+                             mod_prefix,
+                             ple_manifest.logical_rows,
+                             ple_manifest.cols,
+                             storage.nbytes / 2**30,
++                            ple_manifest.reconstruction,
+                         )
+ 
+         def claim_rvn_ple_manifest_source(name: str) -> bool:

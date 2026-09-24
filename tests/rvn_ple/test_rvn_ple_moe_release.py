@@ -151,6 +151,7 @@ def _load_and_postprocess(backend, prepare=None):
     from sglang.srt.layers.moe import MoeRunnerBackend
     from sglang.srt.layers.quantization import modelopt_quant as modelopt
 
+    original_backend = modelopt.get_moe_runner_backend
     modelopt.get_moe_runner_backend = lambda: (
         MoeRunnerBackend.MARLIN
         if backend == "marlin"
@@ -164,6 +165,16 @@ def _load_and_postprocess(backend, prepare=None):
         torch.cuda.synchronize()
         base = torch.cuda.memory_allocated()
 
+        # Bytes create_weights put into the loader-format swizzle placeholders.
+        # They are sampled here, before any postprocess, because the point of
+        # the residual assertion below is that postprocess must hand *these*
+        # bytes back, not merely avoid adding new ones.
+        placeholder_bytes = sum(
+            getattr(layer, name).numel() * getattr(layer, name).element_size()
+            for layer, _ in built
+            for name in ("w13_blockscale_swizzled", "w2_blockscale_swizzled")
+            if getattr(layer, name, None) is not None
+        )
         loader_names = (
             "w13_weight",
             "w2_weight",
@@ -185,15 +196,16 @@ def _load_and_postprocess(backend, prepare=None):
             dead.append(
                 {name: ref() is None for name, ref in originals[index].items()}
             )
-        return base, peaks, residuals, dead, built
+        return base, peaks, residuals, dead, built, placeholder_bytes
     finally:
         modelopt.prepare_moe_nvfp4_layer_for_marlin = original
+        modelopt.get_moe_runner_backend = original_backend
 
 
 def test_marlin_repack_peak_and_release_loader_format_storage():
     """Peak stays at one fresh weight copy; loader-format storage is released."""
     prepare = _prepare_function()
-    base, peaks, residuals, _, built = _load_and_postprocess("marlin", prepare)
+    base, peaks, residuals, _, built, _ = _load_and_postprocess("marlin", prepare)
 
     # Largest single loader-format weight (w13): the one fresh copy the repack
     # legitimately needs live at a time. One expert's payload is the working
@@ -228,20 +240,28 @@ def test_marlin_repack_peak_and_release_loader_format_storage():
             )
 
 
-def test_marlin_repack_does_not_grow_resident_bytes_across_layers():
-    """After the last layer, live bytes are below the pre-postprocess baseline."""
-    base, _, residuals, _, _ = _load_and_postprocess("marlin", _prepare_function())
-    # Repacked copies are byte-for-byte the size of what they replace, and the
-    # dead swizzle placeholders are freed, so the run must end net-negative.
-    assert residuals[-1] <= 0, (
-        f"marlin postprocess left {residuals[-1] / GIB:+.4f} GiB extra resident "
+def test_marlin_repack_hands_back_the_dead_swizzle_placeholders():
+    """Postprocess must free the placeholder bytes, not just avoid growing."""
+    base, _, residuals, _, _, placeholder_bytes = _load_and_postprocess(
+        "marlin", _prepare_function()
+    )
+    assert placeholder_bytes > 0, "fixture allocated no swizzle placeholders"
+    # The repacked copies are byte-for-byte the size of the loader-format
+    # originals they replace, so the only reason live bytes should fall below
+    # the baseline is the dead w13/w2_blockscale_swizzled pair per layer. Assert
+    # against those bytes: a release that only cancels bookkeeping noise would
+    # pass a bare "<= 0" threshold without giving the ~2 x scale bytes back.
+    assert residuals[-1] <= -placeholder_bytes // 2, (
+        f"marlin postprocess returned {residuals[-1] / GIB:+.4f} GiB, expected at "
+        f"least {placeholder_bytes / 2 / GIB:.4f} GiB of the "
+        f"{placeholder_bytes / GIB:.4f} GiB of swizzle placeholders to be gone "
         f"(base {base / GIB:.3f} GiB)"
     )
 
 
 def test_marlin_repack_releases_every_loader_format_original():
     """No original tensor outlives its layer's repack."""
-    _, _, _, dead, _ = _load_and_postprocess("marlin", _prepare_function())
+    _, _, _, dead, _, _ = _load_and_postprocess("marlin", _prepare_function())
     for index, names in enumerate(dead):
         still_live = [name for name, alive in names.items() if not alive]
         assert not still_live, f"layer {index}: originals still live: {still_live}"
@@ -269,10 +289,166 @@ def test_marlin_repack_is_unreachable_for_the_lil_cutlass_backend():
     try:
         try:
             _load_and_postprocess("cutlass")
-        except AttributeError:
-            pass  # stub module has no dispatcher; reached after the marlin gate
+            raise AssertionError("cutlass postprocess unexpectedly succeeded")
+        except AttributeError as exc:
+            # The stub module only fails once the cutlass branch runs, i.e.
+            # *after* the marlin gate was passed without taking it. Binding the
+            # message keeps an unrelated AttributeError (say, from building the
+            # layer) from leaving this test vacuously green.
+            assert "dispatcher" in str(exc), (
+                f"cutlass branch failed before the marlin gate: {exc}"
+            )
         assert not calls, "marlin repack ran for the flashinfer_cutlass backend"
         _load_and_postprocess("marlin")
     finally:
         modelopt.prepare_moe_nvfp4_layer_for_marlin = original
     assert len(calls) == LAYERS, f"marlin repack ran {len(calls)}x, expected {LAYERS}"
+
+
+# --- patch 0053: the placeholders are never allocated under the marlin pin ---
+
+RVN_EXPERTS = 512  # checkpoint config.num_experts
+RVN_LAYERS = 48  # checkpoint config.num_hidden_layers
+RVN_HIDDEN = 2560  # checkpoint config.hidden_size
+RVN_INTERMEDIATE = 640  # checkpoint config.moe_intermediate_size
+RVN_GROUP = 16  # hf_quant_config.json group_size
+NON_EXPERT_GIB = 9.154  # sum of non-expert, non-PLE tensors in the 98 shards
+CONTEXT_GIB = 0.9  # torch context + NCCL already resident at "Load weight begin"
+BUDGET_GIB = 94.0  # 95.01 GiB device minus the margin the launch keeps
+
+
+def _tree_modelopt():
+    module = _load_from_tree(
+        "sglang/srt/layers/quantization/modelopt_quant.py",
+        "rvn_ple_moe_release_modelopt",
+    )
+    if module is None:
+        pytest.skip(f"stacked tree missing under {TREE} (set RVN_PLE_TREE)")
+    return module
+
+
+def _build_one(tree_module, backend):
+    """One layer built by the stacked tree's create_weights; returns (layer, bytes)."""
+    from sglang.srt.layers.moe import MoeRunnerBackend
+    import inspect
+
+    kwargs = dict(
+        is_checkpoint_nvfp4_serialized=True,
+        group_size=16,
+        use_per_token_activation=False,
+    )
+    if "quant_format" in inspect.signature(tree_module.ModelOptFp4Config.__init__).parameters:
+        kwargs["quant_format"] = "W4A16_NVFP4"
+    method = object.__new__(tree_module.ModelOptNvFp4FusedMoEMethod)
+    method.quant_config = tree_module.ModelOptFp4Config(**kwargs)
+    method.enable_flashinfer_trtllm_moe = False
+    method._cache_permute_indices = {}
+    method._moe_runner_backend = (
+        MoeRunnerBackend.MARLIN
+        if backend == "marlin"
+        else MoeRunnerBackend.FLASHINFER_CUTLASS
+    )
+    layer = torch.nn.Module()
+    layer.num_local_experts = NUM_EXPERTS
+    layer.num_experts = NUM_EXPERTS
+    layer.moe_runner_config = SimpleNamespace(
+        is_gated=True, activation="silu", num_experts=NUM_EXPERTS, top_k=10
+    )
+    torch.cuda.synchronize()
+    before = torch.cuda.memory_allocated()
+    with torch.device("cuda"):
+        method.create_weights(
+            layer,
+            num_experts=NUM_EXPERTS,
+            hidden_size=HIDDEN,
+            intermediate_size_per_partition=INTERMEDIATE,
+            params_dtype=torch.bfloat16,
+            weight_loader=None,
+        )
+    torch.cuda.synchronize()
+    return layer, torch.cuda.memory_allocated() - before
+
+
+def _placeholder_bytes(layer):
+    return sum(
+        getattr(layer, name).numel() * getattr(layer, name).element_size()
+        for name in ("w13_blockscale_swizzled", "w2_blockscale_swizzled")
+        if getattr(layer, name, None) is not None
+    )
+
+
+def test_marlin_create_weights_never_allocates_the_placeholders():
+    """0053: under the marlin pin the dead placeholders are never allocated."""
+    tree_module = _tree_modelopt()
+    marlin_layer, marlin_bytes = _build_one(tree_module, "marlin")
+    cutlass_layer, cutlass_bytes = _build_one(tree_module, "cutlass")
+
+    # LIL / cutlass unchanged: it still gets both loader-format scale copies.
+    cutlass_placeholders = _placeholder_bytes(cutlass_layer)
+    assert cutlass_placeholders > 0, "cutlass backend lost its swizzle placeholders"
+    # 2 x scale bytes per layer for this fixture (w13 fp8 scales + w2 fp8 scales).
+    expected = NUM_EXPERTS * (
+        2 * INTERMEDIATE * (HIDDEN // RVN_GROUP) + HIDDEN * (INTERMEDIATE // RVN_GROUP)
+    )
+    assert cutlass_placeholders == expected, (
+        f"cutlass placeholders are {cutlass_placeholders} bytes, expected {expected}"
+    )
+
+    assert _placeholder_bytes(marlin_layer) == 0, (
+        f"marlin create_weights still allocates {_placeholder_bytes(marlin_layer)} "
+        "bytes of swizzle placeholders the marlin path never reads"
+    )
+    assert marlin_bytes == cutlass_bytes - cutlass_placeholders, (
+        f"marlin build allocated {marlin_bytes} bytes, expected the cutlass build "
+        f"minus the {cutlass_placeholders} placeholder bytes ({cutlass_bytes - cutlass_placeholders})"
+    )
+
+
+def test_rvn_48_layer_marlin_projection_fits_the_device_budget():
+    """Project the fixture's measured unit costs onto the real 48-layer model.
+
+    Bytes are exact config arithmetic for the RVN dimensions; what the fixture
+    licenses is the *shape* of the repack (one fresh weight copy live at a
+    time, nothing left behind), which is asserted here as a measured ratio.
+    """
+    base, peaks, residuals, _, _, _ = _load_and_postprocess(
+        "marlin", _prepare_function()
+    )
+    one_expert = (2 * INTERMEDIATE) * (HIDDEN // 2)
+    fixture_w13 = NUM_EXPERTS * one_expert
+    # The repack may not need materially more than its largest fresh copy.
+    assert max(peaks) <= 1.15 * (fixture_w13 + 2 * one_expert), (
+        f"fixture repack peaked {max(peaks) / GIB:.4f} GiB, more than 1.15x the "
+        f"one-fresh-copy bound {(fixture_w13 + 2 * one_expert) / GIB:.4f} GiB; "
+        "the projection below no longer holds"
+    )
+    assert residuals[-1] <= 0, "repack leaves extra bytes resident; projection invalid"
+
+    def gib(n):
+        return n / GIB
+
+    w13 = RVN_EXPERTS * (2 * RVN_INTERMEDIATE) * (RVN_HIDDEN // 2)
+    w2 = RVN_EXPERTS * RVN_INTERMEDIATE * (RVN_HIDDEN // 2)
+    scales = RVN_EXPERTS * (
+        2 * RVN_INTERMEDIATE * (RVN_HIDDEN // RVN_GROUP)
+        + RVN_HIDDEN * (RVN_INTERMEDIATE // RVN_GROUP)
+    )
+    # Cross-check the fixture's arithmetic against the real shard headers:
+    # 63.282 GiB of expert tensors, of which 7.031 GiB are fp8 scales.
+    assert abs(gib(RVN_LAYERS * (w13 + w2 + scales)) - 63.282) < 0.02
+    assert abs(gib(RVN_LAYERS * scales) - 7.031) < 0.02
+
+    peak = w13 + 2 * (w13 // RVN_EXPERTS)
+    experts = RVN_LAYERS * (w13 + w2 + scales)
+    with_fix = gib(experts + peak) + NON_EXPERT_GIB + CONTEXT_GIB
+    without_fix = with_fix + gib(RVN_LAYERS * scales)
+    assert without_fix - with_fix == pytest.approx(gib(RVN_LAYERS * scales))
+    assert with_fix <= BUDGET_GIB, (
+        f"48-layer marlin projection needs {with_fix:.2f} GiB, over the "
+        f"{BUDGET_GIB:.0f} GiB budget"
+    )
+    # The headroom 0053 buys is the whole difference the launch was short by.
+    assert BUDGET_GIB - with_fix >= 8.0, (
+        f"fixed projection leaves only {BUDGET_GIB - with_fix:.2f} GiB of the "
+        f"{BUDGET_GIB:.0f} GiB budget"
+    )
