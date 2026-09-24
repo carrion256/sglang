@@ -1,0 +1,94 @@
+{
+  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0050); opt-in profile on the local-only deployed hicache base image",
+  "base_image": "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284",
+  "base_image_id": "sha256:91cee840799be19916e1ba17ed10a517923f4fc70d54f5abd0247f700d01d77a",
+  "base_inventory": "provenance/rvn-w4a16-runtime-files.json",
+  "base_inventory_sha256": "cf90a253c052e4d325dfb39196f59b480e3531318c7c89282936bbe086bcfc70",
+  "source_files_before": 4394,
+  "source_files_after": 4396,
+  "patches": [
+    {
+      "file": "0047-rvn-text-config.patch",
+      "sha256": "1d4ce29f9ccec56368ab67bf7b9945ac7d39a49f557e34338dfd2fd6df3c902f",
+      "files": {
+        "python/sglang/srt/models/qwen4_exp.py": {
+          "before": "311375b089b05091bb1a99d95eeec238a03268381f491854322abf40e3f3328e",
+          "after": "f4bf4a1edbc53a9a5e37d6ab8e3993037e4ec81956c482890b49a94a57f4a3fa"
+        },
+        "python/sglang/srt/utils/hf_transformers/common.py": {
+          "before": "b65aeed19332be514a0af226d7c3c002dc20e411d2fe04f58e480bc358325738",
+          "after": "2b9394626cfb9ee230508f5f3620ca88f25f0372e5ff40ed10eedc1ff3501afe"
+        },
+        "python/sglang/srt/models/qwen4_exp_text_adapter.py": {
+          "before": null,
+          "after": "51bbed87a0c84c32b42472d614d026b79baaac7dffd08938dd6dd984edb10330"
+        }
+      }
+    },
+    {
+      "file": "0048-rvn-w4a16-dispatch.patch",
+      "sha256": "c0399d5154ce195bd4a5057697ae8042b78c7a6ac5340475c4e9ff3d4981d65d",
+      "files": {
+        "python/sglang/srt/layers/quantization/modelopt_quant.py": {
+          "before": "b05ed81bef0443781c79c7a6daf05204b8d6c50903cd84dae87ef3303c93d311",
+          "after": "1d1e32c593feb610693433b2e8c3f40f08bbc5478058487a8357a712f6b68506"
+        }
+      }
+    },
+    {
+      "file": "0049-rvn-ple-packed-loader.patch",
+      "sha256": "bc7e3aabd10c16a282dcfa843c0c4714fd09049c80a5c54620443d30ebf563a5",
+      "files": {
+        "python/sglang/srt/models/rvn_ple_storage.py": {
+          "before": null,
+          "after": "2a6f2efa62f97e6aad141219672eb2cda5a95d3bd9f52f48e55a3b52a7eb3b5a"
+        },
+        "python/sglang/srt/model_loader/weight_utils.py": {
+          "before": "1759d4feb63dc1e41f509f16c4d46d2f00a175fec6f5efda1fb5a7501394588a",
+          "after": "5aa6b169e03a6e8567543430711a8e22053aaae9e723cf83efd1509ee0c63b74"
+        }
+      }
+    },
+    {
+      "file": "0050-rvn-ple-hooksite.patch",
+      "sha256": "9faad244ad171e2ccd2452432cf8f67d698cf4110b2c744d22d846c6431c93ee",
+      "files": {
+        "python/sglang/srt/models/qwen4_exp.py": {
+          "before": "f4bf4a1edbc53a9a5e37d6ab8e3993037e4ec81956c482890b49a94a57f4a3fa",
+          "after": "4d463986b6392736a976088a297cd1619720de04d3fa70e8491ee704be1a76f9"
+        },
+        "python/sglang/srt/model_loader/weight_utils.py": {
+          "before": "5aa6b169e03a6e8567543430711a8e22053aaae9e723cf83efd1509ee0c63b74",
+          "after": "6cf49c5db0892cdd5cda355bc25a66daa410c0fcb6586c04c3f4c9ac10dc25ae"
+        }
+      }
+    }
+  ],
+  "files": {
+    "python/sglang/srt/models/qwen4_exp.py": {
+      "before": "311375b089b05091bb1a99d95eeec238a03268381f491854322abf40e3f3328e",
+      "after": "4d463986b6392736a976088a297cd1619720de04d3fa70e8491ee704be1a76f9"
+    },
+    "python/sglang/srt/utils/hf_transformers/common.py": {
+      "before": "b65aeed19332be514a0af226d7c3c002dc20e411d2fe04f58e480bc358325738",
+      "after": "2b9394626cfb9ee230508f5f3620ca88f25f0372e5ff40ed10eedc1ff3501afe"
+    },
+    "python/sglang/srt/models/qwen4_exp_text_adapter.py": {
+      "before": null,
+      "after": "51bbed87a0c84c32b42472d614d026b79baaac7dffd08938dd6dd984edb10330"
+    },
+    "python/sglang/srt/layers/quantization/modelopt_quant.py": {
+      "before": "b05ed81bef0443781c79c7a6daf05204b8d6c50903cd84dae87ef3303c93d311",
+      "after": "1d1e32c593feb610693433b2e8c3f40f08bbc5478058487a8357a712f6b68506"
+    },
+    "python/sglang/srt/models/rvn_ple_storage.py": {
+      "before": null,
+      "after": "2a6f2efa62f97e6aad141219672eb2cda5a95d3bd9f52f48e55a3b52a7eb3b5a"
+    },
+    "python/sglang/srt/model_loader/weight_utils.py": {
+      "before": "1759d4feb63dc1e41f509f16c4d46d2f00a175fec6f5efda1fb5a7501394588a",
+      "after": "6cf49c5db0892cdd5cda355bc25a66daa410c0fcb6586c04c3f4c9ac10dc25ae"
+    }
+  },
+  "result_inventory_sha256": "ebea1b883c2fec7c2959cab9ed1fd3c32b86154ce2dca1c4e26932195ee61518"
+}
