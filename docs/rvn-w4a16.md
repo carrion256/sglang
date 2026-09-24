@@ -1,4 +1,4 @@
-# RVN W4A16 text profile — 0047-0050
+# RVN W4A16 text profile — 0047-0051
 
 Opt-in deployment profile for serving the RVN Qwen4-Exp **W4A16_NVFP4**
 text checkpoint: uniform W4A16 dispatch plus the manifest-driven
@@ -17,6 +17,7 @@ The PLE storage format this profile consumes is frozen in
 | 2 | `0048-rvn-w4a16-dispatch.patch` | Routes checkpoints with no `quantized_layers` map through uniform ModelOpt FP4 (`W4A16_NVFP4`) instead of failing mixed-precision validation |
 | 3 | `0049-rvn-ple-packed-loader.patch` | `models/rvn_ple_storage.py`: manifest-first packed-NVFP4 PLE host tables (`ple_storage.json`) + `weight_utils` loader hook |
 | 4 | `0050-rvn-ple-hooksite.patch` | Wires the packed-PLE manifest call site into the RVN text load path (multimodal path stays byte-identical) |
+| 5 | `0051-rvn-ple-offload-eligibility.patch` | Extends `--ple-offload-embedding` host/pinned eligibility to `Qwen4ExpForCausalLM` so the text arch can build with the PLE table in pinned host RAM |
 
 ## Base image
 
@@ -41,16 +42,67 @@ docker build -f Dockerfile.rvn-w4a16 -t rvn-w4a16:<tag> .
 ```
 
 The build's last step is the provenance gate — it verifies the base
-inventory, applies the four patches in series order with `git apply`, and
+inventory, applies the five patches in series order with `git apply`, and
 re-hashes every source file against the manifest:
 
 ```
 python3 -B /opt/rvn-w4a16/scripts/verify_rvn_w4a16.py --tree /sgl-workspace/sglang --apply
 ```
 
-Serving is unchanged from the base image (same `sglang.launch_server`
-entrypoint); launch flags live in `docs/quickstart-docker.md` and
-`docs/production-command.sh`.
+## Serving the RVN candidate (verified recipe)
+
+The candidate checkpoint is produced by `tools/rvn_ple/convert.py` (schema
+v1, self-contained directory incl. tokenizer/chat-template and a
+`config.json` stamped `ple_embedding_dtype: "nvfp4"`). Single-GPU launch,
+validated against a 96 GB card while a second worker holds the other GPU:
+
+```bash
+docker run --rm --name rvn-ple-nvfp4 \
+  --device nvidia.com/gpu=1 --ipc host --network host \
+  --shm-size 32g --ulimit memlock=-1 --ulimit stack=67108864 \
+  -e SGLANG_EMBEDDED_MODEL_OVERRIDES= \
+  -e SGLANG_SM120_ONLINE_MXFP8=false \
+  -e SGLANG_PLE_PACKED_NVFP4=1 \
+  -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  -v /models:/models:ro -v /var/cache/sglang/rvn-ple-nvfp4-0:/root/.cache \
+  -w /sgl-workspace/sglang --entrypoint python3 rvn-w4a16:sim \
+  -m sglang.launch_server \
+  --model-path /models/rvn-qwen38-ple-nvfp4 \
+  --chat-template /models/rvn-qwen38-ple-nvfp4/chat_template.jinja \
+  --served-model-name rvn-ple-nvfp4 \
+  --host 0.0.0.0 --port 8111 --tp-size 1 \
+  --quantization modelopt_mixed --moe-runner-backend marlin \
+  --kv-cache-dtype fp8_e4m3 --context-length 32768 \
+  --mem-fraction-static 0.90 --page-size 64 --chunked-prefill-size 4096 \
+  --max-running-requests 4 \
+  --cuda-graph-backend-decode=disabled --cuda-graph-backend-prefill=disabled \
+  --disable-radix-cache --reasoning-parser auto --tool-call-parser auto \
+  --linear-attn-prefill-backend flashinfer --linear-attn-decode-backend flashinfer \
+  --max-mamba-cache-size 64 --mamba-radix-cache-strategy extra_buffer \
+  --mamba-track-interval 128 --mamba-ssm-dtype bfloat16 \
+  --gdn-mtp-cache-mode none \
+  --ple-offload-embedding \
+  --model-loader-extra-config '{"enable_multithread_load":false,"num_threads":2}'
+```
+
+Landmines learned the hard way:
+
+- **GPU pinning**: use the CDI device flag `--device nvidia.com/gpu=1`;
+  `--gpus '"device=N"'` is broken in this environment and
+  `--device nvidia.com/gpu=all` + `CUDA_VISIBLE_DEVICES` does **not**
+  isolate. Inside the container the visible GPU is always `cuda:0`.
+- **`--ple-offload-embedding` is mandatory**: without it the
+  320001536×160 table tries to build as a 95 GiB CUDA
+  `VocabParallelEmbedding` and OOMs at construction. 0051 teaches the
+  gate about the text arch; `SGLANG_PLE_PACKED_NVFP4=1` selects the
+  manifest-backed packed host table (26.8 GiB pinned host RAM).
+- **Serial weight loading** (`--model-loader-extra-config
+  '{"enable_multithread_load":false,"num_threads":2}'`) plus
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` reduce load-time
+  peak, but the NVFP4 Marlin repack still needs its original expert
+  tensors to be released layer-by-layer to fit one 96 GB card — see
+  the release fix stacked on top of this profile before serving.
+- The `memlock` ulimit is required for the pinned host PLE table.
 
 ## Verification
 
