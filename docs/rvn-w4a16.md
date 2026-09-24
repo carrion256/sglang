@@ -18,6 +18,7 @@ The PLE storage format this profile consumes is frozen in
 | 3 | `0049-rvn-ple-packed-loader.patch` | `models/rvn_ple_storage.py`: manifest-first packed-NVFP4 PLE host tables (`ple_storage.json`) + `weight_utils` loader hook |
 | 4 | `0050-rvn-ple-hooksite.patch` | Wires the packed-PLE manifest call site into the RVN text load path (multimodal path stays byte-identical) |
 | 5 | `0051-rvn-ple-offload-eligibility.patch` | Extends `--ple-offload-embedding` host/pinned eligibility to `Qwen4ExpForCausalLM` so the text arch can build with the PLE table in pinned host RAM |
+| 6 | `0052-rvn-marlin-moe-release.patch` | Frees loader-format MoE storage during the marlin repack (dead swizzle placeholders, per-expert repack buffer, originals dropped as replacements bind) so load peak fits one 96 GB card |
 
 ## Base image
 
@@ -98,10 +99,10 @@ Landmines learned the hard way:
   manifest-backed packed host table (26.8 GiB pinned host RAM).
 - **Serial weight loading** (`--model-loader-extra-config
   '{"enable_multithread_load":false,"num_threads":2}'`) plus
-  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` reduce load-time
-  peak, but the NVFP4 Marlin repack still needs its original expert
-  tensors to be released layer-by-layer to fit one 96 GB card — see
-  the release fix stacked on top of this profile before serving.
+  `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` reduce load-time peak;
+  0052 releases the loader-format MoE storage during the Marlin repack
+  (dead swizzle placeholders + per-expert repack buffer + originals as they
+  are replaced) so the load peak fits one 96 GB card.
 - The `memlock` ulimit is required for the pinned host PLE table.
 
 ## Verification

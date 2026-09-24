@@ -1,8 +1,9 @@
-# RVN W4A16 text profile: patches 0047-0051 (RVN text config, uniform
+# RVN W4A16 text profile: patches 0047-0052 (RVN text config, uniform
 # W4A16_NVFP4 dispatch, packed-NVFP4 PLE loader, PLE hook site, PLE
-# host-offload eligibility for the text arch). Opt-in.
+# host-offload eligibility for the text arch, marlin MoE repack release).
+# Opt-in.
 FROM localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284
-COPY patches/0047-rvn-text-config.patch patches/0048-rvn-w4a16-dispatch.patch patches/0049-rvn-ple-packed-loader.patch patches/0050-rvn-ple-hooksite.patch patches/0051-rvn-ple-offload-eligibility.patch patches/series.rvn-w4a16 /opt/rvn-w4a16/patches/
+COPY patches/0047-rvn-text-config.patch patches/0048-rvn-w4a16-dispatch.patch patches/0049-rvn-ple-packed-loader.patch patches/0050-rvn-ple-hooksite.patch patches/0051-rvn-ple-offload-eligibility.patch patches/0052-rvn-marlin-moe-release.patch patches/series.rvn-w4a16 /opt/rvn-w4a16/patches/
 COPY provenance/rvn-w4a16-runtime-files.json provenance/rvn-w4a16.json /opt/rvn-w4a16/provenance/
 COPY scripts/verify_rvn_w4a16.py /opt/rvn-w4a16/scripts/verify_rvn_w4a16.py
 RUN python3 -B /opt/rvn-w4a16/scripts/verify_rvn_w4a16.py --tree /sgl-workspace/sglang --apply

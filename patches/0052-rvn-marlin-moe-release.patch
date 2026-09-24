@@ -1,0 +1,143 @@
+[rvn-ple] Free loader-format MoE storage during the marlin repack
+
+Only the RVN path reaches prepare_moe_nvfp4_layer_for_marlin: 0048 pins
+--moe-runner-backend=marlin for the W4A16_NVFP4 checkpoint, while LIL runs the
+same checkpoint family under flashinfer_cutlass and never enters this function.
+Measured on a synthetic multi-layer NVFP4 MoE with the backend held fixed
+(tests/rvn_ple/test_rvn_ple_moe_release.py), this branch peaked 0.0994 GiB above
+the pre-layer baseline per layer where the fixed branch peaks 0.0427 GiB, and it
+kept w13_blockscale_swizzled / w2_blockscale_swizzled -- loader-format scale
+copies that create_weights allocated and that the marlin apply path only ever
+reads through w*_weight_scale -- live for the process lifetime: 2 x scale bytes
+per layer, ~7 GiB across the 48-layer RVN model, none of it reachable at
+forward time.
+
+Three fixes, all lifetime-only, with byte-identical repacked output (same
+per-expert kernel results, same contiguous stack layout): release the dead
+swizzle placeholders before repacking so their bytes fund the repack transients
+instead of competing with them (the trtllm branch already drops them by
+aliasing, and deepseek_v2's only other reader guards on hasattr); fill a
+preallocated stack buffer expert-by-expert instead of holding a full per-expert
+list plus its torch.stack copy; and drop each loader-format original as soon as
+its repacked replacement is bound, so the whole layer no longer stays live
+while the remaining repacks run. LIL is byte-identical: 0048's pin is the only
+route to this function, and it is gated on is_w4a16_nvfp4.
+
+--- a/python/sglang/srt/layers/quantization/marlin_utils_fp4.py
++++ b/python/sglang/srt/layers/quantization/marlin_utils_fp4.py
+@@ -443,6 +443,18 @@
+             f"NVFP4 Marlin MoE requires group_size=16, got {layer.quant_config.group_size}."
+         )
+ 
++    # Marlin reads only the repacked scales, so the loader-format swizzle
++    # placeholders that create_weights allocated are dead on this path (2 x
++    # scale bytes per layer: ~7 GiB across a 48-layer NVFP4 MoE). The trtllm
++    # branch already drops them by aliasing them to the raw scales; do the
++    # same here, BEFORE repacking, so their bytes fund the repack transients
++    # instead of competing with them. Remaining readers are the cutedsl
++    # branches, which this function never reaches, and deepseek_v2, which
++    # guards on hasattr.
++    for stale in ("w13_blockscale_swizzled", "w2_blockscale_swizzled"):
++        if getattr(layer, stale, None) is not None:
++            delattr(layer, stale)
++
+     w13 = layer.w13_weight.data
+     w2 = layer.w2_weight.data
+     w13_scale = layer.w13_weight_scale.data
+@@ -487,7 +499,13 @@
+             size_n, size_k = hidden_size, intermediate_size
+         assert weight.shape == (num_experts, size_n, size_k // 2)
+ 
+-        tensor_list = []
++        # Repack expert-by-expert into a preallocated stack buffer.
++        # torch.stack(per_expert_list) keeps the whole per-expert list and the
++        # stacked copy live at the same time: one extra full weight per call on
++        # top of the loader-format original. Filling one row at a time costs a
++        # single expert. Bytes are identical -- same per-expert kernel output,
++        # same contiguous stack layout.
++        out: torch.Tensor | None = None
+         for i in range(num_experts):
+             qweight = weight[i].view(torch.int32).T.contiguous()
+             marlin_qweight = gptq_marlin_repack(
+@@ -497,27 +515,47 @@
+                 size_n=size_n,
+                 num_bits=4,
+             )
+-            tensor_list.append(marlin_qweight)
+-        return torch.stack(tensor_list)
++            if out is None:
++                out = torch.empty(
++                    (num_experts, *marlin_qweight.shape),
++                    dtype=marlin_qweight.dtype,
++                    device=weight.device,
++                )
++            out[i].copy_(marlin_qweight)
++            del qweight, marlin_qweight
++        if out is None:
++            return torch.stack([])  # num_experts == 0: stack() raises, as before
++        return out
+ 
+     def _permute_scales(scales: torch.Tensor, is_w13: bool) -> torch.Tensor:
+-        scales = scales.to(param_dtype)
+         if is_w13:
+             size_n, size_k = intermediate_size * num_shards, hidden_size
+         else:
+             size_n, size_k = hidden_size, intermediate_size
+ 
+-        tensor_list = []
++        out: torch.Tensor | None = None
+         for i in range(num_experts):
+-            scale = scales[i].T.contiguous()
++            # Convert one expert at a time; the whole-tensor .to(param_dtype)
++            # copy kept a second full-size scale tensor live through the loop.
++            scale = scales[i].to(param_dtype).T.contiguous()
+             marlin_scales = marlin_permute_scales(
+                 s=scale,
+                 size_k=size_k,
+                 size_n=size_n,
+                 group_size=16,
+             )
+-            tensor_list.append(nvfp4_marlin_process_scales(marlin_scales))
+-        return torch.stack(tensor_list)
++            processed = nvfp4_marlin_process_scales(marlin_scales)
++            if out is None:
++                out = torch.empty(
++                    (num_experts, *processed.shape),
++                    dtype=processed.dtype,
++                    device=scales.device,
++                )
++            out[i].copy_(processed)
++            del scale, marlin_scales, processed
++        if out is None:
++            return torch.stack([])  # num_experts == 0: stack() raises, as before
++        return out
+ 
+     def _process_global_scale(global_scale: torch.Tensor) -> torch.Tensor:
+         return nvfp4_marlin_process_global_scale(global_scale.to(param_dtype))
+@@ -530,16 +568,26 @@
+             tensor_list.append(marlin_permute_bias(bias[i].to(param_dtype)))
+         return torch.stack(tensor_list)
+ 
++    # Each local above is a second reference to the loader-format storage, so
++    # rebinding the Parameter is not enough to free it. Drop each original as
++    # soon as its repacked replacement is bound: otherwise the whole layer
++    # (weights + raw scales) stays live while the remaining repacks run, and
++    # the load peak becomes resident-model + originals + fresh copies instead
++    # of resident-model + the current repack's working set.
+     layer.w13_weight = torch.nn.Parameter(
+         _repack_weight(w13, True), requires_grad=False
+     )
++    del w13
+     layer.w2_weight = torch.nn.Parameter(_repack_weight(w2, False), requires_grad=False)
++    del w2
+     layer.w13_weight_scale = torch.nn.Parameter(
+         _permute_scales(w13_scale, True), requires_grad=False
+     )
++    del w13_scale
+     layer.w2_weight_scale = torch.nn.Parameter(
+         _permute_scales(w2_scale, False), requires_grad=False
+     )
++    del w2_scale
+     layer.w13_weight_scale_2 = torch.nn.Parameter(
+         _process_global_scale(w13_global_scale), requires_grad=False
+     )

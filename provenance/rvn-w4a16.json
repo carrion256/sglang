@@ -1,5 +1,5 @@
 {
-  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0051; includes PLE host-offload eligibility for the text arch); opt-in profile on the local-only deployed hicache base image",
+  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0052; includes PLE host-offload eligibility for the text arch and the marlin MoE repack release fix); opt-in profile on the local-only deployed hicache base image",
   "base_image": "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284",
   "base_image_id": "sha256:91cee840799be19916e1ba17ed10a517923f4fc70d54f5abd0247f700d01d77a",
   "base_inventory": "provenance/rvn-w4a16-runtime-files.json",
@@ -72,6 +72,16 @@
           "after": "ba51fdca0dd02bb9caf95011f90f21a5313abe35aebd1224f540fdda020150a2"
         }
       }
+    },
+    {
+      "file": "0052-rvn-marlin-moe-release.patch",
+      "sha256": "2a89a10315b027583944eb95fe440958fcee2499bd73d56440730e391b6a3d66",
+      "files": {
+        "python/sglang/srt/layers/quantization/marlin_utils_fp4.py": {
+          "before": "09460a6468148e4fbb9fcf82e907b378c457d21e308cc0e9bb3d8807f1679839",
+          "after": "1ec24885b97ea6aeb47cd0088b172e6292d37edf6f8c5b01921f719d09585048"
+        }
+      }
     }
   ],
   "files": {
@@ -102,7 +112,11 @@
     "python/sglang/srt/model_executor/model_runner_components/load_model_utils.py": {
       "before": "c864d5fa51311a9653a609bf23a70f21d2d6ea5c1556c5287adbdbb1b3c4ad4f",
       "after": "ba51fdca0dd02bb9caf95011f90f21a5313abe35aebd1224f540fdda020150a2"
+    },
+    "python/sglang/srt/layers/quantization/marlin_utils_fp4.py": {
+      "before": "09460a6468148e4fbb9fcf82e907b378c457d21e308cc0e9bb3d8807f1679839",
+      "after": "1ec24885b97ea6aeb47cd0088b172e6292d37edf6f8c5b01921f719d09585048"
     }
   },
-  "result_inventory_sha256": "6a87e104fcb5de2691d1559da84a6466884e6065d1187d32cf308e679af6df65"
+  "result_inventory_sha256": "4b536fe5cbfaa49ba3107fe0efdb479a546a3f9d5836af74e6556a99ab9e50c5"
 }
