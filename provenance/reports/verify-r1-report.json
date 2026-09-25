@@ -1,0 +1,55 @@
+{
+  "tool": "rvn_ple.verify",
+  "version": "1.0.0",
+  "src_dir": "/models/qwen38-flash-next-uncensored",
+  "dst_dir": "/models/rvn-qwen38-ple-nvfp4",
+  "dequant_sample": 8,
+  "ok": true,
+  "checks": [
+    {
+      "name": "manifest_schema",
+      "status": "pass",
+      "reason": "manifest keys, types and fixed values conform to contract \u00a72"
+    },
+    {
+      "name": "global_scale_bits",
+      "status": "pass",
+      "reason": "global_scale_bits 0x380b6db7 = amax/(6*448) for the recomputed source amax 0.08935546875 over 128 partition slices"
+    },
+    {
+      "name": "partitioning",
+      "status": "pass",
+      "reason": "128 partitions cover rows 0..320001535 contiguously in numeric order"
+    },
+    {
+      "name": "parts_integrity",
+      "status": "pass",
+      "reason": "128 parts cover rows 0..320001535 with matching stored payload digests, exact two-tensor headers, in-domain scale bytes and source tensors bound to their row ranges"
+    },
+    {
+      "name": "source_table_sha256",
+      "status": "pass",
+      "reason": "source_table_sha256 recomputed over 128 partition slices"
+    },
+    {
+      "name": "non_ple_identity",
+      "status": "pass",
+      "reason": "295982 retained non-PLE tensors keep dtype, shape and payload identity across changed file boundaries"
+    },
+    {
+      "name": "index_refs",
+      "status": "pass",
+      "reason": "296238 model.safetensors.index.json entries resolve in existing shards and all 295982 non-packed candidate tensors are referenced"
+    },
+    {
+      "name": "partial_candidate",
+      "status": "pass",
+      "reason": "all 128 ple_storage.json part files are present"
+    },
+    {
+      "name": "dequant_sample",
+      "status": "pass",
+      "reason": "8 sampled rows decode identically under the \u00a71 reference and the loader path"
+    }
+  ]
+}

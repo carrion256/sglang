@@ -1,0 +1,8 @@
+PASS graft_manifest_schema: mtp_graft.json declares 4637 tensors with file/sha256/dtype/shape and a source path
+PASS graft_completeness: all 4637 source mtp.* tensors are grafted and nothing else is claimed
+PASS graft_provenance: source provenance resolves for every tensor across 1 source shard(s)
+PASS graft_payload_identity: 4637 grafted payloads (1596720640 bytes) are byte-identical to the source bytes they were copied from
+PASS graft_index: 300875 model.safetensors.index.json entries = 296238 base (unmoved) + 4637 grafted in 1 private shard(s)
+PASS graft_config_stamp: config.json is the base config with mtp_num_hidden_layers=1 and the rvn-mtp-graft-r1 stamp
+PASS graft_files: 375 base files present unchanged in the graft (375 hardlinked to the base inode, so they cannot have drifted), and no extra shard besides the 1 grafted one(s)
+verification PASSED: 7/7 checks
