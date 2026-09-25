@@ -149,7 +149,7 @@
     },
     {
       "file": "0059-rvn-mtp-draft-remap.patch",
-      "sha256": "dabca78b6ececd04dc359df60c62f29db42296f5ebbe5efa5a403e36d8a563c3",
+      "sha256": "a14e8a70130b37892b482f57321034f745db7cfc09bd31d0357e32ed5e05ff08",
       "files": {
         "python/sglang/srt/configs/model_config.py": {
           "before": "f3c7f7648bb80ba1ed07f839376779136d98f04cdd389f80112883720b741712",
@@ -158,6 +158,14 @@
         "python/sglang/srt/arg_groups/speculative_hook.py": {
           "before": "7f69f5dbac5278015e84078b1efb3cdd2f75af9b340b93e0fe3e7603e4698f5b",
           "after": "e662fa825c492cb58150e5f9e0ecb54dd0dfabb641d5122f416eacc7725abd96"
+        },
+        "python/sglang/srt/models/qwen3_5_mtp.py": {
+          "before": "f5e2440a6b16c65ea7768b38441283750692890300c39266025786f33d48f796",
+          "after": "223f3d03f51d4fd11eb1a513032876cf9c0751624002f46f325d3c6c610f93b3"
+        },
+        "python/sglang/srt/models/qwen4_exp_mtp.py": {
+          "before": "7597cbf46993768cee865c888fdb0ad3560f123ead707700d785f7ae0d28497c",
+          "after": "f21f24e3a506e20b7657e5e1af2da5027171826e40a2fc19f3d874682a4ec912"
         }
       }
     }
@@ -202,7 +210,15 @@
     "python/sglang/srt/configs/model_config.py": {
       "before": "f3c7f7648bb80ba1ed07f839376779136d98f04cdd389f80112883720b741712",
       "after": "858780b2fc487dc2fffbfa9cc5a900a92f5150c2feb6b17d706c598f62e02d9f"
+    },
+    "python/sglang/srt/models/qwen3_5_mtp.py": {
+      "before": "f5e2440a6b16c65ea7768b38441283750692890300c39266025786f33d48f796",
+      "after": "223f3d03f51d4fd11eb1a513032876cf9c0751624002f46f325d3c6c610f93b3"
+    },
+    "python/sglang/srt/models/qwen4_exp_mtp.py": {
+      "before": "7597cbf46993768cee865c888fdb0ad3560f123ead707700d785f7ae0d28497c",
+      "after": "f21f24e3a506e20b7657e5e1af2da5027171826e40a2fc19f3d874682a4ec912"
     }
   },
-  "result_inventory_sha256": "76197a641e1050f1c8ea48916404c553ecac85ed8cea69d803594aacb3222953"
+  "result_inventory_sha256": "27efadb08b714c643c824963cef0c6a79ae1a15b3e7398b9b965e0f67faed4c7"
 }

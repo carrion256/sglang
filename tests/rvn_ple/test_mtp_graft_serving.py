@@ -29,6 +29,10 @@ What is pinned here, in order of blast radius:
     text draft to ``Qwen4ExpForCausalLMMTP``, and ``arg_groups/
     speculative_hook.py`` defaults the draft path to the target path -- above
     patch 0057's gate, which keeps refusing an *unstamped* RVN text launch.
+  * the draft-quantization half (the live w13 crash): a grafted draft is
+    built with the target's W4A16 quantization, not the BF16-MTP default
+    that ``_mtp_quant_config`` answers from a quant map that never names
+    an mtp.* layer;
 
 Conventions (repo style):
 - Code under test is the patched tree's own files, loaded with
@@ -55,6 +59,8 @@ PATCH_0059 = REPO / "patches" / "0059-rvn-mtp-draft-remap.patch"
 _ADAPTER_REL = Path("python/sglang/srt/models/qwen4_exp_text_adapter.py")
 _MODEL_REL = Path("python/sglang/srt/models/qwen4_exp.py")
 _CONFIG_REL = Path("python/sglang/srt/configs/model_config.py")
+_MTP_REL = Path("python/sglang/srt/models/qwen3_5_mtp.py")
+_QWEN4_MTP_REL = Path("python/sglang/srt/models/qwen4_exp_mtp.py")
 _HOOK_REL = Path("python/sglang/srt/arg_groups/speculative_hook.py")
 
 RVN_ARCH = "Qwen4ExpForCausalLM"
@@ -93,7 +99,8 @@ def _tree_root():
             allow_module_level=True,
         )
     root = Path(tree)
-    for rel in (_ADAPTER_REL, _MODEL_REL, _CONFIG_REL, _HOOK_REL):
+    for rel in (_ADAPTER_REL, _MODEL_REL, _CONFIG_REL, _MTP_REL,
+                _QWEN4_MTP_REL, _HOOK_REL):
         if not (root / rel).is_file():
             raise AssertionError(f"RVN_PLE_TREE={tree} lacks {rel}")
     return root
@@ -569,6 +576,134 @@ def test_draft_remap_mirrors_the_multimodal_mtp_branch():
     assert "self.hf_text_config = get_hf_text_config(self.hf_config)" in ast.unparse(
         branch
     )
+
+
+# ------------------------------------------ draft quantization (w13 sizing)
+
+
+class _W4A16DraftQuant:
+    """What patch 0048 resolves --speculative-draft-model-quantization
+    modelopt_mixed to for a uniform W4A16_NVFP4 RVN directory: the name of
+    ModelOptFp4Config, whose serialized flag is True because "NVFP4" is a
+    substring of "W4A16_NVFP4" -- exactly the pair that makes the BF16-MTP
+    rule fire for a grafted draft."""
+
+    is_checkpoint_nvfp4_serialized = True
+
+    def get_name(self):
+        return "modelopt_fp4"
+
+
+def draft_remap_shape(**overrides):
+    """The grafted config as it stands at draft construction: the 0059
+    remap has already run, so the flat object carries BOTH depth fields
+    (mtp_num_hidden_layers 1 kept, num_nextn_predict_layers 1 added) and
+    the adapter's rvn_mtp_count reads 2 here -- the whole reason the quant
+    bypass keys on the stamp rather than on rvn_mtp_graft_active."""
+    config = grafted_config(num_nextn_predict_layers=1, num_hidden_layers=1)
+    config.update(overrides)
+    return config
+
+
+def _mtp_quant_rule():
+    """The tree's _mtp_quant_config with its graft predicate, exec'd the
+    way the remap helper above is: the predicate's deferred adapter import
+    resolves through the autouse fixture."""
+    src = (TREE / _MTP_REL).read_text()
+    module = ast.parse(src)
+    ns = {
+        "is_npu": lambda: False,
+        "get_spec": lambda: SimpleNamespace(
+            speculative_draft_model_quantization=None
+        ),
+    }
+    for name in ("_rvn_grafted_mtp_draft", "_mtp_quant_config"):
+        node = next(
+            (
+                n
+                for n in module.body
+                if isinstance(n, ast.FunctionDef) and n.name == name
+            ),
+            None,
+        )
+        if node is None:
+            pytest.fail(f"{_MTP_REL} lacks {name}: patch 0059 not applied")
+        exec(
+            compile(ast.get_source_segment(src, node), str(_MTP_REL), "exec"), ns
+        )
+    return ns["_mtp_quant_config"]
+
+
+def test_grafted_draft_keeps_the_packed_quantization():
+    """Red case for the live crash. _mtp_quant_config answered None for a
+    W4A16 draft (modelopt_fp4 + is_checkpoint_nvfp4_serialized), the draft
+    FusedMoE allocated BF16 w13 [2*640, 2560], and _load_w13 died copying
+    the packed [640, 1280] mtp.layers.0.mlp.experts.0.gate_proj.weight
+    into it ("a (2560) must match ... (1280) at ... dimension 1"). The
+    bypass must fire on the config that actually reaches the constructor,
+    which carries BOTH depth fields."""
+    quant = _W4A16DraftQuant()
+    assert _mtp_quant_rule()(quant, draft_remap_shape()) is quant
+
+
+def test_the_quant_bypass_is_the_stamp_and_nothing_else():
+    quant = _W4A16DraftQuant()
+    rule = _mtp_quant_rule()
+    assert rule(quant, draft_remap_shape(rvn_mtp_graft=graft_stamp(count=2))) is None
+    assert (
+        rule(
+            quant,
+            draft_remap_shape(
+                rvn_mtp_graft=graft_stamp(encoder_version="rvn-mtp-graft-r2")
+            ),
+        )
+        is None
+    )
+    assert rule(quant, rvn_config(mtp_num_hidden_layers=1)) is None
+
+
+def test_unstamped_draft_quant_fallback_is_untouched():
+    """The BF16-MTP answer stands for everything else, including the old
+    one-argument call shape: an unstamped RVN config, no config at all,
+    and -- the upstream case this rule exists for -- a serialized
+    modelopt_fp4 checkpoint whose draft really is BF16."""
+    rule = _mtp_quant_rule()
+    assert rule(_W4A16DraftQuant(), rvn_config()) is None
+    assert rule(_W4A16DraftQuant()) is None
+    assert rule(_W4A16DraftQuant(), None) is None
+
+
+def test_draft_constructor_hands_its_config_to_the_quant_rule():
+    init = _function(_QWEN4_MTP_REL, "Qwen4ExpForCausalLMMTP", "__init__")
+    calls = [
+        n
+        for n in ast.walk(init)
+        if isinstance(n, ast.Call)
+        and getattr(n.func, "id", None) == "_mtp_quant_config"
+    ]
+    assert len(calls) == 1, "the draft constructor normalizes quantization once"
+    assert len(calls[0].args) == 2, (
+        "the stamp bypass only fires when the constructor passes the "
+        "draft's own config alongside the quantization"
+    )
+
+
+def test_fusion_gate_shares_the_constructor_normalization():
+    gate = _function(
+        _MTP_REL, "Qwen3_5ForCausalLMMTP", "shared_experts_fusion_disable_reason"
+    )
+    calls = [
+        n
+        for n in ast.walk(gate)
+        if isinstance(n, ast.Call)
+        and getattr(n.func, "id", None) == "_mtp_quant_config"
+    ]
+    assert len(calls) == 1
+    assert len(calls[0].args) == 2, (
+        "the gate and the constructor must see the same quantization, or "
+        "the fusion decision is made for the wrong draft"
+    )
+
 
 
 # ---------------------------------------------------- draft path (serve hook)

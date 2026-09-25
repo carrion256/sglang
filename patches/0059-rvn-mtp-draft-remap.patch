@@ -1,7 +1,7 @@
 [rvn-ple] Remap NEXTN's draft to Qwen4ExpForCausalLMMTP for a grafted RVN text checkpoint
 
-rvn-w4a16 only. Two gaps, both named in patch 0057's note as the day an RVN
-checkpoint ships MTP layers, and the graft stamp is that day:
+rvn-w4a16 only. Three gaps, all named in patch 0057's note as the day an
+RVN checkpoint ships MTP layers, and the graft stamp is that day:
 
   * configs/model_config.py rewrote the draft architecture to
     Qwen4ExpForCausalLMMTP only for architectures[0] ==
@@ -17,10 +17,32 @@ checkpoint ships MTP layers, and the graft stamp is that day:
   * arg_groups/speculative_hook.py defaulted the draft path to the target
     path only for the listed (multimodal and DeepSeek-family) archs, leaving
     speculative_draft_model_path None for the text arch: the draft worker in
-    managers/tp_worker.py then had no directory to read. The default now also
-    fires for a grafted text checkpoint, restricted to the resolved "EAGLE"
-    algorithm -- the name --speculative-algorithm NEXTN arrives as -- so
-    EAGLE3/STANDALONE still require an explicit external draft path.
+    managers/tp_worker.py then had no directory to read. The default now
+    also fires for a grafted text checkpoint, restricted to the resolved
+    "EAGLE" algorithm -- the name --speculative-algorithm NEXTN arrives as --
+    so EAGLE3/STANDALONE still require an explicit external draft path.
+
+  * models/qwen3_5_mtp.py answered "BF16 MTP" for a grafted launch and the
+    draft worker died on its first expert tensor: the grafted rvn-w4a16
+    directory is a uniform W4A16_NVFP4 checkpoint, patch 0048 resolves
+    --speculative-draft-model-quantization modelopt_mixed to modelopt_fp4
+    for it, and the serialized-NVFP4 rule in _mtp_quant_config drops that
+    config to None ("NVFP4" is a substring of "W4A16_NVFP4"). The draft
+    FusedMoE was then built unquantized, and _load_w13 copied the packed
+    [640, 1280] mtp.layers.0.mlp.experts.0.gate_proj.weight (intermediate
+    640, hidden 2560 halved by the e2m1 packing) into a BF16 w13 narrowed
+    to [640, 2560]: "size of tensor a (2560) must match the size of tensor
+    b (1280) at non-singleton dimension 1". The multimodal launch never
+    hits this because its mixed-precision quantized_layers map names the
+    mtp.* layers and the rule keeps the config. The fix is a stamp-gated
+    bypass: a draft config carrying patch 0058's graft stamp keeps the
+    target's quantization -- the byte-identical copy is exactly the packed
+    NVFP4 payload. The bypass keys on the stamp's own fields (frozen
+    encoder_version, count 1), not on rvn_mtp_count, because the remap
+    above leaves the draft's declared depth legitimately at 2
+    (mtp_num_hidden_layers 1 plus num_nextn_predict_layers 1). The draft
+    constructors and the shared-experts fusion gate run the same
+    normalization, as the helper's own docstring demands.
 
 The default is placed above rvn_text_bundled_draft_unsupported() on purpose:
 that gate refuses a bundled NEXTN draft precisely because no draft path was
@@ -28,19 +50,22 @@ given, and for a grafted candidate there is one. Patch 0057 itself is
 unmodified: an unstamped RVN text config still reaches the refusal, and a
 grafted one reaches it as the pass-through branch it was written to have.
 
-No weight-name mapping is needed on the draft side, verified against
-models/qwen3_5_mtp.py:308-321 -- Qwen4ExpForCausalLMMTP inherits
-Qwen3_5ForCausalLMMTP.load_weights, which keeps only mtp-named tensors and
-rewrites a top-level "mtp." to "model.", then "model.fc" to "fc" and
-"model.pre_fc" to "pre_fc". Those are exactly the graft's names:
+No weight-name mapping is needed on the draft side: Qwen4ExpForCausalLMMTP
+inherits Qwen3_5ForCausalLMMTP.load_weights, which keeps only mtp-named
+tensors and rewrites a top-level "mtp." to "model.", then "model.fc" to
+"fc" and "model.pre_fc" to "pre_fc". Those are exactly the graft's names:
 mtp.fc_embedding.weight and mtp.fc_hidden.weight land on the draft's
-top-level fusion Linears, mtp.layers.0.* land on its single Qwen4ExpModel
-layer, and the draft needs no PLE table because Qwen4ExpForCausalLMMTP
-clears config.ple_layer_ids itself (models/qwen4_exp_mtp.py:46).
+top-level fusion Linears, mtp.layers.0.mlp.experts.* land on the draft
+FusedMoE as model.layers.0.mlp.experts.w13_weight (w1/w3 shards),
+w13_weight_scale, w13_weight_scale_2, w2_weight, w2_weight_scale and
+w2_weight_scale_2, mtp.layers.0.* otherwise land on its single
+Qwen4ExpModel layer, and the draft needs no PLE table because
+Qwen4ExpForCausalLMMTP clears config.ple_layer_ids itself
+(models/qwen4_exp_mtp.py).
 
 --- a/python/sglang/srt/configs/model_config.py
 +++ b/python/sglang/srt/configs/model_config.py
-@@ -103,6 +103,26 @@ def _hf_attr(config, name):
+@@ -103,6 +103,26 @@
      return getattr(config, name, None)
  
  
@@ -67,7 +92,7 @@ clears config.ple_layer_ids itself (models/qwen4_exp_mtp.py:46).
  def is_deepseek_dsa(config) -> bool:
      return (
          _hf_arch(config)
-@@ -761,6 +781,25 @@ class ModelConfig:
+@@ -761,6 +781,25 @@
              text_config.layer_types = ["full_attention"]
              text_config.full_attention_interval = 1
  
@@ -95,7 +120,7 @@ clears config.ple_layer_ids itself (models/qwen4_exp_mtp.py:46).
              self.hf_config.num_nextn_predict_layers = 1
 --- a/python/sglang/srt/arg_groups/speculative_hook.py
 +++ b/python/sglang/srt/arg_groups/speculative_hook.py
-@@ -621,6 +621,31 @@ def _handle_eagle_family(server_args: ServerArgs) -> None:
+@@ -621,6 +621,31 @@
  
      _disable_overlap_schedule_for_cpu(server_args)
  
@@ -127,3 +152,110 @@ clears config.ple_layer_ids itself (models/qwen4_exp_mtp.py:46).
      if resolved_view(server_args).disable_overlap_schedule:
          logger.warning(
              "Non-overlap (synchronous) spec v2 is used for eagle/eagle3/standalone "
+--- a/python/sglang/srt/models/qwen3_5_mtp.py
++++ b/python/sglang/srt/models/qwen3_5_mtp.py
+@@ -44,13 +44,67 @@
+ logger = logging.getLogger(__name__)
+ 
+ 
+-def _mtp_quant_config(quant_config):
++def _rvn_grafted_mtp_draft(config) -> bool:
++    """Whether this draft config carries the graft tool's stamp (patch 0058).
++
++    This is the stamp half of ``rvn_mtp_graft_active`` only: the count rule
++    is the stamp's own ``count == 1`` field, deliberately NOT the adapter's
++    ``rvn_mtp_count`` depth, because by the time a draft model is
++    constructed the ModelConfig remap has added ``num_nextn_predict_layers
++    = 1`` next to the kept ``mtp_num_hidden_layers = 1`` on the same flat
++    object (get_hf_text_config is a no-op for pure-text configs), so the
++    declared depth is legitimately 2 here and only the tool's frozen
++    encoder_version plus its self-declared count still distinguish a graft.
++    The import is deferred: srt.models owns the adapter, which owns the
++    frozen literal.
++    """
++    if config is None:
++        return False
++    stamp = (
++        config.get("rvn_mtp_graft")
++        if isinstance(config, dict)
++        else getattr(config, "rvn_mtp_graft", None)
++    )
++    if stamp is None:
++        return False
++    from sglang.srt.models.qwen4_exp_text_adapter import (
++        RVN_MTP_GRAFT_ENCODER_VERSION,
++    )
++
++    def _stamp_field(name, default=None):
++        return (
++            stamp.get(name, default)
++            if isinstance(stamp, dict)
++            else getattr(stamp, name, default)
++        )
++
++    if _stamp_field("encoder_version") != RVN_MTP_GRAFT_ENCODER_VERSION:
++        return False
++    return int(_stamp_field("count", 0) or 0) == 1
++
++
++def _mtp_quant_config(quant_config, config=None):
+     """The quantization the MTP module itself is built with.
+ 
+     The MTP module often ships unquantized even though the target checkpoint is
+     quantized; the loader's fusion gate has to see the same normalization the
+     constructor applies, or it would answer for the target's quantization.
++
++    ``config`` (patch 0059) is the draft's own HF config, and a grafted RVN
++    text checkpoint is the one case it decides: the graft tool copied another
++    checkpoint's NVFP4 ``mtp.*`` tensors byte for byte (that is what the
++    rvn-mtp-graft-r1 stamp attests), so the draft must keep the target's
++    quantization -- which is exactly what ``--speculative-draft-model-
++    quantization`` hands over for a grafted launch. Without this the branch
++    below answers "BF16 MTP" for the graft too (the RVN W4A16 config is
++    uniform, names no mtp.* layer, and "NVFP4" is a substring of
++    "W4A16_NVFP4"), the draft's FusedMoE allocates BF16 w13 of [2*I, K], and
++    loading a packed [I, K/2] gate_proj dies in fused_moe_triton/layer.py's
++    _load_w13 with ``size of tensor a (2560) must match ... (1280)``.
+     """
++    # Grafted RVN text draft head: mtp.* is packed, keep the quantization.
++    if quant_config is not None and _rvn_grafted_mtp_draft(config):
++        return quant_config
+     # Most serialized Qwen3.5 ModelOpt checkpoints keep MTP in BF16,
+     # but mixed checkpoints may explicitly quantize mtp.* (e.g. LIL NVFP4).
+     # Preserve the mixed config in that case so packed weights get packed
+@@ -89,9 +143,13 @@
+ 
+     @staticmethod
+     def shared_experts_fusion_disable_reason(hf_config, quant_config):
++        # Same normalization as the constructors below (patch 0059): a grafted
++        # RVN draft must not have the fusion gate answer for BF16 while the
++        # draft itself is built quantized.
++        text_config = getattr(hf_config, "text_config", hf_config)
+         return Qwen3_5ForCausalLM.shared_experts_fusion_disable_reason(
+-            getattr(hf_config, "text_config", hf_config),
+-            _mtp_quant_config(quant_config),
++            text_config,
++            _mtp_quant_config(quant_config, text_config),
+         )
+ 
+     def __init__(
+@@ -109,7 +167,7 @@
+         # Deep-copy so MTP mutations below don't leak into the target's config.
+         config = copy.deepcopy(config)
+ 
+-        quant_config = _mtp_quant_config(quant_config)
++        quant_config = _mtp_quant_config(quant_config, config)
+ 
+         self.config = config
+         self.tp_size = get_parallel().tp_size
+--- a/python/sglang/srt/models/qwen4_exp_mtp.py
++++ b/python/sglang/srt/models/qwen4_exp_mtp.py
+@@ -45,7 +45,7 @@
+         config.full_attention_interval = 1
+         config.ple_layer_ids = []
+ 
+-        quant_config = _mtp_quant_config(quant_config)
++        quant_config = _mtp_quant_config(quant_config, config)
+ 
+         self.config = config
+         self.tp_size = get_parallel().tp_size
