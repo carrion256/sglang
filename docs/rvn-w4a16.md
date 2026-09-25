@@ -26,6 +26,7 @@ The PLE storage format this profile consumes is frozen in
 | 11 | `0057-rvn-nextn-draft-gate.patch` | Refuses `--speculative-algorithm NEXTN` on the RVN text model at argument-resolution time: the text contract is MTP-free (`mtp_num_hidden_layers=0`, loader rejects `model.mtp.*`), so the default draft would rebuild the target a second time and OOM — a clear error instead |
 | 12 | `0058-rvn-mtp-graft-loader.patch` | Accepts a grafted MTP head under the frozen `rvn-mtp-graft-r1` stamp: config with `mtp_num_hidden_layers: 1` + `rvn_mtp_graft` stamp passes the text-config gate, and the target loader skips (not rejects) `mtp.*` names; unstamped launches keep the old refusals |
 | 13 | `0059-rvn-mtp-draft-remap.patch` | For a stamped graft, the default NEXTN/EAGLE draft remaps to `Qwen4ExpForCausalLMMTP`, defaults the draft path to the target dir, and keeps the packed draft quant config (the BF16-MTP normalization rule would otherwise build an unquantized draft MoE and fail on packed shapes) |
+| 14 | `0060-rvn-ple-shared-ple.patch` | With `SGLANG_PLE_SHARED_DIR` set, the packed PLE host tables (rows + scales) live in MAP_SHARED tmpfs files named by role/shape/dtype and are `cudaHostRegister`ed once, so replicas share one pinned table instead of a private 26.8 GiB copy each; the device-pointer alias is checked, and any failure falls back silently to the private pinned table (env unset ⇒ behavior byte-identical to before) |
 
 ## Base image
 

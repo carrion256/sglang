@@ -168,6 +168,16 @@
           "after": "f21f24e3a506e20b7657e5e1af2da5027171826e40a2fc19f3d874682a4ec912"
         }
       }
+    },
+    {
+      "file": "0060-rvn-ple-shared-ple.patch",
+      "sha256": "138988345b5539d2a5aaa3ebd868995589dc9c3125b4be6de98739484a053ab7",
+      "files": {
+        "python/sglang/srt/models/packed_ple.py": {
+          "before": "32a733d445fae43d5fadc85106c6a3617248e1d0be4e8b101607aef197bff6c0",
+          "after": "0f0e758385e489b7db9a9031b43932aeac0c98b9c05519624d9f980c0ff89ec9"
+        }
+      }
     }
   ],
   "files": {
@@ -218,7 +228,11 @@
     "python/sglang/srt/models/qwen4_exp_mtp.py": {
       "before": "7597cbf46993768cee865c888fdb0ad3560f123ead707700d785f7ae0d28497c",
       "after": "f21f24e3a506e20b7657e5e1af2da5027171826e40a2fc19f3d874682a4ec912"
+    },
+    "python/sglang/srt/models/packed_ple.py": {
+      "before": "32a733d445fae43d5fadc85106c6a3617248e1d0be4e8b101607aef197bff6c0",
+      "after": "0f0e758385e489b7db9a9031b43932aeac0c98b9c05519624d9f980c0ff89ec9"
     }
   },
-  "result_inventory_sha256": "27efadb08b714c643c824963cef0c6a79ae1a15b3e7398b9b965e0f67faed4c7"
+  "result_inventory_sha256": "3efca254bf0ea16bda2131dfbd76711e295960dd2651727ed7b6ac9ea1a0b981"
 }
