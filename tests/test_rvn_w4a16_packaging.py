@@ -26,6 +26,8 @@ RVN_PATCHES = [
     "0055-rvn-marlin-repack-cycle-collect.patch",
     "0056-rvn-ple-encoder-version-gate.patch",
     "0057-rvn-nextn-draft-gate.patch",
+    "0058-rvn-mtp-graft-loader.patch",
+    "0059-rvn-mtp-draft-remap.patch",
 ]
 BASE_IMAGE = "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284"
 BASE_IMAGE_ID = (

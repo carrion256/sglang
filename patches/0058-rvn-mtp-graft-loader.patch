@@ -1,0 +1,179 @@
+[rvn-ple] Accept a grafted MTP draft head in the RVN text contract
+
+rvn-w4a16 only. The shipped candidate /models/rvn-qwen38-ple-nvfp4 carries no
+draft layer, so the text contract refuses anything MTP-shaped three times
+over: assert_rvn_text_config rejects a non-zero count, Qwen4ExpForCausalLM
+then asserts rvn_mtp_count(config) == 0, and its loader runs every weight
+name through reject_non_text_weight_name, which raises on any name containing
+"mtp". That is correct for the candidate and fatal for a grafted copy of it,
+which is what this patch serves: the same base shards (hardlinked), the
+source checkpoint's top-level mtp.* tensors copied byte-identically, and a
+config.json that declares mtp_num_hidden_layers 1 plus the graft tool's stamp
+rvn_mtp_graft = {source, encoder_version: "rvn-mtp-graft-r1", count: 1}.
+
+One predicate, rvn_mtp_graft_active(config) = count == 1 AND the stamp's
+encoder_version is the frozen literal AND its count is 1, is the only new
+authority; all three parts must line up, because the weights themselves are
+unverifiable copies and nothing in the tensor names distinguishes a graft
+from a stray tensor. Every other shape keeps the old behaviour verbatim:
+count > 1, an unstamped non-zero count, a foreign encoder_version or a
+stamp whose count disagrees still raise the existing "must declare zero MTP
+layers" message, and reject_non_text_weight_name's default stays strict so
+claim_text_weight_name, the inventory tooling and the existing suites see no
+change. Visual names are refused with or without the stamp.
+
+The stamp relaxes the raise, never the skip: the target loader keeps
+`if "mtp" in name: continue`, which is where the draft tensors are dropped,
+so Qwen4ExpForCausalLM never allocates a draft head -- it just stops
+treating the draft's weights as a contract violation. normalize_text_config
+stops pinning mtp_num_hidden_layers to 0 for a stamped config, because that
+pin would hide the layer patch 0059's draft remap keys on.
+
+NEXTN is lossless against the target, so a grafted head that matches the
+target poorly can only cost acceptance rate, never correctness; that is why
+serving it is a loader question and not a training one.
+
+--- a/python/sglang/srt/models/qwen4_exp_text_adapter.py
++++ b/python/sglang/srt/models/qwen4_exp_text_adapter.py
+@@ -26,6 +26,12 @@ RVN_TEXT_MODEL_TYPE = "qwen4_exp_text"
+ MULTIMODAL_ARCHITECTURE = "Qwen4ExpForConditionalGeneration"
+ MTP_DRAFT_ARCHITECTURE = "Qwen4ExpForCausalLMMTP"
+ 
++# Grafted-MTP stamp (patch 0058): an RVN candidate whose draft head was grafted
++# from another checkpoint declares exactly one MTP layer and carries this stamp,
++# which the graft tool writes into config.json as
++# rvn_mtp_graft = {source, encoder_version, count}.
++RVN_MTP_GRAFT_ENCODER_VERSION = "rvn-mtp-graft-r1"
++
+ # Flat qwen4_exp_text fields that must survive normalization untouched:
+ # sparse-attention/indexer, layer types, hyperconnection count, n-gram
+ # hashing/partitioning, rotary parameters and MTP-related flags.
+@@ -114,6 +120,27 @@ def rvn_mtp_count(config: Any) -> int:
+     )
+ 
+ 
++def rvn_mtp_graft_active(config: Any) -> bool:
++    """True when the config declares exactly one grafted MTP draft layer.
++
++    A grafted checkpoint is the base RVN candidate plus an ``mtp.*`` head copied
++    verbatim from another checkpoint by the graft tool, so nothing here can be
++    inferred from the weights: all three parts must line up or the contract
++    falls back to the plain text-only rule (reject every mtp-named tensor).
++    Callers gate on the RVN text architecture separately; this predicate is
++    only the count-plus-stamp half of the rule, so it stays usable from the
++    config, loader and draft-selection paths without an architecture check.
++    """
++    if rvn_mtp_count(config) != 1:
++        return False
++    stamp = _field(config, "rvn_mtp_graft", None)
++    if stamp is None:
++        return False
++    if _field(stamp, "encoder_version", None) != RVN_MTP_GRAFT_ENCODER_VERSION:
++        return False
++    return int(_field(stamp, "count", 0) or 0) == 1
++
++
+ def assert_rvn_text_config(config: Any) -> None:
+     """Checked-wrapper invariants for the RVN text path; raises on violation."""
+     if not is_rvn_text_config(config):
+@@ -127,7 +154,11 @@ def assert_rvn_text_config(config: Any) -> None:
+             "RVN text config must not enable vision fields: "
+             f"vision_config={_field(config, 'vision_config')!r}"
+         )
+-    if rvn_mtp_count(config) != 0:
++    # The one exception is a grafted draft head (rvn_mtp_graft_active): exactly
++    # one layer, declared by the graft tool's stamp. Every other non-zero count
++    # -- count > 1, an unstamped config, a stamp with a foreign
++    # encoder_version or a mismatched count -- keeps the message below.
++    if rvn_mtp_count(config) != 0 and not rvn_mtp_graft_active(config):
+         raise ValueError(
+             "RVN text config must declare zero MTP layers, got "
+             f"mtp_num_hidden_layers={_field(config, 'mtp_num_hidden_layers', 0)!r} "
+@@ -142,13 +173,16 @@ def normalize_text_config(config: Any) -> dict:
+     unchanged: the multimodal path must see byte-identical baseline values. RVN
+     flat qwen4_exp_text configs get their text-only invariants checked and their
+     MTP count pinned to 0; every field in PRESERVED_CONFIG_FIELDS keeps its
+-    incoming value.
++    incoming value. A grafted draft head is the sole exception to the pin:
++    zeroing it there would hide the very layer the stamp declares, and the NEXTN
++    draft remap in configs/model_config.py keys on it.
+     """
+     out = config_to_dict(config)
+     if not is_rvn_text_model(out.get("architectures"), out.get("model_type")):
+         return out
+     assert_rvn_text_config(out)
+-    out["mtp_num_hidden_layers"] = 0
++    if not rvn_mtp_graft_active(out):
++        out["mtp_num_hidden_layers"] = 0
+     return out
+ 
+ 
+@@ -175,11 +209,19 @@ def is_mtp_weight_name(name: str) -> bool:
+     return _MTP_MARK in name
+ 
+ 
+-def reject_non_text_weight_name(name: str) -> None:
+-    """Text-prefix-only checkpoint rule for the RVN arch: no visual/MTP tensors."""
++def reject_non_text_weight_name(name: str, allow_mtp: bool = False) -> None:
++    """Text-prefix-only checkpoint rule for the RVN arch: no visual/MTP tensors.
++
++    ``allow_mtp`` is the grafted-draft escape hatch: it is set by the target
++    loader only when ``rvn_mtp_graft_active(config)`` holds, and it merely stops
++    the raise -- the loader still ``continue``s past every mtp-named tensor, so
++    the target never allocates a draft head. Visual names are refused either
++    way, and the default stays strict so every other caller (claim_text_weight_name,
++    the inventory tooling, the tests) keeps the original contract.
++    """
+     if is_visual_weight_name(name):
+         raise ValueError(f"RVN text checkpoint must not contain visual weights: {name}")
+-    if is_mtp_weight_name(name):
++    if is_mtp_weight_name(name) and not allow_mtp:
+         raise ValueError(f"RVN text checkpoint must not contain MTP weights: {name}")
+ 
+ 
+--- a/python/sglang/srt/models/qwen4_exp.py
++++ b/python/sglang/srt/models/qwen4_exp.py
+@@ -76,6 +76,7 @@ from sglang.srt.models.qwen4_exp_text_adapter import (
+     ple_shard_is_canonical,
+     reject_non_text_weight_name,
+     rvn_mtp_count,
++    rvn_mtp_graft_active,
+ )
+ from sglang.srt.runtime_context import get_parallel
+ from sglang.srt.utils import add_prefix, cpu_has_amx_support, is_cpu, logger
+@@ -2653,13 +2654,21 @@ class Qwen4ExpWeightLoadMixin:
+                 )
+             return False
+ 
++        # A grafted draft head (patch 0058: rvn_mtp_graft_active) ships top-level
++        # mtp.* tensors in this same directory, which only the draft worker ever
++        # reads. The target still never allocates them -- they are skipped just
++        # below, the way the multimodal loader skips them -- so the stamp only
++        # has to relax the raise, not the skip. Any other mtp-named tensor in a
++        # text checkpoint keeps failing loudly.
++        accept_grafted_mtp = text_only and rvn_mtp_graft_active(self.config)
++
+         for name, loaded_weight in weights:
+             if "rotary_emb.inv_freq" in name:
+                 continue
+             if text_only:
+                 # RVN text-only checkpoint contract: visual/MTP tensors cannot
+                 # exist, so reject them loudly instead of silently skipping.
+-                reject_non_text_weight_name(name)
++                reject_non_text_weight_name(name, allow_mtp=accept_grafted_mtp)
+             if "mtp" in name:
+                 continue
+             if "visual" in name and self.language_model_only:
+@@ -3057,7 +3066,11 @@ class Qwen4ExpForCausalLM(Qwen4ExpWeightLoadMixin, Qwen3VLForConditionalGenerati
+         self.use_deepstack = False
+         # Checked wrapper: no visual module allocated, no MTP head invented.
+         assert getattr(self, "visual", None) is None
+-        assert rvn_mtp_count(config) == 0, (
++        # A grafted draft head is the one tolerated non-zero count: the stamp is
++        # the graft tool's declaration that mtp.* tensors in this directory
++        # belong to the NEXTN draft worker, and the loader above skips them, so
++        # this class still never allocates a draft head of its own.
++        assert rvn_mtp_count(config) == 0 or rvn_mtp_graft_active(config), (
+             "RVN text model must declare zero MTP layers: "
+             f"{rvn_mtp_count(config)} declared"
+         )

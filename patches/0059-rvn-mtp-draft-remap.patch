@@ -1,0 +1,129 @@
+[rvn-ple] Remap NEXTN's draft to Qwen4ExpForCausalLMMTP for a grafted RVN text checkpoint
+
+rvn-w4a16 only. Two gaps, both named in patch 0057's note as the day an RVN
+checkpoint ships MTP layers, and the graft stamp is that day:
+
+  * configs/model_config.py rewrote the draft architecture to
+    Qwen4ExpForCausalLMMTP only for architectures[0] ==
+    Qwen4ExpForConditionalGeneration, so a grafted text checkpoint built its
+    draft worker as a second 48-layer copy of the target. The new branch
+    mirrors the multimodal one exactly -- deep-copy the shared hf_config,
+    collapse to one full_attention layer, num_nextn_predict_layers = 1,
+    which is what sizes the draft KV pool in
+    model_executor/model_runner_components/layer_setup.py -- and it is gated
+    on the graft stamp through is_rvn_text_mtp_graft, so an unstamped RVN
+    text launch is untouched.
+
+  * arg_groups/speculative_hook.py defaulted the draft path to the target
+    path only for the listed (multimodal and DeepSeek-family) archs, leaving
+    speculative_draft_model_path None for the text arch: the draft worker in
+    managers/tp_worker.py then had no directory to read. The default now also
+    fires for a grafted text checkpoint, restricted to the resolved "EAGLE"
+    algorithm -- the name --speculative-algorithm NEXTN arrives as -- so
+    EAGLE3/STANDALONE still require an explicit external draft path.
+
+The default is placed above rvn_text_bundled_draft_unsupported() on purpose:
+that gate refuses a bundled NEXTN draft precisely because no draft path was
+given, and for a grafted candidate there is one. Patch 0057 itself is
+unmodified: an unstamped RVN text config still reaches the refusal, and a
+grafted one reaches it as the pass-through branch it was written to have.
+
+No weight-name mapping is needed on the draft side, verified against
+models/qwen3_5_mtp.py:308-321 -- Qwen4ExpForCausalLMMTP inherits
+Qwen3_5ForCausalLMMTP.load_weights, which keeps only mtp-named tensors and
+rewrites a top-level "mtp." to "model.", then "model.fc" to "fc" and
+"model.pre_fc" to "pre_fc". Those are exactly the graft's names:
+mtp.fc_embedding.weight and mtp.fc_hidden.weight land on the draft's
+top-level fusion Linears, mtp.layers.0.* land on its single Qwen4ExpModel
+layer, and the draft needs no PLE table because Qwen4ExpForCausalLMMTP
+clears config.ple_layer_ids itself (models/qwen4_exp_mtp.py:46).
+
+--- a/python/sglang/srt/configs/model_config.py
++++ b/python/sglang/srt/configs/model_config.py
+@@ -103,6 +103,26 @@ def _hf_attr(config, name):
+     return getattr(config, name, None)
+ 
+ 
++def is_rvn_text_mtp_graft(config) -> bool:
++    """Whether an RVN text checkpoint carries a grafted NEXTN draft head.
++
++    The graft tool copies another checkpoint's top-level ``mtp.*`` tensors into
++    the candidate directory and stamps ``rvn_mtp_graft`` (source, encoder
++    version, count) into its config.json next to ``mtp_num_hidden_layers: 1``,
++    so the draft layer sits inside the *target* directory the same way
++    ``model.mtp.*`` does for the multimodal Qwen4-Exp arch. The stamp rule
++    itself (count == 1, encoder_version == "rvn-mtp-graft-r1") is
++    ``rvn_mtp_graft_active``'s alone; this wrapper only adds the architecture
++    check, so a stamped config of some other arch can never be remapped. The
++    import is deferred: srt.models imports srt.configs.
++    """
++    if _hf_arch(config) != "Qwen4ExpForCausalLM":
++        return False
++    from sglang.srt.models.qwen4_exp_text_adapter import rvn_mtp_graft_active
++
++    return rvn_mtp_graft_active(config)
++
++
+ def is_deepseek_dsa(config) -> bool:
+     return (
+         _hf_arch(config)
+@@ -761,6 +781,25 @@ class ModelConfig:
+             text_config.layer_types = ["full_attention"]
+             text_config.full_attention_interval = 1
+ 
++        if is_draft_model and is_rvn_text_mtp_graft(self.hf_config):
++            # Grafted draft head on the *text* arch (patches 0058/0059): the
++            # candidate's own directory carries the source checkpoint's mtp.*
++            # tensors, so the draft is remapped and sized exactly as the
++            # multimodal case above. No weight-name mapping is needed:
++            # Qwen4ExpForCausalLMMTP inherits Qwen3_5ForCausalLMMTP.load_weights,
++            # which already rewrites top-level ``mtp.X`` to ``model.X`` (and
++            # ``mtp.fc``/``mtp.pre_fc`` to the draft's top-level fusion
++            # parameters), and it clears ple_layer_ids itself, so the draft
++            # never asks for the PLE n-gram table.
++            self.hf_config = copy.deepcopy(self.hf_config)
++            self.hf_text_config = get_hf_text_config(self.hf_config)
++            self.hf_config.architectures[0] = "Qwen4ExpForCausalLMMTP"
++            text_config = self.hf_text_config
++            text_config.num_nextn_predict_layers = 1
++            text_config.num_hidden_layers = 1
++            text_config.layer_types = ["full_attention"]
++            text_config.full_attention_interval = 1
++
+         if is_draft_model and self.hf_config.architectures[0] == "Qwen3MoeForCausalLM":
+             self.hf_config.architectures[0] = "Qwen3MoeForCausalLMMTP"
+             self.hf_config.num_nextn_predict_layers = 1
+--- a/python/sglang/srt/arg_groups/speculative_hook.py
++++ b/python/sglang/srt/arg_groups/speculative_hook.py
+@@ -621,6 +621,31 @@ def _handle_eagle_family(server_args: ServerArgs) -> None:
+ 
+     _disable_overlap_schedule_for_cpu(server_args)
+ 
++    # A grafted RVN text checkpoint (patches 0058/0059: the config carries the
++    # rvn_mtp_graft stamp) ships its NEXTN draft layer as top-level mtp.*
++    # tensors inside the target directory, so --speculative-draft-model-path
++    # defaults to the target path exactly as the arch list below does for the
++    # multimodal Qwen4-Exp. It has to happen *here*, above
++    # rvn_text_bundled_draft_unsupported(): that gate refuses a bundled NEXTN
++    # draft precisely because no draft path was given, and for a grafted
++    # candidate there is one. EAGLE only, mirroring the gate's own predicate
++    # (NEXTN has already resolved to EAGLE): EAGLE3/STANDALONE still require an
++    # explicit external draft path, and an unstamped RVN text config still gets
++    # the refusal, so nothing about a non-grafted launch changes.
++    if (
++        server_args.speculative_algorithm == "EAGLE"
++        and server_args.speculative_draft_model_path is None
++    ):
++        from sglang.srt.models.qwen4_exp_text_adapter import (
++            is_rvn_text_config,
++            rvn_mtp_graft_active,
++        )
++
++        graft_config = server_args.get_model_config().hf_config
++        if is_rvn_text_config(graft_config) and rvn_mtp_graft_active(graft_config):
++            server_args.speculative_draft_model_path = server_args.model_path
++            server_args.speculative_draft_model_revision = server_args.revision
++
+     if resolved_view(server_args).disable_overlap_schedule:
+         logger.warning(
+             "Non-overlap (synchronous) spec v2 is used for eagle/eagle3/standalone "

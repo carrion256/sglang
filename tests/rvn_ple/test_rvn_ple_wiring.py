@@ -168,6 +168,10 @@ class _MixinEnv:
             "map_text_weight_prefix": adapter.map_text_weight_prefix,
             "ple_shard_is_canonical": adapter.ple_shard_is_canonical,
             "reject_non_text_weight_name": adapter.reject_non_text_weight_name,
+            # Patch 0058: the mixin consults this to decide whether an mtp.*
+            # tensor may pass the text-only gate; a config without the graft
+            # stamp (every fixture here) keeps the strict behaviour.
+            "rvn_mtp_graft_active": adapter.rvn_mtp_graft_active,
             "ple_global_scale_ckpt_key": adapter.ple_global_scale_ckpt_key,
             "Qwen4ExpNGramEmbedding": Ngram,
             "Qwen4ExpPinnedHostEmbedding": PinnedHost,

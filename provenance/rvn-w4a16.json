@@ -125,11 +125,39 @@
     },
     {
       "file": "0057-rvn-nextn-draft-gate.patch",
-      "sha256": "42abdcb856bb6e9d442837b7ce78d90b5a3279d4a4168514460eab73e88d6d42",
+      "sha256": "8afee0664bdc4971ff64dfb9c4a622db977a011e19716bd19a23ff4f174bcf41",
       "files": {
         "python/sglang/srt/arg_groups/speculative_hook.py": {
           "before": "a97e3a7b427328559fa99e2078d2fec38d8380a6c8c17bfea898cb4eee2e8123",
-          "after": "ff7cf5b94dbca013be5f40c35add6a27567c6a1ca0c04f664925dc5b042e348d"
+          "after": "7f69f5dbac5278015e84078b1efb3cdd2f75af9b340b93e0fe3e7603e4698f5b"
+        }
+      }
+    },
+    {
+      "file": "0058-rvn-mtp-graft-loader.patch",
+      "sha256": "d05bfd90c92969b5ca5c7b749dcc1bdce7484dc9aa3acdf03dbeb8dc911f834f",
+      "files": {
+        "python/sglang/srt/models/qwen4_exp_text_adapter.py": {
+          "before": "51bbed87a0c84c32b42472d614d026b79baaac7dffd08938dd6dd984edb10330",
+          "after": "856487016e9e41df045d83a53a560b21b594e21e1e2b1a2abff4438012913de0"
+        },
+        "python/sglang/srt/models/qwen4_exp.py": {
+          "before": "4c6611e9a3cd1402119f577a375c852646f4abed5ce80350828b0673c36c461a",
+          "after": "186c8148aa4c0f8e5c61a18af74ad20a19e1e4f6b71204d58dc921ef37a854d8"
+        }
+      }
+    },
+    {
+      "file": "0059-rvn-mtp-draft-remap.patch",
+      "sha256": "dabca78b6ececd04dc359df60c62f29db42296f5ebbe5efa5a403e36d8a563c3",
+      "files": {
+        "python/sglang/srt/configs/model_config.py": {
+          "before": "f3c7f7648bb80ba1ed07f839376779136d98f04cdd389f80112883720b741712",
+          "after": "858780b2fc487dc2fffbfa9cc5a900a92f5150c2feb6b17d706c598f62e02d9f"
+        },
+        "python/sglang/srt/arg_groups/speculative_hook.py": {
+          "before": "7f69f5dbac5278015e84078b1efb3cdd2f75af9b340b93e0fe3e7603e4698f5b",
+          "after": "e662fa825c492cb58150e5f9e0ecb54dd0dfabb641d5122f416eacc7725abd96"
         }
       }
     }
@@ -137,7 +165,7 @@
   "files": {
     "python/sglang/srt/models/qwen4_exp.py": {
       "before": "311375b089b05091bb1a99d95eeec238a03268381f491854322abf40e3f3328e",
-      "after": "4c6611e9a3cd1402119f577a375c852646f4abed5ce80350828b0673c36c461a"
+      "after": "186c8148aa4c0f8e5c61a18af74ad20a19e1e4f6b71204d58dc921ef37a854d8"
     },
     "python/sglang/srt/utils/hf_transformers/common.py": {
       "before": "b65aeed19332be514a0af226d7c3c002dc20e411d2fe04f58e480bc358325738",
@@ -145,7 +173,7 @@
     },
     "python/sglang/srt/models/qwen4_exp_text_adapter.py": {
       "before": null,
-      "after": "51bbed87a0c84c32b42472d614d026b79baaac7dffd08938dd6dd984edb10330"
+      "after": "856487016e9e41df045d83a53a560b21b594e21e1e2b1a2abff4438012913de0"
     },
     "python/sglang/srt/layers/quantization/modelopt_quant.py": {
       "before": "b05ed81bef0443781c79c7a6daf05204b8d6c50903cd84dae87ef3303c93d311",
@@ -169,8 +197,12 @@
     },
     "python/sglang/srt/arg_groups/speculative_hook.py": {
       "before": "a97e3a7b427328559fa99e2078d2fec38d8380a6c8c17bfea898cb4eee2e8123",
-      "after": "ff7cf5b94dbca013be5f40c35add6a27567c6a1ca0c04f664925dc5b042e348d"
+      "after": "e662fa825c492cb58150e5f9e0ecb54dd0dfabb641d5122f416eacc7725abd96"
+    },
+    "python/sglang/srt/configs/model_config.py": {
+      "before": "f3c7f7648bb80ba1ed07f839376779136d98f04cdd389f80112883720b741712",
+      "after": "858780b2fc487dc2fffbfa9cc5a900a92f5150c2feb6b17d706c598f62e02d9f"
     }
   },
-  "result_inventory_sha256": "4a7aaea5da1406c4874a64bbad7184f209bf092b2d7c399a239907547691b84a"
+  "result_inventory_sha256": "76197a641e1050f1c8ea48916404c553ecac85ed8cea69d803594aacb3222953"
 }
