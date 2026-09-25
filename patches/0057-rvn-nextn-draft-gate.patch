@@ -107,9 +107,10 @@ cleanly (not a collection error) when RVN_PLE_TREE is unset, so a bare
 ``pytest tests/`` stays green on an unpatched tree. It pins the coupling the
 gate depends on - _resolve_speculative_algorithm_alias still maps NEXTN to
 EAGLE - and that the refusal leaves speculative_draft_model_path as the user
-set it. Across the rest of tests/rvn_ple the failure set is identical with and
-without this patch, and the only tests it flips are two in patches 0058/0059's
-own suite that call this predicate. Gate verdicts against a real parse of
+set it. Across the rest of tests/rvn_ple no case fails with this patch that
+does not fail without it; the only cases it flips are two in patches
+0058/0059's own suite, which call this predicate and so need it. Gate verdicts
+against a real parse of
 /models/rvn-qwen38-ple-nvfp4/config.json were also checked out of band: refusal
 for NEXTN, None for STANDALONE, for an external draft path and for no
 speculative decoding.
