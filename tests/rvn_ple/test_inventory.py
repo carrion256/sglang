@@ -509,4 +509,4 @@ def test_header_key_order_is_not_offset_order(tmp_path):
     ).encode()
     blob += b" " * ((8 - len(blob) % 8) % 8)
     shard.write_bytes(struct.pack("<Q", len(blob)) + blob + raw[8 + header_len :])
-    assert inv.build_inventory(good)["categories"]["unmatched"]["tensors"] == 2
+    assert inv.build_inventory(good)["categories"]["unmatched"]["count"] == 2
