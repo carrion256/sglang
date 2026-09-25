@@ -286,9 +286,27 @@ def _checkpoint(tmp_path, *, source_tensor=SOURCE_TENSOR, rows_a=FIX.ROWS_A,
     return root, packed, scales
 
 
+def _revert_later_stacked_patches(tree):
+    """Reverse-apply the profile patches stacked after 0050 that touch the two
+    files this harness copies. 0054's reconstruction gate lands *inside* the
+    block 0050 adds, so a bare reverse of 0050 would no longer find its
+    post-image; undoing the later stacked hunks first restores it. Patches
+    this tree does not carry fail ``--check`` and are skipped."""
+    include = [f"--include={rel}" for rel in (_MODEL_REL, _WU_REL)]
+    for path in sorted((REPO / "patches").glob("*.patch")):
+        if path.name <= PATCH_0050.name:
+            continue
+        argv = ["git", "apply", "-R", "-p1", *include, str(path)]
+        probe = subprocess.run(argv + ["--check"], cwd=tree,
+                               capture_output=True)
+        if probe.returncode == 0:
+            subprocess.run(argv, cwd=tree, check=True, capture_output=True)
+
+
 def _stacked_and_baseline(tmp_path):
     """(stacked, 0050-reverted) copies of qwen4_exp.py; the baseline is the
-    exact 0050 preimage, rebuilt by ``git apply -R`` of the repo patch."""
+    exact 0050 preimage, rebuilt by ``git apply -R`` of the repo patch (after
+    any patch stacked on top of it, see ``_revert_later_stacked_patches``)."""
     root = tmp_path / "rvn0050-compare"
     paths = {}
     for variant in ("stacked", "preimage"):
@@ -298,6 +316,7 @@ def _stacked_and_baseline(tmp_path):
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(TREE / rel, dst)
         if variant == "preimage":
+            _revert_later_stacked_patches(tree)
             subprocess.run(
                 ["git", "apply", "-R", "-p1", str(PATCH_0050)],
                 cwd=tree, check=True, capture_output=True)

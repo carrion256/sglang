@@ -137,18 +137,27 @@ def _checkpoint(tmp_path, *, reconstruction="bf16_direct"):
     return root, packed, scales
 
 
-def _load(model_path, root, monkeypatch, env_value):
-    """One RVN text load under ``SGLANG_PLE_PACKED_FP8_REFERENCE=env_value``
-    (``None`` = unset), with the embedding's kernel mode taken from the
-    deployed derivation. Returns ``(env, emb, loaded, mode)``."""
+def _prepare(model_path, root, monkeypatch, env_value, *, with_storage=True):
+    """Build the RVN text model under ``SGLANG_PLE_PACKED_FP8_REFERENCE=
+    env_value`` (``None`` = unset), with the embedding's gather-kernel mode
+    taken from the deployed derivation. Returns ``(env, model, emb, mode)``
+    without loading, so a fail-closed abort can be inspected afterwards."""
     monkeypatch.delenv(ENV_FLAG, raising=False)
     if env_value is not None:
         monkeypatch.setenv(ENV_FLAG, env_value)
     mode = _effective_mode()
     env = W._MixinEnv(model_path)
-    model = env.model(root)
+    model = env.model(root, with_storage=with_storage)
     emb = model._ple_mods[MOD_PREFIX].ngram_embedding
     emb._packed_fp8_reference = mode
+    return env, model, emb, mode
+
+
+def _load(model_path, root, monkeypatch, env_value, *, with_storage=True):
+    """``_prepare`` plus the RVN text weight load; ``(env, emb, loaded,
+    mode)``. Raises whatever the load path raises (the gate included)."""
+    env, model, emb, mode = _prepare(
+        model_path, root, monkeypatch, env_value, with_storage=with_storage)
     with W._sglang_stubs(str(root)):
         loaded = model.load_qwen4_exp_weights([], text_only=True)
     return env, emb, loaded, mode
@@ -187,11 +196,20 @@ def test_contradiction_refuses_before_any_part_is_read(gate, tmp_path,
     no manifest-load was logged, so no partial PLE row can survive the abort."""
     gated, _ = gate
     root, _, _ = _checkpoint(tmp_path, reconstruction="fp8_roundtrip")
-    env, emb, _, mode = _load(gated, root, monkeypatch, None)
+    env, model, emb, mode = _prepare(gated, root, monkeypatch, None)
     assert mode is False
+    # torch.empty backing: snapshot the rank's table instead of assuming zero.
+    untouched_weight = emb._packed_storage.weight.clone()
+    untouched_scales = emb._packed_storage.scales.view(torch.uint8).clone()
+    with pytest.raises(ValueError) as excinfo, W._sglang_stubs(str(root)):
+        model.load_qwen4_exp_weights([], text_only=True)
+    assert "fp8_reference=True" in str(excinfo.value)
     storage = emb._packed_storage
+    # Nothing was assembled: no global scale, and not one packed byte of the
+    # part files reached this rank's host table.
     assert storage.global_scale is None
-    assert torch.equal(storage.weight, torch.zeros_like(storage.weight))
+    assert torch.equal(storage.weight, untouched_weight)
+    assert torch.equal(storage.scales.view(torch.uint8), untouched_scales)
     assert not getattr(emb, "_rvn_ple_manifest_loaded", False)
     assert not [line for line in env.logger.infos if "rvn-ple" in line]
 
@@ -201,7 +219,7 @@ def test_contradiction_refuses_before_any_part_is_read(gate, tmp_path,
     ("bf16_direct", "0"),
     ("bf16_direct", "false"),   # not "1": off per the deployed derivation
     ("bf16_direct", "true"),    # ditto -- truthy spellings are not "1"
-    ("fp8_roundtrip", "1"),     # the legacy mode stays selectable, matching
+    ("bf16_direct", "1\n"),     # only the exact "1" requests the round-trip
 ])
 def test_matching_modes_load_and_log_the_bound_mode(gate, tmp_path,
                                                     monkeypatch, reconstruction,
@@ -224,7 +242,6 @@ def test_matching_modes_load_and_log_the_bound_mode(gate, tmp_path,
 
 @pytest.mark.parametrize("reconstruction,env_value", [
     ("bf16_direct", "1"),        # production packed-serve env vs v1 manifest
-    ("bf16_direct", "1\n"),      # only the exact "1" requests the round-trip
     ("fp8_roundtrip", None),     # legacy manifest served with the flag unset
     ("fp8_roundtrip", "0"),
 ])
@@ -247,14 +264,15 @@ def test_mode_gate_is_scoped_to_manifest_checkpoints(gate, tmp_path,
     gated, ungated = gate
     root = tmp_path / "no-manifest"
     root.mkdir()
-    results = {}
+    results, storages = {}, {}
     for variant, path in (("gated", gated), ("ungated", ungated)):
-        env, emb, loaded, mode = _load(path, root, monkeypatch, "1")
-        results[variant] = (loaded, mode, emb._packed_storage,
-                            list(env.logger.infos))
+        env, emb, loaded, mode = _load(path, root, monkeypatch, "1",
+                                       with_storage=False)
+        results[variant] = (loaded, mode, list(env.logger.infos))
+        storages[variant] = emb._packed_storage
     assert results["gated"] == results["ungated"]
     assert results["gated"][1] is True  # flag honored, nothing gated
-    assert results["gated"][2] is None  # legacy path never consulted the hook
+    assert storages["gated"] is None is storages["ungated"]
     assert results["gated"][0] == set()
 
 

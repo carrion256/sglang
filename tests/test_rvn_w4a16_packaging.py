@@ -22,6 +22,7 @@ RVN_PATCHES = [
     "0051-rvn-ple-offload-eligibility.patch",
     "0052-rvn-marlin-moe-release.patch",
     "0053-rvn-marlin-skip-blockscale-swizzle.patch",
+    "0054-rvn-ple-recon-mode-gate.patch",
 ]
 BASE_IMAGE = "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284"
 BASE_IMAGE_ID = (

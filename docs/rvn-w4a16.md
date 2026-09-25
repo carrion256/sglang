@@ -20,6 +20,7 @@ The PLE storage format this profile consumes is frozen in
 | 5 | `0051-rvn-ple-offload-eligibility.patch` | Extends `--ple-offload-embedding` host/pinned eligibility to `Qwen4ExpForCausalLM` so the text arch can build with the PLE table in pinned host RAM |
 | 6 | `0052-rvn-marlin-moe-release.patch` | Frees loader-format MoE storage during the marlin repack (dead swizzle placeholders, per-expert repack buffer, originals dropped as replacements bind) so load peak fits one 96 GB card |
 | 7 | `0053-rvn-marlin-skip-blockscale-swizzle.patch` | Never allocates the dead `w*_blockscale_swizzled` placeholders when the backend resolves to Marlin — the 7 GiB is freed at construction, not per-layer |
+| 8 | `0054-rvn-ple-recon-mode-gate.patch` | Makes the manifest's `encoding.reconstruction` binding: serving a `bf16_direct` manifest with the legacy FP8 round-trip kernel enabled raises instead of silently degrading PLE numerics |
 
 ## Base image
 
@@ -44,7 +45,7 @@ docker build -f Dockerfile.rvn-w4a16 -t rvn-w4a16:<tag> .
 ```
 
 The build's last step is the provenance gate — it verifies the base
-inventory, applies the five patches in series order with `git apply`, and
+inventory, applies the eight patches in series order with `git apply`, and
 re-hashes every source file against the manifest:
 
 ```

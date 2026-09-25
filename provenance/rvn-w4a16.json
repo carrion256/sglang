@@ -1,5 +1,5 @@
 {
-  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0053; includes PLE host-offload eligibility for the text arch, the marlin MoE repack release fix, and never allocating dead swizzle placeholders under the marlin pin); opt-in profile on the local-only deployed hicache base image",
+  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0054; includes PLE host-offload eligibility for the text arch, the marlin MoE repack release fixes, and the binding manifest encoding.reconstruction gate); opt-in profile on the local-only deployed hicache base image",
   "base_image": "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284",
   "base_image_id": "sha256:91cee840799be19916e1ba17ed10a517923f4fc70d54f5abd0247f700d01d77a",
   "base_inventory": "provenance/rvn-w4a16-runtime-files.json",
@@ -92,12 +92,22 @@
           "after": "18cab804ab31f2e0faac7fb09fca0a8389a08bcef323c058ef3cffdaf2b50a1a"
         }
       }
+    },
+    {
+      "file": "0054-rvn-ple-recon-mode-gate.patch",
+      "sha256": "7a21362d85ee5fa1c0024a977b97dd5ffb5b9f56d75995e97de0f606b1d56516",
+      "files": {
+        "python/sglang/srt/models/qwen4_exp.py": {
+          "before": "4d463986b6392736a976088a297cd1619720de04d3fa70e8491ee704be1a76f9",
+          "after": "4c6611e9a3cd1402119f577a375c852646f4abed5ce80350828b0673c36c461a"
+        }
+      }
     }
   ],
   "files": {
     "python/sglang/srt/models/qwen4_exp.py": {
       "before": "311375b089b05091bb1a99d95eeec238a03268381f491854322abf40e3f3328e",
-      "after": "4d463986b6392736a976088a297cd1619720de04d3fa70e8491ee704be1a76f9"
+      "after": "4c6611e9a3cd1402119f577a375c852646f4abed5ce80350828b0673c36c461a"
     },
     "python/sglang/srt/utils/hf_transformers/common.py": {
       "before": "b65aeed19332be514a0af226d7c3c002dc20e411d2fe04f58e480bc358325738",
@@ -128,5 +138,5 @@
       "after": "1ec24885b97ea6aeb47cd0088b172e6292d37edf6f8c5b01921f719d09585048"
     }
   },
-  "result_inventory_sha256": "ca637e633aea8c3cfa2fef39ad260fd2b1f35721b934ab279c120df07b57e850"
+  "result_inventory_sha256": "07d5fecc0e4532c58d9d11bce68dca851240761e9f015feb557951df76384db5"
 }

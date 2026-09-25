@@ -6,15 +6,24 @@ is exactly one named check, evaluated in the fixed order below; the JSON
 report lists every check with ``pass``/``fail`` plus a reason, and the exit
 code is 0 if and only if every check passes.
 
-    manifest_schema        manifest keys, types and fixed values (contract §2)
-    global_scale_bits      raw uint32 decodes to a finite positive float (§1/§2)
-    partitioning           numeric-ordered, complete, non-overlapping cover (§2)
-    parts_integrity        parts cover the same rows, rows > 0, payload digests
-                           match the stored bytes (§2/§4)
+    manifest_schema        manifest keys, types and the fixed schema §2 values,
+                           including the frozen ``encoder_version`` (§2)
+    global_scale_bits      uint32 decodes to a finite positive float, equals the
+                           frozen ``g = amax / (6 * 448)``, and that amax is
+                           recomputed from the streamed source slices (§1/§2/§4)
+    partitioning           numeric SOURCE-ordered, complete, non-overlapping
+                           cover; sorted part ids alone are not an order (§2)
+    parts_integrity        parts cover the same rows, hold exactly their declared
+                           tensor pair, are never reused, their payload digests
+                           match the stored bytes, every scale byte is in the §1
+                           domain, and first/last_source_tensor is the
+                           partitioning entry covering that part's row (§1/§2/§4)
     source_table_sha256    recomputed from the source checkpoint (§4)
-    non_ple_identity       every retained non-PLE tensor keeps dtype, shape and
-                           payload digest; file boundaries may move (§4)
-    index_refs             model.safetensors.index.json resolves (§2)
+    non_ple_identity       every non-PLE tensor keeps dtype, shape and payload
+                           digest; a manifest name exempts a tensor only when the
+                           candidate no longer carries it (§4)
+    index_refs             required above one model shard, and every non-packed
+                           candidate tensor must be referenced (§2)
     partial_candidate      no manifest-without-part and no part-without-manifest;
                            there is no BF16 fallback semantics (§2)
     dequant_sample         bounded row re-decode: the §1 reference path and the
@@ -810,11 +819,12 @@ def _check_parts_integrity(ctx):
     )
 
 
-def _source_table_digest(ctx, meta):
-    """§4 digest over the source payload slice each partition covers.
+def _source_table_scan(ctx, meta):
+    """§4 digest, partition count and recomputed amax over the source slices.
 
     Entries splitting one source tensor must tile that tensor's rows, so the
-    ascending-part concat covers the whole logical table exactly once.
+    ascending-part concat covers the whole logical table exactly once. The same
+    streamed bytes yield the amax, so no manifest scale stays self-attested.
     """
     table = meta["table"]
     shards = ctx.src_shards()
@@ -878,19 +888,28 @@ def _source_table_digest(ctx, meta):
         )
 
     digest = hashlib.sha256()
+    amax = _SourceAmax()
     for entry in entries:
         path, start, end, base_row, tensor_rows = resolved[
             (entry["source_shard"], entry["source_tensor"])
         ]
         row_bytes = (end - start) // tensor_rows
         slice_start = start + (entry["row_offset"] - base_row) * row_bytes
-        _hash_payload(digest, path, slice_start, slice_start + entry["rows"] * row_bytes)
-    return digest.hexdigest(), len(entries)
+        _hash_payload(
+            digest,
+            path,
+            slice_start,
+            slice_start + entry["rows"] * row_bytes,
+            watch=amax,
+        )
+    return digest.hexdigest(), len(entries), amax.value
 
 
 def _check_source_table_sha256(ctx):
     meta = ctx.manifest()
-    digest, count = _source_table_digest(ctx, meta)
+    # The cached streaming pass (also used by global_scale_bits) covers exactly
+    # these slices, so the digest is recomputed once per run, not once per check.
+    digest, count, _ = ctx.source_scan()
     declared = meta["source"]["source_table_sha256"]
     if digest != declared:
         return False, (
@@ -919,11 +938,20 @@ def _tensors_by_name(shards):
 
 def _check_non_ple_identity(ctx):
     meta = ctx.manifest()
-    ple_names = {entry["source_tensor"] for entry in meta["table"]["partitioning"]}
     src, src_ambiguous = _tensors_by_name(ctx.src_shards())
     dst_shards = ctx.dst_shards()
     dst, dst_ambiguous = _tensors_by_name(dst_shards)
-    retained = sorted(set(src) - ple_names)
+    # A manifest name counts as packed only when the candidate no longer carries
+    # it. Otherwise naming an ordinary weight (a gate_proj, say) in
+    # table.partitioning would drop that weight from the dtype/shape/payload
+    # comparison the operator relies on, so any name present on both sides is
+    # compared in full.
+    packed = {
+        entry["source_tensor"]
+        for entry in meta["table"]["partitioning"]
+        if entry["source_tensor"] not in dst
+    }
+    retained = sorted(set(src) - packed)
     for name in retained:
         if name in src_ambiguous:
             return False, (
@@ -975,10 +1003,41 @@ def _check_non_ple_identity(ctx):
     )
 
 
+def _declared_parts(ctx):
+    """``(part files, part tensor names)`` from the raw manifest, if readable."""
+    raw = ctx.raw_manifest()
+    files, names = set(), set()
+    parts = raw.get("parts") if isinstance(raw, dict) else None
+    if isinstance(parts, list):
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if isinstance(part.get("file"), str):
+                files.add(PurePosixPath(part["file"]).as_posix())
+            for key in ("weight_tensor", "scale_tensor"):
+                if isinstance(part.get(key), str):
+                    names.add(part[key])
+    return files, names
+
+
 def _check_index_refs(ctx):
+    files, part_names = _declared_parts(ctx)
+    shards = ctx.dst_shards()
+    # Manifest part files are packed payloads, not model shards; anything else in
+    # the candidate tree is a model shard the index has to account for.
+    model_shards = {rel for rel in shards if PurePosixPath(rel).as_posix() not in files}
     path = ctx.dst_dir / INDEX_NAME
     if not path.is_file():
-        return True, f"no {INDEX_NAME} in the candidate, so nothing references anything"
+        if len(model_shards) > 1:
+            return False, (
+                f"no {INDEX_NAME} in the candidate although it holds "
+                f"{len(model_shards)} model shards: nothing says which shard owns "
+                "each tensor, and a missing index must not be a green reference "
+                "check"
+            )
+        return True, (
+            f"no {INDEX_NAME} needed: the candidate holds one model shard"
+        )
     try:
         index = json.loads(path.read_bytes(), object_pairs_hook=_reject_duplicate_keys)
     except (OSError, ValueError) as exc:
@@ -986,7 +1045,6 @@ def _check_index_refs(ctx):
     weight_map = index.get("weight_map") if isinstance(index, dict) else None
     if not isinstance(weight_map, dict):
         return False, f"{INDEX_NAME} has no weight_map object"
-    shards = ctx.dst_shards()
     headers = {}
     for name in sorted(weight_map):
         shard = weight_map[name]
@@ -1007,7 +1065,26 @@ def _check_index_refs(ctx):
             return False, (
                 f"{INDEX_NAME} references nonexistent tensor {name!r} in {shard}"
             )
-    return True, f"{len(weight_map)} {INDEX_NAME} entries resolve in existing shards"
+    referenced = set(weight_map)
+    unreferenced = sorted(
+        name
+        for rel in sorted(model_shards)
+        for name in shards[rel]
+        if name not in part_names and name not in referenced
+    )
+    if unreferenced:
+        return False, (
+            f"{INDEX_NAME} does not reference candidate tensor(s) "
+            f"{unreferenced[:3]}{'...' if len(unreferenced) > 3 else ''}: a "
+            "leftover or injected shard must not ride along behind a clean report"
+        )
+    covered = sum(
+        1 for rel in model_shards for name in shards[rel] if name not in part_names
+    )
+    return True, (
+        f"{len(weight_map)} {INDEX_NAME} entries resolve in existing shards and "
+        f"all {covered} non-packed candidate tensors are referenced"
+    )
 
 
 def _check_partial_candidate(ctx):
