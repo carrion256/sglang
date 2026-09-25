@@ -1,0 +1,39 @@
+rvn-w4a16 only; no LIL/cutlass behaviour change -- the sweep touched here runs
+only inside prepare_moe_nvfp4_layer_for_marlin, which the marlin MoE runner
+reaches and the flashinfer_cutlass launch (LIL) never does.
+
+Patch 0052 released the loader-format swizzle placeholders with delattr. The
+cutedsl branches of ModelOptNvFp4FusedMoEMethod read those two attributes
+eagerly: as keyword arguments (modelopt_quant.py:2940-2941), as a getattr
+DEFAULT argument (:2960-2965, so the getattr cannot protect them) and inside
+a list literal (:2989-2995). An attribute that no longer exists therefore
+turns a path this function never reaches into an AttributeError.
+
+None is already the class's own "unused" marker for these two slots:
+create_weights assigns None for them on the trtllm and marlin branches
+(:2382, :2407), and 0053 made that skip construction-time. Assigning None
+releases exactly what delattr released -- the placeholder Parameter is the
+only reference -- so the memory behaviour of 0052/0053 is unchanged.
+
+Regression: tests/rvn_ple/test_rvn_ple_moe_release.py::
+test_marlin_repack_nulls_rather_than_deletes_the_swizzle_slots is red on the
+preimage (the attributes are gone) and green with this patch.
+
+--- a/python/sglang/srt/layers/quantization/marlin_utils_fp4.py
++++ b/python/sglang/srt/layers/quantization/marlin_utils_fp4.py
+@@ -453,7 +453,14 @@
+     # guards on hasattr.
+     for stale in ("w13_blockscale_swizzled", "w2_blockscale_swizzled"):
+         if getattr(layer, stale, None) is not None:
+-            delattr(layer, stale)
++            # Assign None instead of delattr: the cutedsl branches read these
++            # through eagerly evaluated arguments -- keyword defaults at
++            # modelopt_quant.py:2940-2941 and :2960-2965, a list literal at
++            # :2989-2995 -- so a missing attribute would turn a path this
++            # function never reaches into an AttributeError, while None stays
++            # the class's own "unused" marker for these two slots
++            # (modelopt_quant.py:2382, :2407).
++            setattr(layer, stale, None)
+ 
+     w13 = layer.w13_weight.data
+     w2 = layer.w2_weight.data

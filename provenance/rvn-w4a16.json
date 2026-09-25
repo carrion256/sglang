@@ -1,5 +1,5 @@
 {
-  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0056; includes PLE host-offload eligibility for the text arch, the marlin MoE repack release fixes, the binding manifest encoding.reconstruction gate, and the frozen encoder_version gate); opt-in profile on the local-only deployed hicache base image",
+  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0056; includes PLE host-offload eligibility for the text arch, the marlin MoE repack release fixes, binding recon-mode/encoder_version gates, and marlin-null swizzle placeholders); opt-in profile on the local-only deployed hicache base image",
   "base_image": "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284",
   "base_image_id": "sha256:91cee840799be19916e1ba17ed10a517923f4fc70d54f5abd0247f700d01d77a",
   "base_inventory": "provenance/rvn-w4a16-runtime-files.json",
@@ -104,6 +104,16 @@
       }
     },
     {
+      "file": "0055-rvn-marlin-swizzle-null.patch",
+      "sha256": "7189f8f7a8475bd9a75a703cfe022b9fc6a853911dc407fe2bf617c2b05f7f6c",
+      "files": {
+        "python/sglang/srt/layers/quantization/marlin_utils_fp4.py": {
+          "before": "1ec24885b97ea6aeb47cd0088b172e6292d37edf6f8c5b01921f719d09585048",
+          "after": "caf94b5d1769543cb34e7a34b62f81a7a80c759e42098adff173f2b58bfd31c3"
+        }
+      }
+    },
+    {
       "file": "0056-rvn-ple-encoder-version-gate.patch",
       "sha256": "8f9b24b92ee0cf3b5639e0f86740cd4fb52c0cedeaeda5e47fcce3fdfd7febf1",
       "files": {
@@ -145,8 +155,8 @@
     },
     "python/sglang/srt/layers/quantization/marlin_utils_fp4.py": {
       "before": "09460a6468148e4fbb9fcf82e907b378c457d21e308cc0e9bb3d8807f1679839",
-      "after": "1ec24885b97ea6aeb47cd0088b172e6292d37edf6f8c5b01921f719d09585048"
+      "after": "caf94b5d1769543cb34e7a34b62f81a7a80c759e42098adff173f2b58bfd31c3"
     }
   },
-  "result_inventory_sha256": "a8a4c6d866ba508bf0aebfdc509fae902547e81a8fec29d0da3cfeb8bd0eb6f1"
+  "result_inventory_sha256": "05b6a1950bf8489b5d33f618ad31085402c27c9c5c9c33bc9c1124d99241279d"
 }
