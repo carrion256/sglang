@@ -6,5 +6,5 @@
 0052-rvn-marlin-moe-release.patch
 0053-rvn-marlin-skip-blockscale-swizzle.patch
 0054-rvn-ple-recon-mode-gate.patch
-0055-rvn-marlin-swizzle-null.patch
+0055-rvn-marlin-repack-cycle-collect.patch
 0056-rvn-ple-encoder-version-gate.patch

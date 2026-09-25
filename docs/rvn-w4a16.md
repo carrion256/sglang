@@ -21,7 +21,7 @@ The PLE storage format this profile consumes is frozen in
 | 6 | `0052-rvn-marlin-moe-release.patch` | Frees loader-format MoE storage during the marlin repack (dead swizzle placeholders, per-expert repack buffer, originals dropped as replacements bind) so load peak fits one 96 GB card |
 | 7 | `0053-rvn-marlin-skip-blockscale-swizzle.patch` | Never allocates the dead `w*_blockscale_swizzled` placeholders when the backend resolves to Marlin — the 7 GiB is freed at construction, not per-layer |
 | 8 | `0054-rvn-ple-recon-mode-gate.patch` | Makes the manifest's `encoding.reconstruction` binding: serving a `bf16_direct` manifest with the legacy FP8 round-trip kernel enabled raises instead of silently degrading PLE numerics |
-| 9 | `0055-rvn-marlin-swizzle-null.patch` | Nulls (instead of deletes) the dead swizzle attributes under the marlin pin so the cutedsl branches' eager reads can't AttributeError; frees the same memory |
+| 9 | `0055-rvn-marlin-repack-cycle-collect.patch` | Forces a gc pass after each Marlin repack so the superseded loader-format Parameters (held alive by a reference cycle; gen-2 never fires during load) are reclaimed per-layer — load ends at 73.38 GB instead of OOMing at 93.65 |
 | 10 | `0056-rvn-ple-encoder-version-gate.patch` | Loader refuses any `encoder_version` other than the frozen `rvn-ple-nvfp4-r1`, matching the offline verifier's gate |
 
 ## Base image

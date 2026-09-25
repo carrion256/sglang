@@ -1,0 +1,85 @@
+[rvn-ple] Collect the expert bytes each Marlin MoE repack strands in a cycle
+
+rvn-w4a16 only: prepare_moe_nvfp4_layer_for_marlin is reached under
+--moe-runner-backend=marlin (patch 0048 pins it for the W4A16_NVFP4
+checkpoint); the flashinfer_cutlass launch (LIL) never calls it, and nothing
+outside this function changes.
+
+The launch OOMed mid-load. Allocated climbed from 72.654 GiB to 93.65 GiB of
+the 95.01 GiB device and the w2 repack of layer 15 raised "CUDA out of
+memory. Tried to allocate 398.00 MiB": every layer added exactly its own
+loader-format footprint, +1.3184 GiB, and none of it came back.
+
+A probe holding no tensor references at all then measured the shape of the
+problem: on return from the repack all four superseded Parameters were still
+alive (0 of 4 dead by weakref) even though the probe held none; the automatic
+passes never caught up while those bytes were stranded (gc.get_count() kept
+gen2 at 89 and gen1 at 8-9, below its threshold of 10, for the whole 237 s
+load); and the first forced gc.collect() returned 9.1798 GiB, putting the
+baseline back at 72.654 GiB. From there every layer delta was +0.0488 GiB and
+the load completed: "Load weight end ... mem usage=73.38 GB", inside the 82
+GiB post-load ceiling, with the model reaching KV-cache allocation.
+
+Primary red/green evidence is therefore the launch itself (pre: OOM at 93.65
+GiB mid-repack; post: full load at 73.38 GB). The pytest case pins the
+invariant per layer -- with the automatic collector disabled, expert bytes
+reachable only through a cycle must not outlive the call -- and is red on the
+preimage for the same reason the launch was: the footprint stays resident.
+
+The cycle edge itself is still unnamed; the comment records what has been
+ruled out (this function's locals, and the *_weight_loader back-reference)
+plus the one holder lead that survives: one w2_weight_scale per layer.
+
+--- a/python/sglang/srt/layers/quantization/marlin_utils_fp4.py
++++ b/python/sglang/srt/layers/quantization/marlin_utils_fp4.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++import gc
+ import logging
+ 
+ import torch
+@@ -601,3 +602,43 @@
+         )
+     if w2_bias is not None:
+         layer.w2_bias = torch.nn.Parameter(_permute_bias(w2_bias), requires_grad=False)
++
++    # Every rebinding above superseded a loader-format expert tensor, and
++    # refcounting does not always hand those bytes back. Measured on the real
++    # RVN launch (48 MoE layers, TP1, serial loader) with a probe that holds no
++    # tensor references at all: torch.cuda.memory_allocated() grew by exactly
++    # the loader-format size of each processed layer -- +1.3184 GiB x 15 layers,
++    # until the w2 repack of layer 15 raised CUDA OOM at 93.65 GiB of the 95.01
++    # GiB device -- and all four superseded Parameters were still alive on
++    # return (weakref probe: 0 of 4 dead) although the probe itself held no
++    # reference to them. That they were reachable only through a cycle is the
++    # inference from the next measurement: the first forced pass reclaimed
++    # 9.1798 GiB and put the baseline back at 72.654 GiB, every later layer's
++    # delta fell to +0.0488 GiB, and the load completed (mem usage=73.38 GB)
++    # instead of OOMing mid-repack. Only the cyclic collector can reach them.
++    # The automatic passes are too few and too late to bound the damage: the
++    # uninstrumented load climbed from layer #0 all the way to layer 15 before
++    # it died, and the counters show the headroom -- gen2 held at 89 across the
++    # whole uncollected stretch with gen1 at 8-9, below its threshold of 10.
++    #
++    # The cycle itself is still unnamed, so this call is the measured
++    # mitigation rather than the diagnosis. It is not this function's locals: a
++    # fixture with the same parameter classes, wrapped in the loader's
++    # device_loading_context and with the cyclic collector disabled, retained
++    # 0.01 MiB over four layers. Nor the *_weight_loader back-reference:
++    # layers/parameter.py:103 stores a plain bound method, which refcounting
++    # frees with the loader still attached.
++    #
++    # The one pointer left in the picture: after that first pass, every layer
++    # kept exactly one loader-format parameter alive -- w2_weight_scale, 50 MiB
++    # at full RVN size -- so a single external holder is still unnamed.
++    #
++    # One pass per layer rather than one per process: the freed=0.0000 readings
++    # after the first forced pass came from the probe's own allocation churn
++    # tripping gen-0/gen-1, which the uninstrumented load never does.
++    #
++    # ponytail: ceiling is one full cyclic collection per MoE layer -- 48 of
++    # them, at load time only. Upgrade path: name the cycle edge with a
++    # referrer scan on the real launch, drop it where the rebind happens, and
++    # delete this call.
++    gc.collect()
