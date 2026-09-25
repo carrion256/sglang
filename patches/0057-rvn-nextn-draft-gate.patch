@@ -1,0 +1,127 @@
+[rvn-ple] Refuse NEXTN on an RVN text checkpoint that ships no draft layer
+
+rvn-w4a16 only: the gate fires when the config is an RVN text model
+(architectures=Qwen4ExpForCausalLM and model_type=qwen4_exp_text), the
+speculative algorithm is NEXTN (resolved to EAGLE) and no
+--speculative-draft-model-path was given. The LIL multimodal
+(Qwen4ExpForConditionalGeneration) path and every external-draft launch take
+the same return-None branch as before, and no other architecture is named.
+
+The NEXTN dry run died in the draft worker with CUDA out of memory while it
+allocated the n-gram table as a 47.68 GiB VocabParallelEmbedding on the device.
+That table belongs to a second, full copy of the model: the draft arch remap in
+configs/model_config.py:747 is keyed on the multimodal arch only, so an RVN text
+draft worker builds the target model again -- and because patch 0051 propagates
+ple_offload_embedding only for not is_draft_worker
+(model_runner_components/load_model_utils.py:281), this copy allocates the
+n-gram table on the device instead of pinning it on the host.
+
+There is nothing for that draft to be. RVN text is defined as MTP-free:
+normalize_text_config pins mtp_num_hidden_layers to 0,
+Qwen4ExpForCausalLM asserts rvn_mtp_count(config) == 0 at construction
+(models/qwen4_exp.py:3060), and its loader sends every name through
+reject_non_text_weight_name, which rejects model.mtp.* -- as the working target
+launch proves, since it loads 296,238 tensors with none named model.mtp.*. So
+refuse the combination at argument resolution, before any allocation, with the
+reason and the two ways out.
+
+Why the alternatives are wrong, not merely bigger:
+  * Propagating ple_offload_embedding to the draft worker would pin a second
+    26.8 GiB host copy of a table the draft never reads: the upstream MTP draft
+    clears config.ple_layer_ids (models/qwen4_exp_mtp.py:46) so
+    _init_qwen4_exp_layer_extensions leaves self.ple = None. It would also
+    still leave a 48-layer duplicate of the target in the draft worker.
+  * Remapping the RVN text draft arch to Qwen4ExpForCausalLMMTP, the way the
+    multimodal arch is remapped, would remove the allocation but load a draft
+    with nothing to load: it inherits Qwen3_5ForCausalLMMTP.load_weights, the
+    checkpoint carries no model.mtp.* tensors, so it would construct, "load" and
+    serve an untrained head -- a false pass against the acceptance line, worse
+    than a clear refusal.
+
+The two arch gaps stay gaps for the day an RVN checkpoint does ship MTP layers:
+configs/model_config.py:747 (draft arch remap) and the list at
+arg_groups/speculative_hook.py:580-597 that defaults the draft path to the target
+path. Neither is reachable until the 0047 text contract permits model.mtp.*
+names, so neither is patched here.
+
+Regression: tests/rvn_ple/test_rvn_nextn_draft_gate.py is red on the preimage
+(the predicate does not exist, and the launch reaches the allocation) and green
+with this patch, including the negative cases that keep LIL, STANDALONE and
+external-draft launches out of the gate.
+
+--- a/python/sglang/srt/arg_groups/speculative_hook.py
++++ b/python/sglang/srt/arg_groups/speculative_hook.py
+@@ -540,6 +540,52 @@
+         )
+ 
+ 
++def rvn_text_bundled_draft_unsupported(
++    algorithm: Optional[str],
++    config: object,
++    draft_model_path: Optional[str],
++) -> Optional[str]:
++    """Why an RVN text checkpoint cannot host a bundled NEXTN draft layer.
++
++    Returns the reason to reject the launch, or None when it is fine. The RVN
++    text contract pins ``mtp_num_hidden_layers`` to 0
++    (models/qwen4_exp_text_adapter.py:normalize_text_config), the
++    ``Qwen4ExpForCausalLM`` entry class asserts that count at construction, and
++    its loader rejects ``model.mtp.*`` tensor names outright -- the shipped
++    candidate index carries none of them (296,238 tensors, zero matches). There
++    is therefore no draft layer to build.
++
++    Without this check the launch does not fail cleanly: the draft worker's
++    architecture is never remapped to ``Qwen4ExpForCausalLMMTP`` (that remap in
++    configs/model_config.py is keyed on the multimodal arch alone), so the
++    draft worker constructs the *target* model a second time -- and because
++    patch 0051 propagates ``ple_offload_embedding`` only for
++    ``not is_draft_worker``, the draft's n-gram table is allocated eagerly on
++    the device as a 47.68 GiB ``VocabParallelEmbedding`` and OOMs the load.
++    """
++    from sglang.srt.models.qwen4_exp_text_adapter import (
++        is_rvn_text_config,
++        rvn_mtp_count,
++    )
++
++    # "EAGLE" is what --speculative-algorithm NEXTN resolves to by now
++    # (_resolve_speculative_algorithm_alias), and no draft path means the draft
++    # layer is expected inside this checkpoint. STANDALONE and an explicit
++    # --speculative-draft-model-path bring their own weights and stay untouched.
++    if algorithm != "EAGLE" or draft_model_path is not None:
++        return None
++    if not is_rvn_text_config(config) or rvn_mtp_count(config) > 0:
++        return None
++    return (
++        "--speculative-algorithm NEXTN builds its draft layer from the target "
++        "checkpoint (model.mtp.*), but this RVN text checkpoint declares no MTP "
++        f"layers (mtp_num_hidden_layers + num_nextn_predict_layers = "
++        f"{rvn_mtp_count(config)}) and its text loader rejects model.mtp.* "
++        "weights, so no draft exists. Serve without speculative decoding, or "
++        "point --speculative-draft-model-path at an external draft checkpoint."
++    )
++
++
+ def _handle_eagle_family(server_args: ServerArgs) -> None:
+     from sglang.srt.arg_groups.overrides import (
+         attention_backends_of,
+@@ -576,7 +622,19 @@
+             "eagle speculative decoding."
+         )
+ 
+-    model_arch = server_args.get_model_config().hf_config.architectures[0]
++    hf_config = server_args.get_model_config().hf_config
++    model_arch = hf_config.architectures[0]
++    # The candidate that ships no draft layer must be refused here: further
++    # down, the draft worker would build the whole target model a second time
++    # and OOM on the n-gram table (see rvn_text_bundled_draft_unsupported).
++    bundled_draft_unsupported = rvn_text_bundled_draft_unsupported(
++        server_args.speculative_algorithm,
++        hf_config,
++        server_args.speculative_draft_model_path,
++    )
++    if bundled_draft_unsupported:
++        raise ValueError(bundled_draft_unsupported)
++
+     if model_arch in [
+         "DeepseekV32ForCausalLM",
+         "DeepseekV3ForCausalLM",

@@ -105,11 +105,11 @@
     },
     {
       "file": "0055-rvn-marlin-repack-cycle-collect.patch",
-      "sha256": "bdfaed86d159f8d871f82bd8c6e0a59ee11c465765d6139cff19ff21f393b779",
+      "sha256": "df0c403c69175d69ebe0d7acd0901aaf31252bf0aeb457f2285eb225433ba7c7",
       "files": {
         "python/sglang/srt/layers/quantization/marlin_utils_fp4.py": {
           "before": "1ec24885b97ea6aeb47cd0088b172e6292d37edf6f8c5b01921f719d09585048",
-          "after": "f5e021acc37ed23131e6e2f48745c4d75e5661eb994fd532fb61a26c54db8799"
+          "after": "0221af83f9644cc2f7573c6abdaa1c4886dcd613aa43038ad580def464647421"
         }
       }
     },
@@ -120,6 +120,16 @@
         "python/sglang/srt/models/rvn_ple_storage.py": {
           "before": "2a6f2efa62f97e6aad141219672eb2cda5a95d3bd9f52f48e55a3b52a7eb3b5a",
           "after": "509b2693445be1dad6a74424d568fcb651ad8c8eb62d0aefe0024ee3c0232a76"
+        }
+      }
+    },
+    {
+      "file": "0057-rvn-nextn-draft-gate.patch",
+      "sha256": "42abdcb856bb6e9d442837b7ce78d90b5a3279d4a4168514460eab73e88d6d42",
+      "files": {
+        "python/sglang/srt/arg_groups/speculative_hook.py": {
+          "before": "a97e3a7b427328559fa99e2078d2fec38d8380a6c8c17bfea898cb4eee2e8123",
+          "after": "ff7cf5b94dbca013be5f40c35add6a27567c6a1ca0c04f664925dc5b042e348d"
         }
       }
     }
@@ -155,8 +165,12 @@
     },
     "python/sglang/srt/layers/quantization/marlin_utils_fp4.py": {
       "before": "09460a6468148e4fbb9fcf82e907b378c457d21e308cc0e9bb3d8807f1679839",
-      "after": "f5e021acc37ed23131e6e2f48745c4d75e5661eb994fd532fb61a26c54db8799"
+      "after": "0221af83f9644cc2f7573c6abdaa1c4886dcd613aa43038ad580def464647421"
+    },
+    "python/sglang/srt/arg_groups/speculative_hook.py": {
+      "before": "a97e3a7b427328559fa99e2078d2fec38d8380a6c8c17bfea898cb4eee2e8123",
+      "after": "ff7cf5b94dbca013be5f40c35add6a27567c6a1ca0c04f664925dc5b042e348d"
     }
   },
-  "result_inventory_sha256": "736a0d51c00f46ecea29284042abe8cf163f944032cf80a0f772368f785037f2"
+  "result_inventory_sha256": "4a7aaea5da1406c4874a64bbad7184f209bf092b2d7c399a239907547691b84a"
 }

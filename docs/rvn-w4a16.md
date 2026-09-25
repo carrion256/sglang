@@ -23,6 +23,7 @@ The PLE storage format this profile consumes is frozen in
 | 8 | `0054-rvn-ple-recon-mode-gate.patch` | Makes the manifest's `encoding.reconstruction` binding: serving a `bf16_direct` manifest with the legacy FP8 round-trip kernel enabled raises instead of silently degrading PLE numerics |
 | 9 | `0055-rvn-marlin-repack-cycle-collect.patch` | Forces a gc pass after each Marlin repack so the superseded loader-format Parameters (held alive by a reference cycle; gen-2 never fires during load) are reclaimed per-layer — load ends at 73.38 GB instead of OOMing at 93.65 |
 | 10 | `0056-rvn-ple-encoder-version-gate.patch` | Loader refuses any `encoder_version` other than the frozen `rvn-ple-nvfp4-r1`, matching the offline verifier's gate |
+| 11 | `0057-rvn-nextn-draft-gate.patch` | Refuses `--speculative-algorithm NEXTN` on the RVN text model at argument-resolution time: the text contract is MTP-free (`mtp_num_hidden_layers=0`, loader rejects `model.mtp.*`), so the default draft would rebuild the target a second time and OOM — a clear error instead |
 
 ## Base image
 

@@ -30,6 +30,7 @@ Run: RVN_PLE_TREE=/path/to/stacked-tree python3 -m pytest tests/rvn_ple/test_rvn
 Skips cleanly without CUDA so the headless battery stays green.
 """
 
+import gc
 import importlib.util
 import os
 import sys
@@ -83,6 +84,20 @@ def _prepare_function():
     return module.prepare_moe_nvfp4_layer_for_marlin
 
 
+class _MoELayerHost(torch.nn.Module):
+    """Stands in for FusedMoE, loader callable on each parameter included.
+
+    sglang stores the loader callable on the parameter itself
+    (layers/parameter.py:103), so a real MoE layer carries
+    module -> Parameter -> _weight_loader -> module. The fixture reproduces
+    that back-reference for fidelity; it is demonstrably NOT what pins a
+    superseded parameter, which refcounting frees with the loader attached.
+    """
+
+    def weight_loader(self, param, loaded_weight, **kwargs):
+        param.data.copy_(loaded_weight)
+
+
 def _make_layer(backend, seed):
     """One real NVFP4 MoE layer, built by the real create_weights path."""
     from sglang.srt.layers.moe import MoeRunnerBackend
@@ -112,7 +127,7 @@ def _make_layer(backend, seed):
         else MoeRunnerBackend.FLASHINFER_CUTLASS
     )
 
-    layer = torch.nn.Module()
+    layer = _MoELayerHost()
     layer.num_local_experts = NUM_EXPERTS
     layer.num_experts = NUM_EXPERTS
     layer.moe_runner_config = SimpleNamespace(
@@ -129,6 +144,11 @@ def _make_layer(backend, seed):
             params_dtype=torch.bfloat16,
             weight_loader=None,
         )
+    # Mirror FusedMoE: the parameter keeps a reference to the loader, which is
+    # a bound method of the layer (layers/parameter.py:103). Fidelity only:
+    # the back-reference does not keep a superseded parameter alive.
+    for _pname in ("w13_weight", "w2_weight", "w13_weight_scale", "w2_weight_scale"):
+        layer._parameters[_pname]._weight_loader = layer.weight_loader
     torch.manual_seed(seed)
     with torch.no_grad():
         # Filled in place: a materialising fill would perturb the peak measured.
@@ -144,6 +164,20 @@ def _make_layer(backend, seed):
         layer.w13_input_scale.data.fill_(1.0)
         layer.w2_input_scale.data.fill_(1.0)
     return layer, method
+
+
+def _settled_baseline():
+    """memory_allocated() with no pending cyclic garbage left in the window.
+
+    Patch 0055's gc.collect() is itself under measurement here, so a baseline
+    that still holds somebody else's unreachable bytes would credit the repack
+    with freeing them, and the measured delta would depend on which test ran
+    before this one. Settling first makes every window in this file comparable
+    regardless of test order.
+    """
+    gc.collect()
+    torch.cuda.synchronize()
+    return torch.cuda.memory_allocated()
 
 
 def _load_and_postprocess(backend, prepare=None):
@@ -162,8 +196,7 @@ def _load_and_postprocess(backend, prepare=None):
         modelopt.prepare_moe_nvfp4_layer_for_marlin = prepare
     try:
         built = [_make_layer(backend, 1000 + i) for i in range(LAYERS)]
-        torch.cuda.synchronize()
-        base = torch.cuda.memory_allocated()
+        base = _settled_baseline()
 
         # Bytes create_weights put into the loader-format swizzle placeholders.
         # They are sampled here, before any postprocess, because the point of
@@ -315,6 +348,10 @@ RVN_GROUP = 16  # hf_quant_config.json group_size
 NON_EXPERT_GIB = 9.154  # sum of non-expert, non-PLE tensors in the 98 shards
 CONTEXT_GIB = 0.9  # torch context + NCCL already resident at "Load weight begin"
 BUDGET_GIB = 94.0  # 95.01 GiB device minus the margin the launch keeps
+# Acceptance line for the deployment: bytes still resident once the load ends.
+POST_LOAD_CEILING_GIB = 82.0
+# Terms this projection cannot see: allocator rounding, NCCL/context residuals.
+UNMODELED_ALLOWANCE_GIB = 3.0
 
 
 def _tree_modelopt():
@@ -442,6 +479,13 @@ def test_rvn_48_layer_marlin_projection_fits_the_device_budget():
     experts = RVN_LAYERS * (w13 + w2 + scales)
     with_fix = gib(experts + peak) + NON_EXPERT_GIB + CONTEXT_GIB
     without_fix = with_fix + gib(RVN_LAYERS * scales)
+    # The acceptance line is what stays resident once the load has finished,
+    # not the one-layer transient peak above it.
+    resident = gib(experts) + NON_EXPERT_GIB + CONTEXT_GIB
+    assert resident + UNMODELED_ALLOWANCE_GIB <= POST_LOAD_CEILING_GIB, (
+        f"48-layer marlin load leaves {resident:.2f} GiB resident, breaching the "
+        f"{POST_LOAD_CEILING_GIB:.0f} GiB acceptance line"
+    )
     assert without_fix - with_fix == pytest.approx(gib(RVN_LAYERS * scales))
     assert with_fix <= BUDGET_GIB, (
         f"48-layer marlin projection needs {with_fix:.2f} GiB, over the "
@@ -451,4 +495,122 @@ def test_rvn_48_layer_marlin_projection_fits_the_device_budget():
     assert BUDGET_GIB - with_fix >= 8.0, (
         f"fixed projection leaves only {BUDGET_GIB - with_fix:.2f} GiB of the "
         f"{BUDGET_GIB:.0f} GiB budget"
+    )
+
+
+def test_production_postprocess_loop_does_not_accumulate_fresh_copies():
+    """Same loop the loader runs, so its frames cannot pin loader-format bytes.
+
+    tests above call process_weights_after_loading directly. This one goes
+    through DefaultModelLoader.load_weights_and_postprocess -- the frames that
+    actually hold references during a real load (the named_modules walk and
+    device_loading_context) -- and requires that after all layers are repacked
+    nothing above one layer's working set is live and the run ends at or below
+    the pre-postprocess baseline.
+    """
+    from sglang.srt.model_loader.loader import DefaultModelLoader
+
+    prepare = _prepare_function()
+    from sglang.srt.layers.moe import MoeRunnerBackend
+    from sglang.srt.layers.quantization import modelopt_quant as modelopt
+
+    original_backend = modelopt.get_moe_runner_backend
+    original_prepare = modelopt.prepare_moe_nvfp4_layer_for_marlin
+    modelopt.get_moe_runner_backend = lambda: MoeRunnerBackend.MARLIN
+    modelopt.prepare_moe_nvfp4_layer_for_marlin = prepare
+
+    class _TinyMoEModel(torch.nn.Module):
+        def __init__(self, built):
+            super().__init__()
+            for index, (layer, method) in enumerate(built):
+                layer.quant_method = method
+                setattr(self, f"decoder_layer_{index}", layer)
+
+        def load_weights(self, weights):
+            for _ in weights:  # the fixture already filled every parameter
+                pass
+            return set()
+
+    try:
+        built = [_make_layer("marlin", 2000 + i) for i in range(LAYERS)]
+        model = _TinyMoEModel(built)
+        base = _settled_baseline()
+        torch.cuda.reset_peak_memory_stats()
+        DefaultModelLoader.load_weights_and_postprocess(
+            model, [], torch.device("cuda")
+        )
+        torch.cuda.synchronize()
+        peak = torch.cuda.max_memory_allocated() - base
+        residual = torch.cuda.memory_allocated() - base
+    finally:
+        modelopt.get_moe_runner_backend = original_backend
+        modelopt.prepare_moe_nvfp4_layer_for_marlin = original_prepare
+
+    one_expert = (2 * INTERMEDIATE) * (HIDDEN // 2)
+    bound = 1.15 * (NUM_EXPERTS * one_expert + 2 * one_expert)
+    assert peak <= bound, (
+        f"production postprocess loop peaked {peak / GIB:.4f} GiB over baseline, "
+        f"above one layer's working set {bound / GIB:.4f} GiB -- fresh copies are "
+        "accumulating across layers"
+    )
+    assert residual <= 0, (
+        f"production postprocess loop left {residual / GIB:+.4f} GiB resident "
+        f"after the last layer ({LAYERS} layers, base {base / GIB:.3f} GiB)"
+    )
+
+
+def test_marlin_repack_does_not_strand_expert_bytes_in_a_cycle():
+    """Nothing cycle-reachable may stay resident once the repack returns.
+
+    Measured on the real RVN launch with a probe that holds no tensor
+    references at all: every layer grew torch.cuda.memory_allocated() by
+    exactly its loader-format bytes (+1.3184 GiB x 15 layers, until the w2
+    repack of layer 15 OOMed at 93.65 GiB), and the four superseded Parameters
+    came back alive although the probe held no reference to them -- reachable
+    only through a reference cycle. The automatic passes never caught up in
+    time: gc.get_count() kept gen2 at 89 with gen1 at 8-9, below its threshold
+    of 10, for the whole 237 s load.
+
+    The real cycle edge is still unnamed, so the fixture supplies the shape the
+    measurement proved -- expert storages reachable only through garbage, never
+    from the module -- and the assertion is the guarantee patch 0055 ships: by
+    the time prepare_moe_nvfp4_layer_for_marlin returns, those bytes are gone.
+    Red without 0055, where a full layer footprint (+1.3184 GiB scaled to the
+    fixture) outlives the call; green with it (measured residue: 0.0488 GiB of
+    1.3184 GiB, the repack's own workspace).
+
+    The launch log is the primary evidence (first forced pass freed 9.1798 GiB,
+    load completed at mem usage=73.38 GB); this pins the invariant per layer.
+    """
+    names = ("w13_weight", "w2_weight", "w13_weight_scale", "w2_weight_scale")
+    layer, _method = _make_layer("marlin", 4000)
+
+    with torch.no_grad():
+        original_bytes = sum(
+            layer._parameters[n].numel() * layer._parameters[n].element_size()
+            for n in names
+        )
+        # Only the function under test may reclaim the cycle, so the automatic
+        # passes are off for the whole window -- and off *before* the holder is
+        # dropped, because the statements after the drop would otherwise get a
+        # gen-0 pass in for free and collect the fixture's own cycle.
+        stranded = [[(name, layer._parameters[name]) for name in names]]
+        stranded.append(stranded)
+        base = _settled_baseline()
+        was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            del stranded
+            _prepare_function()(layer)
+            torch.cuda.synchronize()
+            residual = torch.cuda.memory_allocated() - base
+        finally:
+            if was_enabled:
+                gc.enable()
+
+    assert layer.w13_weight.dtype == torch.int32, "the repack did not run"
+    assert residual <= 0.15 * original_bytes, (
+        f"the repack left {residual / GIB:+.4f} GiB resident out of the "
+        f"{original_bytes / GIB:.4f} GiB of loader-format bytes it superseded; "
+        "cycle-reachable expert storage outlived the call"
     )
