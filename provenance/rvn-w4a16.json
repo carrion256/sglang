@@ -178,6 +178,16 @@
           "after": "0f0e758385e489b7db9a9031b43932aeac0c98b9c05519624d9f980c0ff89ec9"
         }
       }
+    },
+    {
+      "file": "0061-rvn-shared-ple-identity-cleanup.patch",
+      "sha256": "d21e425e66ca32f33f98ed396c709e8422205e8bedeab226d22206766f2a6098",
+      "files": {
+        "python/sglang/srt/models/packed_ple.py": {
+          "before": "0f0e758385e489b7db9a9031b43932aeac0c98b9c05519624d9f980c0ff89ec9",
+          "after": "928b3dafe9e4b6a6c587570b75e26f1d842fcde0a0d57ebaca893101580ed4eb"
+        }
+      }
     }
   ],
   "files": {
@@ -231,8 +241,8 @@
     },
     "python/sglang/srt/models/packed_ple.py": {
       "before": "32a733d445fae43d5fadc85106c6a3617248e1d0be4e8b101607aef197bff6c0",
-      "after": "0f0e758385e489b7db9a9031b43932aeac0c98b9c05519624d9f980c0ff89ec9"
+      "after": "928b3dafe9e4b6a6c587570b75e26f1d842fcde0a0d57ebaca893101580ed4eb"
     }
   },
-  "result_inventory_sha256": "3efca254bf0ea16bda2131dfbd76711e295960dd2651727ed7b6ac9ea1a0b981"
+  "result_inventory_sha256": "d02328cf13fec092ee90b2944b2c510d248bb709f48c3ca50af9cb3e374f3f50"
 }

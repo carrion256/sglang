@@ -1,0 +1,364 @@
+[rvn-ple] Key shared PLE tables to a checkpoint tag; unpin before unmap
+
+Patch 0060 names a shared packed PLE table by role + TP rank + shape + dtype
+and nothing else, so any two checkpoints that share a padded shard shape share
+a filename. A loader pointed at a different same-shape checkpoint -- a
+re-converted candidate, a retired source rebuilt, a checkpoint belonging to
+someone else on the same host -- therefore opens the file a live replica is
+gathering rows out of and rewrites it in place, and neither side sees an error:
+the rows the running model dereferences become another model's bytes while both
+replicas keep serving. The filename now carries the checkpoint as well. Each
+shared table is named with the first 16 hex chars of sha256 over an identity
+built from what the loader itself consumes: the served model path and the
+rvn_mtp_graft stamp (source, encoder_version, count) read from that checkpoint's
+own config.json -- the same stamp patch 0058 gates a grafted draft on. One
+checkpoint derives one tag, so a replica pair still converges on exactly one
+file and the alias check still runs; a different checkpoint derives a different
+tag and lands on its own file; a process whose serving identity is unknown (no
+serving config, unreadable config, unstamped checkpoint) declines the shared
+path rather than leaving an anonymous table behind. Attaching now also refuses a
+shared directory that already holds a table whose tag is not this checkpoint's,
+the untagged pre-0061 names included: those files are named by no identity, and
+a foreign-named table is refused, never rewritten -- not opened, truncated or
+unlinked here -- so the foreign checkpoint gets its own file or the private
+pinned table.
+
+Second, the pin. Between a successful cudaHostRegister and the line that
+publishes the mapping as serving, 0060 has calls that can raise -- the alias
+query itself, an interrupted torch.frombuffer, a dtype or view error -- and its
+handler only logged and returned, leaving the registration pinned inside a
+mapping the process no longer tracked while the fallback pinned a private copy
+on top of it: host RAM consumed twice per table and a pin held over memory
+nothing owns. Registration success is now held in a flag, and a finally block
+runs on every path that does not end in a serving mapping, releases the pin
+first and closes the mapping only afterwards, through the one handle that took
+it, and only where a pin was actually taken -- a failed registration is not
+unregistered. The fallback to the private pinned table is one path with one log
+line, so no failure can both share and privately allocate.
+
+The runtime is resolved from /proc/self/maps and counted there by file identity
+(device and inode), because the pin, the device-alias query and the unpin have
+to be answered by one and the same libcudart for the alias to mean anything.
+0060 took the pin through one library and asked for the alias through
+CDLL("libcudart.so"): in this image that name binds
+/usr/local/cuda-13.0/targets/x86_64-linux/lib/libcudart.so.13.0.96 while the
+runtime actually mapped in the process and used for device calls is
+/usr/local/lib/python3.12/dist-packages/nvidia/cu13/lib/libcudart.so.13, so the
+alias that came back described a different instance from the pin, and the
+unregister went off to a third path. Only the exact mapped path is handed to
+CDLL now -- no bare soname, no toolkit copy -- and anything other than exactly
+one mapped runtime, including none, declines the shared mapping instead of
+guessing. RTLD_LOCAL replaces RTLD_GLOBAL, so the runtime's symbols are no
+longer published into the global namespace for other components to bind.
+
+Those calls are declared before they are used: cudaHostRegister and
+cudaHostUnregister take a pointer, a size_t and a flags int with an int return,
+and cudaHostGetDevicePointer takes a pointer, a pointer and an unsigned int with
+an int return. Without argtypes ctypes passes every integer as a C int, and the
+production rows table is 25,600,122,880 bytes -- past 2**31 and past 2**32 -- so
+a silently truncated size, or a size that cannot be converted at all, would
+surface as a failed shared mapping and a second private pin rather than as
+anything a log would show. Assigning the signatures also resolves the symbols,
+so a runtime missing any of the three is refused before anything is pinned, and
+a size the runtime cannot express is refused too.
+
+With SGLANG_PLE_SHARED_DIR unset the allocation path is byte-for-byte the one
+this chain shipped before patch 0060: no new import, no new file, no new call.
+
+--- a/python/sglang/srt/models/packed_ple.py
++++ b/python/sglang/srt/models/packed_ple.py
+@@ -24,10 +24,171 @@
+ # shape and dtype -- mirroring how 0032-shared-ple-host-table keys by the
+ # declared shard range. TP1 replicas (all rank 0) still share one file. Falls
+ # back to the private pinned table on any failure; never fails boot.
++# rvn-ple patch 0061 closes two defects in that mechanism. (1) role + rank +
++# shape + dtype does not name a table uniquely enough to be safe: two
++# same-shape checkpoints -- any re-converted candidate, from any source --
++# derive the same filename, and the loader for one silently rewrites the bytes
++# the other's replicas are gathering rows out of. Every shared name therefore
++# also carries a checkpoint tag: the first 16 hex chars of sha256 over the
++# served model path plus the rvn_mtp_graft stamp (source, encoder_version,
++# count) read from that same checkpoint's config.json, which is the config
++# patch 0058 gates the grafted draft on. One checkpoint derives one tag, so
++# its replicas keep converging on one file; a different checkpoint, or one
++# whose identity the serving process does not know, gets its own file or the
++# private pinned table. A file whose tag is not ours is refused, never
++# rewritten. (2) registration success is tracked, and any path that does not
++# end in a serving mapping releases the pin through the very handle that took
++# it, before the mapping is closed; pin, alias query and unpin all go to one
++# runtime handle resolved from /proc/self/maps, never to a second libcudart the
++# dynamic linker happens to bind. With the env var unset the allocation path is
++# the original one.
+ # ponytail: redundant idempotent rewrite per replica at boot; add a .ready
+ # sentinel + skip only if boot time matters.
+ _shared_maps = []  # keep the mmaps alive for the life of the process
+ 
++# Where the CUDA runtime is looked up; the battery repoints this at a map file
++# it owns so the handshake can be exercised on a CPU host.
++_PROC_MAPS = "/proc/self/maps"
++_TAG_HEX_LEN = 16
++_HEX_DIGITS = "0123456789abcdef"
++# The rvn_mtp_graft fields patch 0058 freezes; they name the grafted head and
++# the checkpoint it came from.
++_GRAFT_STAMP_KEYS = ("source", "encoder_version", "count")
++
++
++def _mapped_cudart():
++    """The path of the one CUDA runtime this process has mapped, or None.
++
++    /proc/self/maps is the only authority here, and the runtimes it reports are
++    counted by file identity (device and inode from the map line) rather than by
++    path, so one library reached by two names is still one runtime while two
++    builds are two. A pin taken through one runtime and an alias answer from
++    another say nothing about each other, which is what patch 0060 was doing:
++    asking the dynamic linker for "libcudart.so" binds
++    /usr/local/cuda-13.0/targets/x86_64-linux/lib/libcudart.so.13.0.96, not the
++    .../nvidia/cu13/lib/libcudart.so.13 that this process actually has mapped
++    and that its device calls go through. None -- no runtime mapped, or more
++    than one -- means the shared mapping is declined rather than guessed at.
++    """
++    runtimes = {}
++    try:
++        with open(_PROC_MAPS, "r", encoding="utf-8", errors="replace") as maps:
++            for line in maps:
++                fields = line.split()
++                if len(fields) < 6 or not fields[5].startswith("/"):
++                    continue
++                if not fields[5].rsplit("/", 1)[-1].startswith("libcudart.so."):
++                    continue
++                runtimes.setdefault((fields[3], fields[4]), fields[5])
++    except OSError:
++        return None
++    if len(runtimes) != 1:
++        return None
++    return next(iter(runtimes.values()))
++
++
++def _graft_stamp(model_path):
++    """The rvn_mtp_graft stamp of `model_path`, or None.
++
++    Read from the config.json inside the checkpoint directory the loader opens:
++    that copy of the stamp is the one the serving process trusts -- patch 0058
++    gates a grafted draft on exactly these fields -- and it carries the source
++    checkpoint and encoder version that tell one checkpoint from every other.
++    """
++    import json
++    import os
++
++    try:
++        with open(os.path.join(model_path, "config.json"), "rb") as config:
++            config = json.load(config)
++    except Exception:
++        return None
++    stamp = config.get("rvn_mtp_graft") if isinstance(config, dict) else None
++    if not isinstance(stamp, dict):
++        return None
++    return {key: stamp.get(key) for key in _GRAFT_STAMP_KEYS}
++
++
++def _checkpoint_tag():
++    """First 16 hex chars of sha256 over this checkpoint's identity, or None.
++
++    The identity is the served model path plus that checkpoint's grafted-head
++    stamp, both taken the way the loader takes them: the model path is the one
++    sglang hands to the weight loader, the stamp is the config.json field
++    patch 0058 gates on. Every replica of one checkpoint derives the same tag
++    and so keeps converging on one shared file; a different checkpoint derives
++    a different tag, so it gets its own file or the private path. An identity
++    that is not known yet -- no serving config, no readable config, an
++    unstamped checkpoint -- returns None and the shared path is refused, because
++    a table with no identity is exactly what a foreign loader looks for.
++    """
++    import hashlib
++
++    try:
++        from sglang.srt.server_args import get_global_server_args
++
++        model_path = get_global_server_args().model_path
++    except Exception:
++        return None
++    if not model_path:
++        return None
++    stamp = _graft_stamp(model_path)
++    if not stamp or any(stamp.get(key) in (None, "") for key in _GRAFT_STAMP_KEYS):
++        # The served checkpoint's own stamp is what makes this an identity that
++        # belongs to a checkpoint rather than to a path. Hashing a path with
++        # absent stamp fields would yield a tag that looks like an identity and
++        # is not one: it would survive the checkpoint being swapped underneath,
++        # which is the collision this gate exists to close. Decline instead and
++        # let the private pinned table carry the load.
++        return None
++    identity = "\n".join((
++        "rvn-ple-shared-identity-v1",
++        f"model={model_path}",
++        f"graft_source={stamp['source']}",
++        f"graft_encoder_version={stamp['encoder_version']}",
++        f"graft_count={stamp['count']}"))
++    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:_TAG_HEX_LEN]
++
++
++def _table_tag(name):
++    """The checkpoint tag a shared-table filename carries, or None.
++
++    The names this shipped with before patch 0061 carry no tag, and neither
++    does anything else that is not a tagged table name; None means there is no
++    identity to honour, which is as much a claim on the shared dir as a
++    foreign tag is.
++    """
++    if not name.endswith(".bin") or "-" not in name:
++        return None
++    tag = name[name.rfind("-") + 1:-len(".bin")]
++    if len(tag) != _TAG_HEX_LEN or any(c not in _HEX_DIGITS for c in tag):
++        return None
++    return tag
++
++
++def _foreign_claim(shared_dir, tag):
++    """A shared-dir entry this checkpoint must not share with, or None.
++
++    Any table whose tag is not ours counts, the untagged pre-0061 names
++    included: their implied tag is unknown, and unknown is precisely what a
++    cross-checkpoint rewrite thrives on. The profile wipes the shared dir
++    (`shmCleanupGlobs`) before every replica launches, so a boot that still
++    finds an old table there is a boot that has not been cleaned; refusing the
++    shared path then costs pinned RAM and nothing else, because the foreign
++    file is left exactly as found -- never opened, never truncated, never
++    unlinked from here.
++    """
++    import os
++
++    try:
++        entries = sorted(os.listdir(shared_dir))
++    except OSError:
++        return None
++    for name in entries:
++        if name.endswith(".bin") and _table_tag(name) != tag:
++            return name
++    return None
++
+ 
+ def _host_table(shape, dtype, pin_memory, role):
+     import ctypes
+@@ -37,16 +198,59 @@
+ 
+     shared_dir = os.environ.get("SGLANG_PLE_SHARED_DIR")
+     if shared_dir and pin_memory:
+-        import torch.distributed as dist
+-        rank = (str(dist.get_rank())
+-                if dist.is_available() and dist.is_initialized()
+-                else os.environ.get("RANK", "0"))
+-        nbytes = shape[0] * shape[1] * dtype.itemsize  # 1B for u8/e4m3
+-        path = os.path.join(
+-            shared_dir,
+-            role + f"-rank{rank}-" + "x".join(map(str, shape))
+-            + f"-{str(dtype)[6:]}.bin")
++        mm = None
++        host = None
++        runtime = None
++        registered = False
++        reason = "shared mapping declined"
++        serving = False
+         try:
++            import torch.distributed as dist
++            rank = (str(dist.get_rank())
++                    if dist.is_available() and dist.is_initialized()
++                    else os.environ.get("RANK", "0"))
++            tag = _checkpoint_tag()
++            if tag is None:
++                raise RuntimeError(
++                    "this process has no checkpoint identity to key a shared table by")
++            claimed = _foreign_claim(shared_dir, tag)
++            if claimed is not None:
++                foreign = _table_tag(claimed)
++                raise RuntimeError(
++                    f"{claimed} is keyed to checkpoint tag "
++                    f"{foreign if foreign is not None else 'unknown'}")
++            nbytes = shape[0] * shape[1] * dtype.itemsize  # 1B for u8/e4m3
++            path = os.path.join(
++                shared_dir,
++                role + f"-rank{rank}-" + "x".join(map(str, shape))
++                + f"-{str(dtype)[6:]}-{tag}.bin")
++            cudart_path = _mapped_cudart()
++            if cudart_path is None:
++                raise RuntimeError(
++                    "this process does not have exactly one CUDA runtime mapped")
++            # One handle -- the single runtime this process has mapped -- for
++            # the pin, the alias query and the unpin alike, so all three are
++            # answered by that instance. RTLD_LOCAL keeps the runtime's symbols
++            # out of the global namespace rather than publishing them for
++            # anything in this process to bind.
++            runtime = ctypes.CDLL(cudart_path, mode=ctypes.RTLD_LOCAL)
++            # These calls take pointers and a byte count, and the count has to
++            # arrive intact. Declaring the signatures is what makes the size a
++            # 64-bit size_t: the production rows table is 25,600,122,880 bytes,
++            # past 2**31 and past 2**32, and an integer passed with no argtypes
++            # goes over as a C int. Assigning argtypes also resolves the symbol,
++            # so a runtime that cannot answer any one of the three is refused
++            # here, before anything is pinned.
++            runtime.cudaHostRegister.argtypes = (
++                ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int)
++            runtime.cudaHostRegister.restype = ctypes.c_int
++            runtime.cudaHostUnregister.argtypes = (ctypes.c_void_p,)
++            runtime.cudaHostUnregister.restype = ctypes.c_int
++            runtime.cudaHostGetDevicePointer.argtypes = (
++                ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, ctypes.c_uint)
++            runtime.cudaHostGetDevicePointer.restype = ctypes.c_int
++            if ctypes.sizeof(ctypes.c_size_t) < 8:
++                raise RuntimeError("the CUDA runtime cannot take a 64-bit size")
+             os.makedirs(shared_dir, exist_ok=True)
+             fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+             try:
+@@ -56,28 +260,44 @@
+             finally:
+                 os.close(fd)
+             host = ctypes.addressof(ctypes.c_char.from_buffer(mm))
+-            cudart = torch.cuda.cudart()
+             # 1 | 2 = cudaHostRegisterPortable | cudaHostRegisterMapped
+-            error = cudart.cudaHostRegister(host, nbytes, 3)
++            error = runtime.cudaHostRegister(host, nbytes, 3)
+             if int(error) != 0:
+-                mm.close()
+                 raise RuntimeError(f"cudaHostRegister failed: {error}")
++            registered = True
+             device = ctypes.c_void_p()
+-            lib = ctypes.CDLL("libcudart.so", mode=ctypes.RTLD_GLOBAL)
+-            rc = lib.cudaHostGetDevicePointer(
++            rc = runtime.cudaHostGetDevicePointer(
+                 ctypes.byref(device), ctypes.c_void_p(host), 0)
+             if rc != 0 or device.value != host:
+-                cudart.cudaHostUnregister(host)
+-                mm.close()
+                 raise RuntimeError(
+                     f"device alias {device.value} != host pointer {host} (rc={rc})")
+             _shared_maps.append(mm)
++            serving = True
+             print(f"[packed_ple] shared PLE mapping {path} ({nbytes} bytes)",
+                   file=sys.stderr, flush=True)
+             return torch.frombuffer(mm, dtype=torch.uint8).view(dtype).view(shape)
+         except Exception as exc:
+-            print(f"[packed_ple] shared PLE mapping {path} unavailable ({exc}); "
+-                  "falling back to private pinned table", file=sys.stderr, flush=True)
++            reason = str(exc) or type(exc).__name__
++        finally:
++            if not serving:
++                # Every path that fails, including the ones that arrive here
++                # with a pin already taken, gives the pin back through the same
++                # handle that took it and only then closes the mapping. The
++                # registration lives inside that mapping: closing or unmapping
++                # under a live pin is the leak this replaces, and unregistering
++                # twice or against a different runtime is the next one.
++                if registered:
++                    try:
++                        runtime.cudaHostUnregister(host)
++                    except Exception:
++                        pass
++                if mm is not None:
++                    try:
++                        mm.close()
++                    except Exception:
++                        pass
++        print(f"[packed_ple] shared PLE mapping for {role} unavailable ({reason}); "
++              "falling back to private pinned table", file=sys.stderr, flush=True)
+     return torch.empty(shape, dtype=dtype, device='cpu', pin_memory=pin_memory)
+ 
+ 

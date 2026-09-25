@@ -29,6 +29,7 @@ RVN_PATCHES = [
     "0058-rvn-mtp-graft-loader.patch",
     "0059-rvn-mtp-draft-remap.patch",
     "0060-rvn-ple-shared-ple.patch",
+    "0061-rvn-shared-ple-identity-cleanup.patch",
 ]
 BASE_IMAGE = "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284"
 BASE_IMAGE_ID = (
