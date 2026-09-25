@@ -27,6 +27,7 @@ BASE_IMAGE = "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284"
 BASE_IMAGE_ID = (
     "sha256:91cee840799be19916e1ba17ed10a517923f4fc70d54f5abd0247f700d01d77a"
 )
+LAUNCHER = (ROOT / "deploy/rvn-w4a16-baseline/run_baseline.sh").read_text()
 
 
 class RvnW4a16PackagingTest(unittest.TestCase):
@@ -113,6 +114,19 @@ class RvnW4a16PackagingTest(unittest.TestCase):
                     self.assertNotIn("rvn", text)
                     for patch in RVN_PATCHES:
                         self.assertNotIn(patch, text)
+
+    def test_launcher_targets_profile_image_with_entrypoint_and_gate(self):
+        # finding 1: default must be the patched profile image, never the base
+        self.assertIn("IMAGE=${IMAGE:-rvn-w4a16:sim}", LAUNCHER)
+        self.assertNotIn("IMAGE=${IMAGE:-" + BASE_IMAGE + "}", LAUNCHER)
+        # finding 2: Dockerfile.rvn-w4a16 sets ENTRYPOINT, so bash must override it
+        self.assertIn('  --entrypoint /bin/bash\n  "$IMAGE"\n  -lc "$INNER"\n', LAUNCHER)
+        # abort gate: runs before cmd=( is built and before any host mkdir
+        gate = LAUNCHER.index("PROFILE GATE")
+        self.assertLess(gate, LAUNCHER.index("cmd=("))
+        self.assertLess(gate, LAUNCHER.index('mkdir -p "$CACHE_ROOT'))
+        self.assertIn('--entrypoint python3 "$IMAGE" -B', LAUNCHER)
+        self.assertIn("/opt/rvn-w4a16/scripts/verify_rvn_w4a16.py", LAUNCHER)
 
 
 if __name__ == "__main__":
