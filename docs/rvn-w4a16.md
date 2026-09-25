@@ -75,8 +75,8 @@ docker run --rm --name rvn-ple-nvfp4 \
   -v /models:/models:ro -v /var/cache/sglang/rvn-ple-nvfp4-0:/root/.cache \
   -w /sgl-workspace/sglang --entrypoint python3 rvn-w4a16:sim \
   -m sglang.launch_server \
-  --model-path /models/rvn-qwen38-ple-nvfp4 \
-  --chat-template /models/rvn-qwen38-ple-nvfp4/chat_template.jinja \
+  --model-path /models/qwen38-flash-next-uncensored \
+  --chat-template /models/qwen38-flash-next-uncensored/chat_template.jinja \
   --served-model-name rvn-ple-nvfp4 \
   --host 0.0.0.0 --port 8111 --tp-size 1 \
   --quantization modelopt_mixed --moe-runner-backend marlin \
@@ -129,6 +129,11 @@ Landmines learned the hard way:
   accept len 2.5-3.7 (rate 0.5-0.9), decode ~175-197 tok/s vs 103
   unspec. NEXTN verification is lossless, so draft-token quality only
   moves speed, never output.
+- **Naming note (2026-09-25)**: the served directory was renamed to
+  `/models/qwen38-flash-next-uncensored` and the no-MTP candidate plus
+  the 168 GB source checkpoint were retired; graft inputs above are the
+  historical paths — re-deriving needs `convert.py` from a fresh source
+  copy first. Sealed 9/9 + 7/7 reports live in `provenance/reports/`.
 
 ## Verification
 
