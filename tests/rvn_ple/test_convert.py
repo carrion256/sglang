@@ -323,6 +323,31 @@ def test_same_src_and_dst_refuses_before_touching_anything(tmp_path, small_src):
     assert _tree_digests(small_src) == before
 
 
+def test_lexicographically_ordered_spec_refused_at_spec_load(tmp_path):
+    """A shard_10-before-shard_2 spec dies at load, not after packing (schema §2)."""
+    src = tmp_path / "lex_src"
+    _shard(src, "model-00001.safetensors", {
+        f"{PLE}.shard_2.weight": _grid(32, 16, seed=3),
+        f"{PLE}.shard_10.weight": _grid(32, 16, seed=4),
+    })
+    numeric = [
+        _part(0, "model-00001.safetensors", f"{PLE}.shard_2.weight", 0, 32),
+        _part(1, "model-00001.safetensors", f"{PLE}.shard_10.weight", 32, 32),
+    ]
+    # Same rows, same part ids, same cover -- only the source order is lexicographic.
+    lexicographic = [
+        _part(0, "model-00001.safetensors", f"{PLE}.shard_10.weight", 0, 32),
+        _part(1, "model-00001.safetensors", f"{PLE}.shard_2.weight", 32, 32),
+    ]
+    ok = tmp_path / "ok"
+    _run(src, ok, _spec_file(tmp_path, numeric, 16, 64, name="numeric.json"))
+    assert (ok / "ple_storage.json").is_file()
+    bad = tmp_path / "lex"
+    with pytest.raises(ValueError, match="numeric source order"):
+        _run(src, bad, _spec_file(tmp_path, lexicographic, 16, 64, name="lex.json"))
+    assert not bad.exists()  # refused before the output tree was even created
+
+
 # ------------------------------------------------------------------ assemble
 
 @pytest.fixture()

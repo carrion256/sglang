@@ -25,6 +25,7 @@ import gc
 import hashlib
 import json
 import os
+import re
 import shutil
 import struct
 import sys
@@ -101,6 +102,19 @@ def _copy_range(src_f, dst_f, begin, nbytes):
         left -= len(block)
 
 
+def _natural_key(name):
+    """Numeric-aware sort key: digit runs compare as integers (2 < 10).
+
+    Deliberately identical to ``verify._natural_key``: the release gate refuses a
+    partitioning that is not in numeric source order, and the converter must not
+    spend ~26 GiB of packing producing a candidate the gate rejects afterwards.
+    """
+    return tuple(
+        (1, int(part)) if part.isdigit() else (0, part)
+        for part in re.split(r"(\d+)", name)
+    )
+
+
 def _load_spec(path, src_dir):
     spec = json.loads(Path(path).read_text())
     cols = spec.get("cols")
@@ -125,6 +139,27 @@ def _load_spec(path, src_dir):
         cursor += rows
     if cursor != rows_total:
         raise ValueError(f"partitioning covers {cursor} rows, logical_rows is {rows_total}")
+    # Schema §2 forbids lexicographic partition order, and the release gate
+    # refuses a candidate whose parts are not in numeric source order. Refuse such
+    # a spec here, before any part is packed, instead of shipping a candidate the
+    # gate rejects after ~26 GiB of work.
+    order = [
+        (
+            _natural_key(p.get("source_shard", "")),
+            _natural_key(p.get("source_tensor", "")),
+        )
+        for p in parts
+    ]
+    for index in range(1, len(order)):
+        if order[index] < order[index - 1]:
+            before, after = parts[index - 1], parts[index]
+            raise ValueError(
+                "partitioning is not in numeric source order (schema §2 forbids "
+                f"lexicographic order): part {index} "
+                f"{after['source_shard']}/{after['source_tensor']} follows part "
+                f"{index - 1} {before['source_shard']}/{before['source_tensor']} by "
+                "row but is earlier in the source"
+            )
     tensor_rows = {}
     for p in parts:
         key = (p["source_shard"], p["source_tensor"])

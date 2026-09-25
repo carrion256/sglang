@@ -709,9 +709,10 @@ def test_lexicographic_source_order_fails_partitioning(tmp_path, pair):
     src, dst = pair
 
     def relabel(manifest):
+        # PLE shard ids carry no leading zeros (shard_2 vs shard_10), so a
+        # lexicographic converter orders the table shard_10 before shard_2.
         entries = sorted(
-            manifest["table"]["partitioning"],
-            key=lambda entry: (str(entry["source_shard"]), str(entry["source_tensor"])),
+            manifest["table"]["partitioning"], key=lambda entry: str(entry["source_tensor"])
         )
         cursor = 0
         for part, entry in enumerate(entries):
@@ -774,3 +775,82 @@ def test_unsupported_encoder_version_fails_manifest_schema(tmp_path, pair, versi
     proc, report = verify(tmp_path, src, dst)
     assert proc.returncode == 1
     assert "encoder_version" in failure(report, "manifest_schema")["reason"]
+
+
+def test_part_payload_ranges_must_not_overlap(tmp_path, pair):
+    """Correct per-tensor extents are not enough: no two tensors share bytes."""
+    src, dst = pair
+    part = dst / PARTS_DIR / "part-00007.safetensors"
+    raw = part.read_bytes()
+    (header_len,) = struct.unpack("<Q", raw[:8])
+    header = json.loads(raw[8 : 8 + header_len])
+    # Scale keeps its exact 2-byte extent but is aimed inside the weight payload.
+    header["rvn_ple.packed.s7"]["data_offsets"] = [14, 16]
+    blob = json.dumps(header, separators=(",", ":")).encode()
+    blob += b" " * ((8 - len(blob) % 8) % 8)
+    part.write_bytes(struct.pack("<Q", len(blob)) + blob + raw[8 + header_len :])
+    proc, report = verify(tmp_path, src, dst)
+    assert proc.returncode == 1
+    assert "overlaps" in failure(report, "parts_integrity")["reason"]
+
+
+def _rewrite_header(path, header):
+    """Replace a safetensors header in place, leaving the payload untouched."""
+    raw = path.read_bytes()
+    (header_len,) = struct.unpack("<Q", raw[:8])
+    blob = json.dumps(header, separators=(",", ":")).encode()
+    blob += b" " * ((8 - len(blob) % 8) % 8)
+    path.write_bytes(struct.pack("<Q", len(blob)) + blob + raw[8 + header_len :])
+
+
+def test_header_key_order_is_not_offset_order(tmp_path, pair):
+    """Writers may list tensors in any order; disjointness pairs by OFFSET."""
+    src, dst = pair
+    part = dst / PARTS_DIR / "part-00009.safetensors"
+    raw = part.read_bytes()
+    (header_len,) = struct.unpack("<Q", raw[:8])
+    header = json.loads(raw[8 : 8 + header_len])
+    # Same name -> range mapping, keys emitted high-offset-first.
+    _rewrite_header(part, dict(reversed(list(header.items()))))
+    proc, report = verify(tmp_path, src, dst)
+    assert proc.returncode == 0, proc.stdout
+    assert failure(report, "parts_integrity")["status"] == "pass"
+
+
+def test_part_metadata_does_not_break_pair_exactness(tmp_path, pair):
+    """The loader's keys() hides __metadata__, and so must the pair check."""
+    src, dst = pair
+    part = dst / PARTS_DIR / "part-00002.safetensors"
+    tensors = load_file(str(part))
+    save_file({name: t.contiguous().clone() for name, t in tensors.items()},
+              str(part), metadata={"producer": "rvn-convert"})
+    proc, report = verify(tmp_path, src, dst)
+    assert proc.returncode == 0, proc.stdout
+    assert failure(report, "parts_integrity")["status"] == "pass"
+
+
+def test_sub_byte_store_code_is_checked_not_refused(tmp_path, pair):
+    """safetensors packs two F4 values per element, so its extent is not derivable
+    from the shape: the anchor must skip that one rule, not abort the gate."""
+    src, dst = pair
+    name = "model.layers.0.mlp.experts.0.gate_proj_scale"
+    tensor = torch.zeros(8, 2, dtype=torch.float4_e2m1fn_x2)
+    source_shard = src / "model-00001-of-00011.safetensors"
+    tensors = load_file(str(source_shard))
+    tensors[name] = tensor
+    _save(source_shard, tensors)
+    dst_shard = dst / DST_SHARD
+    tensors = load_file(str(dst_shard))
+    tensors[name] = tensor.clone()
+    _save(dst_shard, tensors)
+    index_path = dst / INDEX_NAME
+    index = json.loads(index_path.read_text())
+    index["weight_map"][name] = DST_SHARD
+    index_path.write_text(json.dumps(index, indent=2) + "\n")
+    mutate_manifest(
+        dst, lambda m: m["retained_rewrites"][DST_SHARD].append(name)
+    )
+    proc, report = verify(tmp_path, src, dst)
+    assert proc.returncode == 0, proc.stdout
+    assert failure(report, "non_ple_identity")["status"] == "pass"
+    assert failure(report, "parts_integrity")["status"] == "pass"

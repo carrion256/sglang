@@ -72,13 +72,17 @@ WEIGHT_STORE_DTYPE = "U8"
 SCALE_STORE_DTYPE = "F8_E4M3"
 # Bytes per element for every safetensors store code the verifier accepts
 # (schema §4 makes dtype+shape part of the digest input, so a declared payload
-# range must be exactly ``itemsize * prod(shape)``). Unknown codes fail closed:
-# a range whose element width is unknown cannot be anchored.
+# range must be exactly ``itemsize * prod(shape)``). This is the complete store
+# set safetensors 0.8 parses (probe: every other code it rejects itself, so
+# failing closed on an unknown one cannot refuse a checkpoint the loader reads).
+# ``None`` marks the sub-byte code: two packed values per element, so its extent
+# is not derivable from numel and only the exact-extent rule skips it.
 _STORE_ITEMSIZE = {
     "BOOL": 1, "U8": 1, "I8": 1, "F8_E4M3": 1, "F8_E5M2": 1, "F8_E8M0": 1,
     "U16": 2, "I16": 2, "F16": 2, "BF16": 2,
     "U32": 4, "I32": 4, "F32": 4,
     "U64": 8, "I64": 8, "F64": 8,
+    "F4": None,
 }
 
 CHUNK = 1 << 20
@@ -157,12 +161,14 @@ def _read_shard_header(path: Path):
             and all(isinstance(dim, int) and dim >= 0 for dim in entry["shape"]),
             f"unreadable shard (bad tensor entry {name!r}): {path}",
         )
-        itemsize = _STORE_ITEMSIZE.get(entry["dtype"])
         _require(
-            itemsize is not None,
+            # Unknown codes fail closed (the safetensors parser rejects them too);
+            # the one sub-byte code carries itemsize None on purpose.
+            entry["dtype"] in _STORE_ITEMSIZE,
             f"unreadable shard (unsupported dtype {entry['dtype']!r} for "
             f"{name!r}): {path}",
         )
+        itemsize = _STORE_ITEMSIZE[entry["dtype"]]
         numel = 1
         for dim in entry["shape"]:
             numel *= dim
@@ -174,15 +180,17 @@ def _read_shard_header(path: Path):
             and offsets[0] <= offsets[1],
             f"unreadable shard (bad data_offsets for {name!r}): {path}",
         )
-        # Schema §4 fixes the digest over the raw payload of THIS dtype+shape,
-        # so the declared range must be exactly the tensor the header describes:
-        # exact extent, inside the file, and not shared with another tensor.
-        _require(
-            offsets[1] - offsets[0] == itemsize * numel,
-            f"shard {path} tensor {name!r} is {entry['dtype']} {entry['shape']} "
-            f"= {itemsize * numel} bytes, but data_offsets span "
-            f"{offsets[1] - offsets[0]} bytes",
-        )
+        # Schema §4 fixes the digest over the raw payload of THIS dtype+shape, so
+        # the declared range must be exactly the tensor the header describes --
+        # whenever the store code's width is per-element (skipped for F4, whose
+        # extent is not derivable from numel; bounds and disjointness still hold).
+        if itemsize is not None:
+            _require(
+                offsets[1] - offsets[0] == itemsize * numel,
+                f"shard {path} tensor {name!r} is {entry['dtype']} {entry['shape']} "
+                f"= {itemsize * numel} bytes, but data_offsets span "
+                f"{offsets[1] - offsets[0]} bytes",
+            )
         _require(
             payload_base + offsets[1] <= file_size,
             f"shard {path} tensor {name!r} payload ends at byte "
@@ -195,6 +203,9 @@ def _read_shard_header(path: Path):
             "shape": list(entry["shape"]),
             "data_offsets": [offsets[0] + payload_base, offsets[1] + payload_base],
         }
+    # Header key order is writer-defined (HF merge tools and convert's own
+    # header writer emit arbitrary orders), so pair up by offset, not by key.
+    ranges.sort()
     for (_, previous_end, previous), (start, _, name) in zip(ranges, ranges[1:]):
         _require(
             start >= previous_end,
@@ -1013,7 +1024,12 @@ def _declared_parts(ctx):
             if not isinstance(part, dict):
                 continue
             if isinstance(part.get("file"), str):
-                files.add(PurePosixPath(part["file"]).as_posix())
+                # _resolve_shard tolerates a directory prefix in a declared
+                # shard name, so classification must accept both spellings of a
+                # part file or a declared part counts as a model shard.
+                declared = PurePosixPath(part["file"])
+                files.add(declared.as_posix())
+                files.add(declared.name)
             for key in ("weight_tensor", "scale_tensor"):
                 if isinstance(part.get(key), str):
                     names.add(part[key])
@@ -1025,7 +1041,11 @@ def _check_index_refs(ctx):
     shards = ctx.dst_shards()
     # Manifest part files are packed payloads, not model shards; anything else in
     # the candidate tree is a model shard the index has to account for.
-    model_shards = {rel for rel in shards if PurePosixPath(rel).as_posix() not in files}
+    model_shards = {
+        rel
+        for rel in shards
+        if rel not in files and PurePosixPath(rel).name not in files
+    }
     path = ctx.dst_dir / INDEX_NAME
     if not path.is_file():
         if len(model_shards) > 1:

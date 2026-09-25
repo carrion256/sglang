@@ -490,3 +490,23 @@ def test_payload_ranges_must_not_overlap(tmp_path):
         inv.read_shard_header(shard)
     with pytest.raises(inv.InventoryError, match="overlaps"):
         inv.build_inventory(bad)
+
+
+def test_header_key_order_is_not_offset_order(tmp_path):
+    """Header keys arrive in writer-defined order; the overlap rule pairs by OFFSET,
+    so listing the high-offset tensor first must not read as an overlap."""
+    good = tmp_path / "order"
+    _write_ckpt(good, {SHARD_A: {
+        "a.weight": torch.zeros(4, 4, dtype=torch.bfloat16),
+        "b.weight": torch.zeros(2, 2, dtype=torch.bfloat16),
+    }})
+    shard = good / SHARD_A
+    raw = shard.read_bytes()
+    (header_len,) = struct.unpack("<Q", raw[:8])
+    header = json.loads(raw[8 : 8 + header_len])
+    blob = json.dumps(
+        dict(reversed(list(header.items()))), separators=(",", ":")
+    ).encode()
+    blob += b" " * ((8 - len(blob) % 8) % 8)
+    shard.write_bytes(struct.pack("<Q", len(blob)) + blob + raw[8 + header_len :])
+    assert inv.build_inventory(good)["categories"]["unmatched"]["tensors"] == 2
