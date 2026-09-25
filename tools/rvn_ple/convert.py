@@ -565,6 +565,15 @@ def _assemble(spec, state, src_dir, dst_dir, g_bits):
 def convert(*, src_dir, dst_dir, tensors_file, chunk_mib=256, device="cpu",
             resume=False, state=".rvn_convert_state.json"):
     src_dir, dst_dir = Path(src_dir), Path(dst_dir)
+    # Schema §5: the output tree is separate. Without this, convert() would
+    # create .rvn_convert_state.json and rvn_ple_parts/ inside the source
+    # checkpoint and stream ~26 GiB of parts there before _assemble's name
+    # collision guard aborts -- source-tree pollution on operator error.
+    if src_dir.resolve() == dst_dir.resolve():
+        raise ValueError(
+            f"refuse: --src-dir and --dst-dir resolve to the same tree "
+            f"({src_dir}); the converter never writes into the source checkpoint"
+        )
     if chunk_mib < 1:
         raise ValueError("chunk-mib must be >= 1")
     spec = _load_spec(tensors_file, src_dir)

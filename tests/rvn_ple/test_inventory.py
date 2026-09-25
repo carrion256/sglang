@@ -434,3 +434,59 @@ def test_output_is_never_non_finite(ckpt, tmp_path):
     assert inv._finite_float(float("inf")) == "non-finite"
     assert inv._finite_float(float("nan")) == "non-finite"
     assert inv._finite_float(2**30) == float(2**30)
+
+
+def test_non_canonical_ple_shard_id_is_rejected(tmp_path):
+    # patches/0047 ple_shard_is_canonical: the loader claims only str(int(id))
+    # ids and leaves `shard_01` unclaimed, so the sign-off tool must not relabel
+    # it as partition 1 and bless a checkpoint the runtime refuses.
+    assert inv.classify_tensor(f"{_PLE}.shard_2.weight") == ("ple_embedding_table", 2)
+    with pytest.raises(inv.InventoryError, match="not canonical"):
+        inv.classify_tensor(f"{_PLE}.shard_02.weight")
+    bad = tmp_path / "noncanon"
+    _write_ckpt(
+        bad,
+        {SHARD_A: {f"{_PLE}.shard_01.weight": torch.zeros(8, 32, dtype=torch.bfloat16)}},
+    )
+    with pytest.raises(inv.InventoryError, match="shard_01"):
+        inv.build_inventory(bad)
+
+
+def test_payload_extent_must_match_dtype_and_shape(tmp_path):
+    # The safetensors reader derives payload length from dtype+shape, and the
+    # packed-size budget is computed from them too, so a header claiming a range
+    # its dtype+shape cannot fill is rejected rather than inventoried.
+    bad = tmp_path / "extent"
+    _write_ckpt(bad, {SHARD_A: {"w.weight": torch.zeros(4, 4, dtype=torch.bfloat16)}})
+    shard = bad / SHARD_A
+    raw = shard.read_bytes()
+    (header_len,) = struct.unpack("<Q", raw[:8])
+    header = json.loads(raw[8 : 8 + header_len])
+    header["w.weight"]["data_offsets"][1] += 2
+    blob = json.dumps(header, separators=(",", ":")).encode()
+    blob += b" " * ((8 - len(blob) % 8) % 8)
+    shard.write_bytes(struct.pack("<Q", len(blob)) + blob + raw[8 + header_len :])
+    with pytest.raises(inv.InventoryError, match="data_offsets span"):
+        inv.read_shard_header(shard)
+    with pytest.raises(inv.InventoryError, match="data_offsets span"):
+        inv.build_inventory(bad)
+
+
+def test_payload_ranges_must_not_overlap(tmp_path):
+    """Two tensors claiming the same bytes is not a checkpoint either."""
+    bad = tmp_path / "overlap"
+    _write_ckpt(bad, {SHARD_A: {"a.weight": torch.zeros(8, 4, dtype=torch.bfloat16),
+                                "b.weight": torch.zeros(8, 4, dtype=torch.bfloat16)}})
+    shard = bad / SHARD_A
+    raw = shard.read_bytes()
+    (header_len,) = struct.unpack("<Q", raw[:8])
+    header = json.loads(raw[8 : 8 + header_len])
+    # b.weight keeps its exact 64-byte extent but is aimed at a.weight's bytes.
+    header["b.weight"]["data_offsets"] = list(header["a.weight"]["data_offsets"])
+    blob = json.dumps(header, separators=(",", ":")).encode()
+    blob += b" " * ((8 - len(blob) % 8) % 8)
+    shard.write_bytes(struct.pack("<Q", len(blob)) + blob + raw[8 + header_len :])
+    with pytest.raises(inv.InventoryError, match="overlaps"):
+        inv.read_shard_header(shard)
+    with pytest.raises(inv.InventoryError, match="overlaps"):
+        inv.build_inventory(bad)

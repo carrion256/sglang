@@ -313,6 +313,16 @@ def test_partial_source_tensor_coverage_refuses(tmp_path):
         _run(src, tmp_path / "out", spec)
 
 
+def test_same_src_and_dst_refuses_before_touching_anything(tmp_path, small_src):
+    """Schema §5: the output tree is separate; nothing lands in the source."""
+    spec = _spec_file(tmp_path, [_part(0, "model-00001.safetensors", PLE, 0, 64)], 32, 64)
+    before = _tree_digests(small_src)
+    with pytest.raises(ValueError, match="same tree"):
+        _run(src=small_src, dst=small_src, tensors_file=spec)
+    # No .rvn_convert_state.json, no rvn_ple_parts/, no rewritten shard.
+    assert _tree_digests(small_src) == before
+
+
 # ------------------------------------------------------------------ assemble
 
 @pytest.fixture()

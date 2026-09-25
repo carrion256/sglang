@@ -60,8 +60,10 @@ header-only tool; the tool itself never emits a non-finite number.
 Index/shard consistency failures are hard errors, backed by contract §2's rule
 that the generic index references ONLY tensors that exist in the shards: a
 missing or unreadable shard, a duplicate tensor (same name in two shards), a
-declared tensor absent from its declared shard, an undeclared tensor, and a
-malformed header all abort the run.
+declared tensor absent from its declared shard, an undeclared tensor, a
+malformed header, a PLE shard id the loader would leave unclaimed (non-canonical,
+``shard_01``), and a tensor whose declared payload range is not exactly
+``itemsize(dtype) * prod(shape)`` bytes inside the file all abort the run.
 
 Output JSON is deterministic (sorted keys, natural-numeric name/shard ordering)
 and self-describing (counts, tool version, estimate formula).
@@ -83,6 +85,20 @@ TOOL_VERSION = "1.0.0"
 
 INDEX_NAME = "model.safetensors.index.json"
 SCALE_GROUP_SIZE = 16  # docs/rvn-ple-storage-schema.md §1
+
+# Bytes per element for every safetensors store code accepted here: a shard
+# header's dtype+shape must account for exactly its declared payload range, the
+# way the safetensors reader enforces it. This is the complete store set
+# safetensors 0.8 parses (it rejects every other code itself, so failing closed
+# on an unknown one cannot refuse a checkpoint the loader would read); ``None``
+# is its sub-byte code, whose extent is not derivable from the declared shape.
+_STORE_ITEMSIZE = {
+    "BOOL": 1, "U8": 1, "I8": 1, "F8_E4M3": 1, "F8_E5M2": 1, "F8_E8M0": 1,
+    "U16": 2, "I16": 2, "F16": 2, "BF16": 2,
+    "U32": 4, "I32": 4, "F32": 4,
+    "U64": 8, "I64": 8, "F64": 8,
+    "F4": None,
+}
 
 CATEGORIES = (
     "expert_weight",
@@ -146,15 +162,31 @@ def _natural_key(name: str):
     )
 
 
+# The qwen4_exp loader claims a PLE n-gram shard tensor only when its id is
+# canonical (``ple_shard_is_canonical`` in patches/0047: ``str(int(id)) == id``)
+# and otherwise leaves the tensor unclaimed. This tool is part of trusting a
+# candidate, so renumbering ``shard_01`` to partition 1 would bless a checkpoint
+# the runtime refuses: a non-canonical id is an error here, not a partition.
+
+
 def classify_tensor(name: str):
     """Classify one tensor name into exactly one category.
 
     Returns ``(category, ple_partition_or_None)``; see the module docstring for
-    the documented precedence.
+    the documented precedence. A PLE shard tensor whose id is not canonical
+    raises instead of being relabelled, because the loader would leave it.
     """
     m = _PLE_TABLE_RE.search(name)
     if m:
-        return "ple_embedding_table", int(m.group(1)) if m.group(1) else None
+        digits = m.group(1)
+        if digits is not None and digits != str(int(digits)):
+            raise InventoryError(
+                f"PLE shard id {digits!r} in {name!r} is not canonical: the "
+                f"loader claims only str(int(id)) ids (shard_{int(digits)} "
+                "here) and leaves this tensor unclaimed, so the checkpoint "
+                "cannot load it"
+            )
+        return "ple_embedding_table", int(digits) if digits is not None else None
     if _EXPERT_SEG_RE.search(name):
         return ("expert_scale" if "scale" in name else "expert_weight"), None
     if _SHARED_EXPERT_RE.search(name):
@@ -259,6 +291,11 @@ def read_shard_header(path: Path):
         raise InventoryError(f"unreadable shard (bad header): {path}")
 
     tensors = {}
+    ranges = []
+    # data_offsets are relative to the end of the header, so bounding them needs
+    # the payload base and the real file length, not just the header's numbers.
+    payload_base = 8 + header_len
+    file_size = path.stat().st_size
     for name, entry in meta.items():
         if name == "__metadata__":
             continue
@@ -281,12 +318,45 @@ def read_shard_header(path: Path):
             raise InventoryError(
                 f"unreadable shard (bad data_offsets for {name!r}): {path}"
             )
+        if entry["dtype"] not in _STORE_ITEMSIZE:
+            raise InventoryError(
+                f"unreadable shard (unsupported dtype {entry['dtype']!r} for "
+                f"{name!r}): {path}"
+            )
+        itemsize = _STORE_ITEMSIZE[entry["dtype"]]
+        numel = 1
+        for dim in entry["shape"]:
+            numel *= dim
+        # The safetensors reader derives the payload length from dtype+shape, and
+        # the packed-size budget below is computed from them too: a header whose
+        # declared range disagrees is not a checkpoint, it is a lying header --
+        # except for the sub-byte code, whose extent no shape can pin.
+        if itemsize is not None and offsets[1] - offsets[0] != itemsize * numel:
+            raise InventoryError(
+                f"shard {path} tensor {name!r} is {entry['dtype']} "
+                f"{entry['shape']} = {itemsize * numel} bytes, but data_offsets "
+                f"span {offsets[1] - offsets[0]} bytes"
+            )
+        if payload_base + offsets[1] > file_size:
+            raise InventoryError(
+                f"shard {path} tensor {name!r} payload ends at byte "
+                f"{payload_base + offsets[1]}, past the {file_size}-byte file"
+            )
+        if offsets[1] > offsets[0]:  # zero-length tensors may share an offset
+            ranges.append((offsets[0], offsets[1], name))
         tensors[name] = {
             "dtype": entry["dtype"],
             "shape": list(entry["shape"]),
             "data_offsets": [offsets[0], offsets[1]],
             "byte_size": offsets[1] - offsets[0],
         }
+    # Pair up by offset, not by header key order, which is writer-defined.
+    ranges.sort()
+    for (_, previous_end, previous), (start, _, name) in zip(ranges, ranges[1:]):
+        if start < previous_end:
+            raise InventoryError(
+                f"shard {path}: payload of {name!r} overlaps that of {previous!r}"
+            )
     return tensors
 
 
