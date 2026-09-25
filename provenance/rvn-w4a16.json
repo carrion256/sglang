@@ -1,5 +1,5 @@
 {
-  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0054; includes PLE host-offload eligibility for the text arch, the marlin MoE repack release fixes, and the binding manifest encoding.reconstruction gate); opt-in profile on the local-only deployed hicache base image",
+  "status": "RVN W4A16 text profile: RVN text config + uniform W4A16_NVFP4 dispatch + manifest-driven packed-NVFP4 PLE loader (patches 0047-0056; includes PLE host-offload eligibility for the text arch, the marlin MoE repack release fixes, the binding manifest encoding.reconstruction gate, and the frozen encoder_version gate); opt-in profile on the local-only deployed hicache base image",
   "base_image": "localhost/kanadaj-sglang-qwen38fn:hicache-a6d5284",
   "base_image_id": "sha256:91cee840799be19916e1ba17ed10a517923f4fc70d54f5abd0247f700d01d77a",
   "base_inventory": "provenance/rvn-w4a16-runtime-files.json",
@@ -102,6 +102,16 @@
           "after": "4c6611e9a3cd1402119f577a375c852646f4abed5ce80350828b0673c36c461a"
         }
       }
+    },
+    {
+      "file": "0056-rvn-ple-encoder-version-gate.patch",
+      "sha256": "8f9b24b92ee0cf3b5639e0f86740cd4fb52c0cedeaeda5e47fcce3fdfd7febf1",
+      "files": {
+        "python/sglang/srt/models/rvn_ple_storage.py": {
+          "before": "2a6f2efa62f97e6aad141219672eb2cda5a95d3bd9f52f48e55a3b52a7eb3b5a",
+          "after": "509b2693445be1dad6a74424d568fcb651ad8c8eb62d0aefe0024ee3c0232a76"
+        }
+      }
     }
   ],
   "files": {
@@ -123,7 +133,7 @@
     },
     "python/sglang/srt/models/rvn_ple_storage.py": {
       "before": null,
-      "after": "2a6f2efa62f97e6aad141219672eb2cda5a95d3bd9f52f48e55a3b52a7eb3b5a"
+      "after": "509b2693445be1dad6a74424d568fcb651ad8c8eb62d0aefe0024ee3c0232a76"
     },
     "python/sglang/srt/model_loader/weight_utils.py": {
       "before": "1759d4feb63dc1e41f509f16c4d46d2f00a175fec6f5efda1fb5a7501394588a",
@@ -138,5 +148,5 @@
       "after": "1ec24885b97ea6aeb47cd0088b172e6292d37edf6f8c5b01921f719d09585048"
     }
   },
-  "result_inventory_sha256": "07d5fecc0e4532c58d9d11bce68dca851240761e9f015feb557951df76384db5"
+  "result_inventory_sha256": "a8a4c6d866ba508bf0aebfdc509fae902547e81a8fec29d0da3cfeb8bd0eb6f1"
 }

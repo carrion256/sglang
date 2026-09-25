@@ -1,0 +1,37 @@
+[rvn-ple] Fail closed on a manifest encoder_version other than the frozen r1
+
+parse_manifest only checked that encoder_version was a non-empty string, so a
+checkpoint produced by a different encoder build -- one renamed by a later
+schema revision, or a tampered ple_storage.json -- loaded silently and served.
+The offline gate already refuses every other producer version against the
+frozen literal "rvn-ple-nvfp4-r1" (tools/rvn_ple/verify.py ENCODER_VERSION,
+schema section 2), so the runtime must not bless what the verifier rejected:
+compare for exact equality and raise naming both the observed and the frozen
+expected value, exactly like the format_version and required_loader_feature
+checks beside it.
+
+--- a/python/sglang/srt/models/rvn_ple_storage.py
++++ b/python/sglang/srt/models/rvn_ple_storage.py
+@@ -20,6 +20,10 @@
+ MANIFEST_NAME = "ple_storage.json"
+ FORMAT_VERSION = 1
+ REQUIRED_LOADER_FEATURE = "ple-packed-nvfp4-v1"
++# Schema §2: the only encoder build whose output this loader may decode; the
++# offline gate (tools/rvn_ple/verify.py) refuses every other producer version
++# with this exact frozen literal, and the loader now refuses them too.
++ENCODER_VERSION = "rvn-ple-nvfp4-r1"
+ WEIGHT_DTYPE = "e2m1-packed-u8-low-first"
+ SCALE_DTYPE = "float8_e4m3fn"
+ GROUP_SIZE = 16
+@@ -168,6 +172,11 @@
+            "not fall back")
+     encoder_version = raw["encoder_version"]
+     _string(encoder_version, "encoder_version")
++    _check(encoder_version == ENCODER_VERSION,
++           f"unsupported encoder_version {encoder_version!r}; this loader "
++           f"only decodes tables produced by {ENCODER_VERSION!r} (schema "
++           "section 2, the same frozen value the offline verifier enforces) "
++           "and does not fall back")
+ 
+     source = raw["source"]
+     _check(isinstance(source, dict) and set(source) == _SOURCE_KEYS,
