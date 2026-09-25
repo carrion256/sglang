@@ -80,8 +80,8 @@ docker run --rm --name rvn-ple-nvfp4 \
   --kv-cache-dtype fp8_e4m3 --context-length 32768 \
   --mem-fraction-static 0.90 --page-size 64 --chunked-prefill-size 4096 \
   --max-running-requests 4 \
-  --cuda-graph-backend-decode=disabled --cuda-graph-backend-prefill=disabled \
-  --disable-radix-cache --reasoning-parser auto --tool-call-parser auto \
+  --cuda-graph-max-bs-decode=8 --disable-prefill-cuda-graph \
+  --reasoning-parser auto --tool-call-parser auto \
   --linear-attn-prefill-backend flashinfer --linear-attn-decode-backend flashinfer \
   --max-mamba-cache-size 64 --mamba-radix-cache-strategy extra_buffer \
   --mamba-track-interval 128 --mamba-ssm-dtype bfloat16 \
@@ -108,6 +108,10 @@ Landmines learned the hard way:
   (dead swizzle placeholders + per-expert repack buffer + originals as they
   are replaced) so the load peak fits one 96 GB card.
 - The `memlock` ulimit is required for the pinned host PLE table.
+- **Decode CUDA graphs are a ~9x win here**: graph-off measured 11.7
+  tok/s, `--cuda-graph-max-bs-decode=8 --disable-prefill-cuda-graph`
+  measured 103 tok/s (capture bs=[1,2,4], 0.12 GB, 4.2 s). Radix cache
+  stays enabled and is compatible.
 
 ## Verification
 
