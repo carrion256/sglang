@@ -33,6 +33,14 @@ Quantised-versus-source-BF16 difference is expected and is NOT checked here.
 Only stdlib, torch (dequant loader path) and structurally-parsed safetensors
 headers are used; no tensor is ever materialised whole for hashing, and only
 sampled rows are read for the dequant check.
+
+``--graft`` verifies a different contract instead: the MTP draft head
+``tools/rvn_ple/graft_mtp.py`` grafted onto a candidate -- every payload byte
+against the MTP source, every base file against the base candidate, plus the
+merged index, the stamp and the manifest. Same report shape and exit code; the
+nine checks above are not run in that mode (and grafting cannot regress them: it
+only adds candidate-side tensors that are byte-identical to source tensors, each
+referenced by the merged index).
 """
 
 from __future__ import annotations
@@ -1270,6 +1278,537 @@ CHECKS = (
 )
 
 
+# --------------------------------------------------------------------------
+# Graft mode (tools/rvn_ple/graft_mtp.py)
+#
+# A different contract from the packed-PLE schema above. The grafted candidate
+# keeps every base file hardlinked (so the target shards must stay byte-identical
+# to the base), and adds one draft-head shard whose payload bytes must stay
+# byte-identical to the MTP source they were copied from -- no requantise,
+# because NEXTN is lossless w.r.t. the target only while the draft is still the
+# draft its author trained. Each rule below is one named check, with the same
+# report shape and exit code as the PLE checks above.
+# --------------------------------------------------------------------------
+
+GRAFT_MANIFEST_NAME = "mtp_graft.json"
+GRAFT_STAMP_KEY = "rvn_mtp_graft"
+CONFIG_NAME = "config.json"
+MTP_PREFIX = "mtp."
+# Frozen with the loader rule: the ``mtp`` weight-name exemption applies only to a
+# checkpoint whose stamp names this encoder version and this count, so verifying
+# a graft means verifying those literals, not just the bytes.
+GRAFT_ENCODER_VERSION = "rvn-mtp-graft-r1"
+GRAFT_COUNT = 1
+GRAFT_MTP_NUM_HIDDEN_LAYERS = 1
+
+
+def _validate_graft_manifest(meta):
+    _require(isinstance(meta, dict), f"{GRAFT_MANIFEST_NAME} is not a JSON object")
+    _require(
+        set(meta) == {"source", "tensors"},
+        f"{GRAFT_MANIFEST_NAME} must hold exactly source+tensors, got "
+        f"{sorted(meta)}",
+    )
+    _require(
+        isinstance(meta["source"], str) and meta["source"] != "",
+        f"{GRAFT_MANIFEST_NAME} source must be a non-empty string",
+    )
+    tensors = meta["tensors"]
+    _require(
+        isinstance(tensors, dict) and tensors,
+        f"{GRAFT_MANIFEST_NAME} tensors must be a non-empty object",
+    )
+    for name, entry in tensors.items():
+        _require(
+            isinstance(entry, dict)
+            and set(entry) == {"file", "sha256", "dtype", "shape"},
+            f"{GRAFT_MANIFEST_NAME} entry {name!r} must hold exactly "
+            f"file/sha256/dtype/shape, got {sorted(entry) if isinstance(entry, dict) else type(entry).__name__}",
+        )
+        _require(
+            isinstance(entry["file"], str) and entry["file"] != "",
+            f"{GRAFT_MANIFEST_NAME} entry {name!r} has no source shard file",
+        )
+        _require(
+            _is_hex64(entry["sha256"]),
+            f"{GRAFT_MANIFEST_NAME} entry {name!r} sha256 is not 64 hex chars",
+        )
+        _require(
+            isinstance(entry["dtype"], str) and entry["dtype"] != "",
+            f"{GRAFT_MANIFEST_NAME} entry {name!r} has no dtype",
+        )
+        _require(
+            isinstance(entry["shape"], list)
+            and all(_is_int(dim) and dim >= 0 for dim in entry["shape"]),
+            f"{GRAFT_MANIFEST_NAME} entry {name!r} has a bad shape",
+        )
+
+
+def _read_config(root: Path, *, where):
+    path = root / CONFIG_NAME
+    _require(path.is_file(), f"missing {CONFIG_NAME} in {root}")
+    try:
+        config = json.loads(path.read_bytes(), object_pairs_hook=_reject_duplicate_keys)
+    except (OSError, ValueError) as exc:
+        raise VerifyError(f"{where} {CONFIG_NAME} unreadable: {exc}") from exc
+    _require(isinstance(config, dict), f"{where} {CONFIG_NAME} is not an object")
+    return config
+
+
+class _GraftCtx:
+    """Lazy shared state for the graft checks; bad input raises VerifyError."""
+
+    def __init__(self, source_dir, base_dir, out_dir):
+        self.source_dir = Path(source_dir)
+        self.base_dir = Path(base_dir)
+        self.out_dir = Path(out_dir)
+        for name, root in (("source", self.source_dir), ("base", self.base_dir),
+                           ("out", self.out_dir)):
+            _require(root.is_dir(), f"missing {name} directory: {root}")
+        self._manifest = None
+        self._indices = {}
+        self._configs = {}
+        self._source_headers = {}
+        self._graft_headers = None
+
+    def shard_path(self, root, rel_name):
+        return root.joinpath(*PurePosixPath(rel_name).parts)
+
+    def manifest(self):
+        if self._manifest is None:
+            path = self.out_dir / GRAFT_MANIFEST_NAME
+            _require(path.is_file(), f"missing {GRAFT_MANIFEST_NAME} in {self.out_dir}")
+            try:
+                meta = json.loads(
+                    path.read_bytes(), object_pairs_hook=_reject_duplicate_keys
+                )
+            except (OSError, ValueError) as exc:
+                raise VerifyError(f"unreadable {GRAFT_MANIFEST_NAME}: {exc}") from exc
+            _validate_graft_manifest(meta)
+            self._manifest = meta
+        return self._manifest
+
+    def weight_map(self, which):
+        """``{name: shard}`` of the source/base/out index, read once."""
+        if which not in self._indices:
+            root = getattr(self, f"{which}_dir")
+            path = root / INDEX_NAME
+            _require(path.is_file(), f"missing {INDEX_NAME} in {root}")
+            try:
+                index = json.loads(
+                    path.read_bytes(), object_pairs_hook=_reject_duplicate_keys
+                )
+            except (OSError, ValueError) as exc:
+                raise VerifyError(f"{which} {INDEX_NAME} unreadable: {exc}") from exc
+            _require(isinstance(index, dict), f"{which} {INDEX_NAME} is not an object")
+            weight_map = index.get("weight_map")
+            _require(
+                isinstance(weight_map, dict) and weight_map,
+                f"{which} {INDEX_NAME} has no weight_map object",
+            )
+            for name, shard in weight_map.items():
+                _require(
+                    isinstance(shard, str) and shard != "",
+                    f"{which} {INDEX_NAME} maps {name!r} to a non-string shard",
+                )
+            self._indices[which] = weight_map
+        return self._indices[which]
+
+    def config(self, which):
+        if which not in self._configs:
+            self._configs[which] = _read_config(
+                getattr(self, f"{which}_dir"), where=which
+            )
+        return self._configs[which]
+
+    def source_header(self, rel_name):
+        """Parsed header of one SOURCE shard, read once per shard."""
+        if rel_name not in self._source_headers:
+            self._source_headers[rel_name] = _read_shard_header(
+                self.shard_path(self.source_dir, rel_name)
+            )
+        return self._source_headers[rel_name]
+
+    def graft_headers(self):
+        """Parsed headers of the grafted shard files named by the out index.
+
+        Only the grafted shards are parsed here: the base side of the contract is
+        the hardlink check, and re-parsing 369 target headers to prove a link is
+        the same inode would be a slower way of saying ``st_ino``.
+        """
+        if self._graft_headers is None:
+            base_shards = set(self.weight_map("base").values())
+            weight_map = self.weight_map("out")
+            headers = {}
+            for name in sorted(self.manifest()["tensors"]):
+                shard = weight_map.get(name)
+                _require(
+                    shard is not None,
+                    f"{INDEX_NAME} has no entry for grafted tensor {name!r}",
+                )
+                _require(
+                    shard not in base_shards,
+                    f"grafted tensor {name!r} is indexed into base shard {shard}: "
+                    "the draft head must live in a shard of its own, never in a "
+                    "hardlinked target shard",
+                )
+                if shard not in headers:
+                    headers[shard] = _read_shard_header(
+                        self.shard_path(self.out_dir, shard)
+                    )
+            self._graft_headers = headers
+        return self._graft_headers
+
+
+def _check_graft_manifest_schema(ctx):
+    tensors = ctx.manifest()["tensors"]
+    return True, (
+        f"{GRAFT_MANIFEST_NAME} declares {len(tensors)} tensors with "
+        "file/sha256/dtype/shape and a source path"
+    )
+
+
+def _check_graft_completeness(ctx):
+    """Nothing dropped, nothing invented: manifest == source mtp set."""
+    declared = set(ctx.manifest()["tensors"])
+    source_mtp = {
+        name for name in ctx.weight_map("source") if name.startswith(MTP_PREFIX)
+    }
+    missing = sorted(source_mtp - declared, key=_natural_key)
+    _require(
+        not missing,
+        f"graft is missing {len(missing)} source {MTP_PREFIX}* tensor(s), starting "
+        f"with {missing[:3]}: a partial draft head would load and then mispredict",
+    )
+    extra = sorted(declared - source_mtp, key=_natural_key)
+    _require(
+        not extra,
+        f"{GRAFT_MANIFEST_NAME} declares {len(extra)} tensor(s) the source index "
+        f"does not hold, starting with {extra[:3]}",
+    )
+    return True, (
+        f"all {len(declared)} source {MTP_PREFIX}* tensors are grafted and nothing "
+        "else is claimed"
+    )
+
+
+def _check_graft_provenance(ctx):
+    """The manifest must describe the checkpoint actually being verified."""
+    meta = ctx.manifest()
+    _require(
+        meta["source"] == str(ctx.source_dir.resolve()),
+        f"{GRAFT_MANIFEST_NAME} names source {meta['source']!r}, but --source is "
+        f"{str(ctx.source_dir.resolve())!r}: the draft head must be checked against "
+        "the checkpoint it was copied from",
+    )
+    for name in sorted(meta["tensors"], key=_natural_key):
+        entry = meta["tensors"][name]
+        header = ctx.source_header(entry["file"])
+        src = header.get(name)
+        _require(
+            src is not None,
+            f"{GRAFT_MANIFEST_NAME} says {name!r} lives in {entry['file']}, which "
+            "does not contain it",
+        )
+        _require(
+            src["dtype"] == entry["dtype"] and src["shape"] == entry["shape"],
+            f"{GRAFT_MANIFEST_NAME} declares {name!r} as {entry['dtype']} "
+            f"{entry['shape']}, but the source shard holds {src['dtype']} "
+            f"{src['shape']}",
+        )
+    return True, (
+        f"source provenance resolves for every tensor across "
+        f"{len(ctx._source_headers)} source shard(s)"
+    )
+
+
+def _check_graft_payload_identity(ctx):
+    """Per tensor: recorded sha256 == source bytes == grafted bytes."""
+    tensors = ctx.manifest()["tensors"]
+    graft_headers = ctx.graft_headers()
+    weight_map = ctx.weight_map("out")
+    payload_bytes = 0
+    for name in sorted(tensors, key=_natural_key):
+        entry = tensors[name]
+        src = ctx.source_header(entry["file"])[name]
+        shard = weight_map[name]
+        dst = graft_headers[shard].get(name)
+        _require(
+            dst is not None,
+            f"{INDEX_NAME} maps grafted {name!r} to {shard}, which does not hold it",
+        )
+        _require(
+            dst["dtype"] == entry["dtype"] == src["dtype"]
+            and dst["shape"] == entry["shape"] == src["shape"],
+            f"grafted tensor {name!r} is {dst['dtype']} {dst['shape']} in {shard}, "
+            f"declared {entry['dtype']} {entry['shape']}, source {src['dtype']} "
+            f"{src['shape']}",
+        )
+        want = entry["sha256"]
+        source_digest = _sha256_payload(
+            ctx.shard_path(ctx.source_dir, entry["file"]), *src["data_offsets"]
+        )
+        _require(
+            source_digest == want,
+            f"grafted tensor {name!r} records {want[:16]}... but its SOURCE payload "
+            f"in {entry['file']} is {source_digest[:16]}...: the manifest was not "
+            "written from these bytes",
+        )
+        landed = _sha256_payload(
+            ctx.shard_path(ctx.out_dir, shard), *dst["data_offsets"]
+        )
+        _require(
+            landed == want,
+            f"grafted tensor {name!r} payload changed: {want[:16]}... in "
+            f"{entry['file']} -> {landed[:16]}... in {shard}",
+        )
+        payload_bytes += dst["data_offsets"][1] - dst["data_offsets"][0]
+    return True, (
+        f"{len(tensors)} grafted payloads ({payload_bytes} bytes) are byte-identical "
+        "to the source bytes they were copied from"
+    )
+
+
+def _check_graft_index(ctx):
+    base_map = ctx.weight_map("base")
+    out_map = ctx.weight_map("out")
+    grafted = set(ctx.manifest()["tensors"])
+    with_mtp = sorted((n for n in base_map if "mtp" in n), key=_natural_key)
+    _require(
+        not with_mtp,
+        f"base index already carries {len(with_mtp)} tensor name(s) containing "
+        f"'mtp' (e.g. {with_mtp[:3]}): the graft rule is additive, so a base "
+        "draft head would make base+grafted ambiguous",
+    )
+    clash = sorted(base_map.keys() & grafted, key=_natural_key)
+    _require(
+        not clash,
+        f"graft declares {len(clash)} tensor name(s) the base already owns, "
+        f"starting with {clash[:3]}",
+    )
+    dropped = sorted(base_map.keys() - out_map.keys(), key=_natural_key)
+    _require(
+        not dropped,
+        f"{INDEX_NAME} lost {len(dropped)} base tensor(s), starting with "
+        f"{dropped[:3]}",
+    )
+    foreign = sorted(out_map.keys() - base_map.keys() - grafted, key=_natural_key)
+    _require(
+        not foreign,
+        f"{INDEX_NAME} references {len(foreign)} tensor(s) that are neither base "
+        f"nor grafted, starting with {foreign[:3]}: a leftover or injected shard "
+        "must not ride along behind a clean report",
+    )
+    moved = sorted(
+        (n for n in base_map if out_map[n] != base_map[n]), key=_natural_key
+    )
+    _require(
+        not moved,
+        f"{INDEX_NAME} remaps {len(moved)} base tensor(s) to another shard, "
+        f"starting with {moved[:3]}",
+    )
+    shards = sorted({out_map[name] for name in grafted})
+    for shard in shards:
+        path = ctx.shard_path(ctx.out_dir, shard)
+        _require(path.is_file(), f"{INDEX_NAME} names grafted shard {shard} which is absent")
+        # A grafted shard is the only file in the graft that may be rewritten by
+        # a repair path; a hardlink there would let one corrupt the shipped base.
+        _require(
+            path.stat().st_nlink == 1,
+            f"grafted shard {shard} is shared with another file "
+            f"(st_nlink={path.stat().st_nlink}): it must be a private file",
+        )
+        stored = set(ctx.graft_headers()[shard]) - set(grafted)
+        _require(
+            not stored,
+            f"grafted shard {shard} stores {len(stored)} tensor(s) "
+            f"{sorted(stored, key=_natural_key)[:3]} that {GRAFT_MANIFEST_NAME} does "
+            "not declare: those bytes came from nowhere this gate can vouch for",
+        )
+    return True, (
+        f"{len(out_map)} {INDEX_NAME} entries = {len(base_map)} base (unmoved) + "
+        f"{len(grafted)} grafted in {len(shards)} private shard(s)"
+    )
+
+
+def _check_graft_config_stamp(ctx):
+    base_config = ctx.config("base")
+    out_config = ctx.config("out")
+    stamp = out_config.get(GRAFT_STAMP_KEY)
+    _require(
+        isinstance(stamp, dict),
+        f"{CONFIG_NAME} has no {GRAFT_STAMP_KEY} object: without the stamp the "
+        "loader rule keeps rejecting every mtp weight name",
+    )
+    _require(
+        stamp.get("encoder_version") == GRAFT_ENCODER_VERSION,
+        f"{GRAFT_STAMP_KEY}.encoder_version is {stamp.get('encoder_version')!r}, "
+        f"expected {GRAFT_ENCODER_VERSION!r}",
+    )
+    _require(
+        stamp.get("count") == GRAFT_COUNT and _is_int(stamp.get("count")),
+        f"{GRAFT_STAMP_KEY}.count is {stamp.get('count')!r}, expected "
+        f"{GRAFT_COUNT}",
+    )
+    _require(
+        stamp.get("source") == ctx.manifest()["source"],
+        f"{GRAFT_STAMP_KEY}.source is {stamp.get('source')!r} but "
+        f"{GRAFT_MANIFEST_NAME} names {ctx.manifest()['source']!r}",
+    )
+    declared = int(out_config.get("mtp_num_hidden_layers", 0) or 0) + int(
+        out_config.get("num_nextn_predict_layers", 0) or 0
+    )
+    _require(
+        declared == GRAFT_COUNT,
+        f"grafted {CONFIG_NAME} declares {declared} MTP layer(s) "
+        f"(mtp_num_hidden_layers + num_nextn_predict_layers), expected "
+        f"{GRAFT_COUNT}: the loader exemption is keyed on this sum",
+    )
+    # The contract equation: grafted config == base config with the stamp and
+    # mtp_num_hidden_layers=1 applied, and NOTHING else touched. The stamp itself
+    # is validated field by field above, so it is compared out of the way.
+    _require(
+        GRAFT_STAMP_KEY not in base_config,
+        f"base {CONFIG_NAME} already carries a {GRAFT_STAMP_KEY} stamp: the graft "
+        "rule is defined for the ungrafted candidate only",
+    )
+    want = dict(base_config, mtp_num_hidden_layers=GRAFT_MTP_NUM_HIDDEN_LAYERS)
+    got = {
+        key: value for key, value in out_config.items() if key != GRAFT_STAMP_KEY
+    }
+    changed = sorted(
+        key
+        for key in set(got) | set(want)
+        if got.get(key, "<absent>") != want.get(key, "<absent>")
+    )
+    _require(
+        not changed,
+        f"grafted {CONFIG_NAME} changed base field(s) {changed[:3]} beyond the "
+        f"frozen {GRAFT_STAMP_KEY} stamp and mtp_num_hidden_layers="
+        f"{GRAFT_MTP_NUM_HIDDEN_LAYERS}",
+    )
+    return True, (
+        f"{CONFIG_NAME} is the base config with mtp_num_hidden_layers="
+        f"{GRAFT_MTP_NUM_HIDDEN_LAYERS} and the {GRAFT_ENCODER_VERSION} stamp"
+    )
+
+
+def _same_graft_file(src: Path, dst: Path):
+    """True iff ``dst`` is the base file unchanged: same inode, else full compare."""
+    ss, ds = src.stat(), dst.stat()
+    if (ss.st_dev, ss.st_ino) == (ds.st_dev, ds.st_ino):
+        return True
+    if ss.st_size != ds.st_size:
+        return False
+    with open(src, "rb") as a, open(dst, "rb") as b:
+        while True:
+            block = a.read(CHUNK)
+            if not block:
+                return True
+            if block != b.read(len(block)):
+                return False
+
+
+def _check_graft_files(ctx):
+    """Every base file the graft promised is present, and nothing extra rides along.
+
+    "Nothing extra" matters more than it looks: safetensors weight iterators walk
+    every shard file in the directory, so an undeclared tensor in any of them still
+    reaches the loader even though no index entry names it.
+    """
+    checked = linked = 0
+    base_shards = set()
+    for path in sorted(ctx.base_dir.rglob("*")):
+        if not path.is_file() or path.name.endswith(".tmp"):
+            continue
+        rel = path.relative_to(ctx.base_dir)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        if rel.suffix == ".safetensors":
+            base_shards.add(rel.as_posix())
+        if len(rel.parts) == 1 and rel.name in (
+            CONFIG_NAME,
+            INDEX_NAME,
+            GRAFT_MANIFEST_NAME,
+        ):
+            continue  # these three are the graft's own outputs
+        out = ctx.out_dir.joinpath(*rel.parts)
+        _require(out.is_file(), f"graft is missing base file {rel.as_posix()}")
+        _require(
+            _same_graft_file(path, out),
+            f"graft file {rel.as_posix()} is not the base file unchanged",
+        )
+        checked += 1
+        sbase, sout = path.stat(), out.stat()
+        if (sbase.st_dev, sbase.st_ino) == (sout.st_dev, sout.st_ino):
+            linked += 1
+    _require(checked > 0, f"no base files found under {ctx.base_dir} to compare")
+    grafted_shards = set(ctx.graft_headers())
+    for path in sorted(ctx.out_dir.rglob("*.safetensors")):
+        rel = path.relative_to(ctx.out_dir).as_posix()
+        _require(
+            rel in base_shards or rel in grafted_shards,
+            f"graft carries shard {rel} which is neither a base shard nor a shard "
+            f"{GRAFT_MANIFEST_NAME} declares: weight iterators read every shard file "
+            "in the directory, so its tensors would still reach the loader",
+        )
+    return True, (
+        f"{checked} base files present unchanged in the graft ({linked} hardlinked "
+        "to the base inode, so they cannot have drifted), and no extra shard "
+        f"besides the {len(grafted_shards)} grafted one(s)"
+    )
+
+
+GRAFT_CHECKS = (
+    ("graft_manifest_schema", _check_graft_manifest_schema),
+    ("graft_completeness", _check_graft_completeness),
+    ("graft_provenance", _check_graft_provenance),
+    ("graft_payload_identity", _check_graft_payload_identity),
+    ("graft_index", _check_graft_index),
+    ("graft_config_stamp", _check_graft_config_stamp),
+    ("graft_files", _check_graft_files),
+)
+
+
+def run_graft_verification(source, base, out):
+    """Run every graft check in contract order; never raise, always report."""
+    try:
+        ctx = _GraftCtx(source, base, out)
+    except VerifyError as exc:
+        return {
+            "tool": TOOL_NAME,
+            "version": TOOL_VERSION,
+            "mode": "graft",
+            "source": str(source),
+            "base": str(base),
+            "out": str(out),
+            "ok": False,
+            "checks": [{"name": "graft_inputs", "status": "fail", "reason": str(exc)}],
+        }
+    checks = []
+    for name, check in GRAFT_CHECKS:
+        try:
+            passed, reason = check(ctx)
+        except VerifyError as exc:
+            passed, reason = False, str(exc)
+        except Exception as exc:  # a crash is a failure, never an implied pass
+            passed, reason = False, f"unexpected {type(exc).__name__}: {exc}"
+        checks.append(
+            {"name": name, "status": "pass" if passed else "fail", "reason": reason}
+        )
+    return {
+        "tool": TOOL_NAME,
+        "version": TOOL_VERSION,
+        "mode": "graft",
+        "source": str(ctx.source_dir),
+        "base": str(ctx.base_dir),
+        "out": str(ctx.out_dir),
+        "tensors": len(ctx.manifest()["tensors"]),
+        "ok": all(check["status"] == "pass" for check in checks),
+        "checks": checks,
+    }
+
+
 def run_verification(src_dir, dst_dir, *, dequant_sample=DEFAULT_DEQUANT_SAMPLE):
     """Run every check in contract order; never raise, always report."""
     ctx = _Ctx(src_dir, dst_dir, dequant_sample)
@@ -1303,8 +1842,11 @@ def main(argv=None) -> int:
             "(docs/rvn-ple-storage-schema.md)."
         ),
     )
-    parser.add_argument("--src-dir", required=True, help="source BF16 checkpoint directory")
-    parser.add_argument("--dst-dir", required=True, help="packed candidate directory")
+    # Not argparse-required: --graft takes --source/--base/--out instead, so each
+    # mode's own missing-argument path goes through parser.error (clean exit 2),
+    # never a TypeError from Path(None).
+    parser.add_argument("--src-dir", help="source BF16 checkpoint directory")
+    parser.add_argument("--dst-dir", help="packed candidate directory")
     parser.add_argument("--report", help="write the JSON report to this path")
     parser.add_argument(
         "--dequant-sample",
@@ -1312,11 +1854,41 @@ def main(argv=None) -> int:
         default=DEFAULT_DEQUANT_SAMPLE,
         help="rows re-decoded by the dequant check (default %(default)s)",
     )
+    parser.add_argument(
+        "--graft",
+        action="store_true",
+        help="verify an MTP graft (see tools/rvn_ple/graft_mtp.py); --source, "
+             "--base and --out replace --src-dir/--dst-dir",
+    )
+    parser.add_argument("--source", help="graft mode: MTP source checkpoint")
+    parser.add_argument("--base", help="graft mode: ungrafted base candidate")
+    parser.add_argument("--out", help="graft mode: grafted checkpoint directory")
     args = parser.parse_args(argv)
 
-    report = run_verification(
-        args.src_dir, args.dst_dir, dequant_sample=args.dequant_sample
-    )
+    if args.graft:
+        wanted = [
+            flag
+            for flag, value in (
+                ("--source", args.source),
+                ("--base", args.base),
+                ("--out", args.out),
+            )
+            if not value
+        ]
+        if wanted:
+            parser.error("--graft needs " + ", ".join(wanted))
+        if args.src_dir or args.dst_dir:
+            parser.error("--graft takes --source/--base/--out, not --src-dir/--dst-dir")
+        report = run_graft_verification(args.source, args.base, args.out)
+    else:
+        if not args.src_dir or not args.dst_dir:
+            parser.error(
+                "verification needs --src-dir and --dst-dir, or --graft with "
+                "--source/--base/--out"
+            )
+        report = run_verification(
+            args.src_dir, args.dst_dir, dequant_sample=args.dequant_sample
+        )
     for check in report["checks"]:
         print(f"{check['status'].upper():4} {check['name']}: {check['reason']}")
     if args.report:
