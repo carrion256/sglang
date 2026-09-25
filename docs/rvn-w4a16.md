@@ -25,7 +25,7 @@ The PLE storage format this profile consumes is frozen in
 | 10 | `0056-rvn-ple-encoder-version-gate.patch` | Loader refuses any `encoder_version` other than the frozen `rvn-ple-nvfp4-r1`, matching the offline verifier's gate |
 | 11 | `0057-rvn-nextn-draft-gate.patch` | Refuses `--speculative-algorithm NEXTN` on the RVN text model at argument-resolution time: the text contract is MTP-free (`mtp_num_hidden_layers=0`, loader rejects `model.mtp.*`), so the default draft would rebuild the target a second time and OOM — a clear error instead |
 | 12 | `0058-rvn-mtp-graft-loader.patch` | Accepts a grafted MTP head under the frozen `rvn-mtp-graft-r1` stamp: config with `mtp_num_hidden_layers: 1` + `rvn_mtp_graft` stamp passes the text-config gate, and the target loader skips (not rejects) `mtp.*` names; unstamped launches keep the old refusals |
-| 13 | `0059-rvn-mtp-draft-remap.patch` | For a stamped graft, the default NEXTN/EAGLE draft remaps to `Qwen4ExpForCausalLMMTP` and defaults the draft path to the target dir, mirroring the multimodal MTP treatment |
+| 13 | `0059-rvn-mtp-draft-remap.patch` | For a stamped graft, the default NEXTN/EAGLE draft remaps to `Qwen4ExpForCausalLMMTP`, defaults the draft path to the target dir, and keeps the packed draft quant config (the BF16-MTP normalization rule would otherwise build an unquantized draft MoE and fail on packed shapes) |
 
 ## Base image
 
@@ -115,6 +115,20 @@ Landmines learned the hard way:
   tok/s, `--cuda-graph-max-bs-decode=8 --disable-prefill-cuda-graph`
   measured 103 tok/s (capture bs=[1,2,4], 0.12 GB, 4.2 s). Radix cache
   stays enabled and is compatible.
+- **MTP graft for NEXTN**: the RVN text checkpoint ships MTP-free, so
+  `--speculative-algorithm NEXTN` needs the head grafted: run
+  `tools/rvn_ple/graft_mtp.py --source /models/qwen38-flash-next --base
+  /models/rvn-qwen38-ple-nvfp4 --out /models/rvn-qwen38-ple-nvfp4-mtp`,
+  confirm `verify.py --graft ... -> 7/7`, then launch the same recipe
+  against the graft dir plus `--speculative-algorithm NEXTN
+  --speculative-num-steps 3 --speculative-eagle-topk 1
+  --speculative-num-draft-tokens 4
+  --speculative-draft-model-quantization modelopt_mixed
+  --speculative-moe-runner-backend marlin` and
+  `SGLANG_PRIVATE_DRAFT_NVFP4_A16=1`. Measured: draft 2.95 GB,
+  accept len 2.5-3.7 (rate 0.5-0.9), decode ~175-197 tok/s vs 103
+  unspec. NEXTN verification is lossless, so draft-token quality only
+  moves speed, never output.
 
 ## Verification
 
